@@ -1,0 +1,15 @@
+{
+	"recommendations": [
+		"svelte.svelte-vscode",
+		"esbenp.prettier-vscode",
+		"dbaeumer.vscode-eslint",
+		"bradlc.vscode-tailwindcss",
+		"streetsidesoftware.code-spell-checker",
+		"inlang.vs-code-extension",
+		"ms-playwright.playwright",
+		"vitest.explorer",
+		"storybook.storybook-vscode",
+		"mhutchie.git-graph",
+		"eamodio.gitlens"
+	]
+}

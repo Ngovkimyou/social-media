@@ -1,0 +1,40 @@
+{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		// JavaScript interoperability
+		"allowJs": true,
+		"checkJs": true,
+		"esModuleInterop": true,
+
+		// Strictness
+		"strict": true,
+		"exactOptionalPropertyTypes": true,
+		"noImplicitOverride": true,
+		"noImplicitReturns": true,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+
+		// Safety checks
+		"allowUnreachableCode": false,
+		"allowUnusedLabels": false,
+		"forceConsistentCasingInFileNames": true,
+		"noFallthroughCasesInSwitch": true,
+		"noPropertyAccessFromIndexSignature": true,
+
+		// Module and resolution behavior
+		"isolatedModules": true,
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"rewriteRelativeImportExtensions": true,
+
+		// Output and tooling
+		"skipLibCheck": true,
+		"sourceMap": true
+	}
+	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
+	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
+	//
+	// To make changes to top-level options such as include and exclude, we recommend extending
+	// the generated config; see https://svelte.dev/docs/kit/configuration#typescript
+}

@@ -1,0 +1,64 @@
+{
+	"sonarlint.connectedMode.project": {
+		"connectionId": "dorayaki15",
+		"projectKey": "Ngovkimyou_social-media"
+	},
+	"editor.formatOnSave": true,
+	"editor.codeActionsOnSave": {
+		"source.fixAll.eslint": "explicit"
+	},
+	"editor.defaultFormatter": "esbenp.prettier-vscode",
+	"eslint.validate": ["javascript", "javascriptreact", "svelte", "typescript", "typescriptreact"],
+	"files.associations": {
+		"*.css": "tailwindcss"
+	},
+	"files.exclude": {
+		"**/.svelte-kit": true,
+		"**/build": true,
+		"**/coverage": true,
+		"**/dist": true,
+		"**/node_modules": true,
+		"**/playwright-report": true,
+		"**/storybook-static": true,
+		"**/test-results": true
+	},
+	"search.exclude": {
+		"**/.svelte-kit": true,
+		"**/build": true,
+		"**/coverage": true,
+		"**/dist": true,
+		"**/node_modules": true,
+		"**/playwright-report": true,
+		"**/storybook-static": true,
+		"**/test-results": true
+	},
+	"prettier.documentSelectors": ["**/*.svelte"],
+	"svelte.enable-ts-plugin": true,
+	"tailwindCSS.includeLanguages": {
+		"svelte": "html"
+	},
+	"tailwindCSS.experimental.classRegex": [
+		["class:([^=]+)=\\{`([^`]*)`\\}", "[^\\s]+"],
+		["class=\\{`([^`]*)`\\}", "[^\\s]+"]
+	],
+	"cSpell.words": [
+		"SvelteKit",
+		"authschema",
+		"drizzle",
+		"inlang",
+		"lefthook",
+		"mdsvex",
+		"neondatabase",
+		"OneDrive",
+		"paraglide",
+		"playwright",
+		"prettierrc",
+		"sonarjs",
+		"sonarlint",
+		"storybook",
+		"sveltekit",
+		"tailwindcss",
+		"unicorn",
+		"vitest"
+	]
+}

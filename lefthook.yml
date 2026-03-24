@@ -1,0 +1,29 @@
+pre-commit:
+  parallel: true
+  commands:
+    spellcheck:
+      run: pnpm spellcheck
+    audit:
+      run: pnpm audit
+
+    prettier:
+      glob: '**/*.{css,html,js,json,jsonc,md,svelte,ts,yaml,yml}'
+      run: pnpm exec prettier --write {staged_files}
+      stage_fixed: true
+
+    eslint:
+      glob: '**/*.{js,svelte,ts}'
+      run: pnpm exec eslint --fix {staged_files}
+      stage_fixed: true
+
+pre-push:
+  parallel: true
+  commands:
+    lint:
+      run: pnpm lint
+    check:
+      run: pnpm check:ci
+    test:
+      run: pnpm test
+    build:
+      run: pnpm build

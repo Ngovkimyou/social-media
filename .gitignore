@@ -1,0 +1,52 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+dist
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Logs
+*.log
+pnpm-debug.log*
+npm-debug.log*
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Coverage
+coverage
+
+# Caches
+.eslintcache
+.cache
+
+# Playwright
+test-results
+playwright-report
+
+# Paraglide
+src/lib/paraglide
+project.inlang/cache/
+
+# Storybook
+*storybook.log
+storybook-static
+
+# Local DB / temp artifacts
+*.sqlite
+*.db
