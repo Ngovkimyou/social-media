@@ -29,6 +29,31 @@ npm run dev
 npm run dev -- --open
 ```
 
+## Neon Database Setup
+
+1. Create a Neon project and database.
+2. Copy two connection strings from Neon:
+   - Pooled URL for app traffic (`...-pooler...`)
+   - Direct URL for migrations (`...ep-...` without pooler)
+3. Add them to your local `.env`:
+
+```sh
+DATABASE_URL="postgresql://...-pooler.../dbname?sslmode=require"
+DATABASE_URL_FOR_MIGRATIONS="postgresql://.../dbname?sslmode=require"
+```
+
+4. Generate Better Auth tables (once):
+
+```sh
+pnpm run auth:schema
+```
+
+5. Push schema to Neon:
+
+```sh
+pnpm run db:push
+```
+
 ## Building
 
 To create a production version of your app:

@@ -3,14 +3,14 @@ import { neon } from '@neondatabase/serverless';
 import * as schema from './schema';
 import { env } from '$env/dynamic/private';
 
-const fallback_database_url = 'postgres://user:password@127.0.0.1:5432/db-name';
-
 const resolve_database_url = (): string => {
-	if (!env.DATABASE_URL || env.DATABASE_URL === 'postgres://user:password@host:port/db-name') {
-		return fallback_database_url;
+	const database_url = env.DATABASE_URL;
+
+	if (!database_url || database_url === 'postgres://user:password@127.0.0.1:5432/db-name') {
+		throw new Error('DATABASE_URL is not configured. Set it to your Neon connection string.');
 	}
 
-	return env.DATABASE_URL;
+	return database_url;
 };
 
 const client = neon(resolve_database_url());

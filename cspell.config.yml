@@ -1,4 +1,4 @@
-version: '0.2'
+version: "0.2"
 language: en
 ignorePaths:
   - node_modules
@@ -14,24 +14,25 @@ ignorePaths:
   - src/lib/server/db/auth.schema.ts
   - src/stories/assets
 files:
-  - '**/*.{ts,js,svelte,json,md,yaml,yml}'
+  - "**/*.{ts,js,svelte,json,md,yaml,yml}"
 words:
   - authschema
   - autodocs
   - drizzle
+  - esbuild
   - eslint
+  - haha
   - inlang
+  - Kysely
   - mdsvex
   - neondatabase
   - OneDrive
   - paraglide
   - playwright
   - prettierrc
+  - sonarjs
   - storybook
   - sveltekit
   - SvelteKit
   - tailwindcss
   - vitest
-  - sonarjs
-  - esbuild
-  - Kysely
