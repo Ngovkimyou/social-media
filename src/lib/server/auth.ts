@@ -5,7 +5,7 @@ import { env } from '$env/dynamic/private';
 import { getRequestEvent } from '$app/server';
 import { get_db } from '$lib/server/db';
 
-const create_auth = () =>
+const create_auth = (): ReturnType<typeof betterAuth> =>
 	betterAuth({
 		baseURL: env['ORIGIN'],
 		secret: env['BETTER_AUTH_SECRET'],

@@ -13,7 +13,7 @@ const resolve_database_url = (): string => {
 	return database_url;
 };
 
-const create_db = () => {
+const create_db = (): ReturnType<typeof drizzle> => {
 	const client = neon(resolve_database_url());
 	return drizzle(client, { schema });
 };
