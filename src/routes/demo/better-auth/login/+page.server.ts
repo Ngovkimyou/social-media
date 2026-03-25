@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { auth } from '$lib/server/auth';
+import { get_auth } from '$lib/server/auth';
 import { APIError } from 'better-auth/api';
 
 export const load: PageServerLoad = async (event) => {
@@ -12,6 +12,7 @@ export const load: PageServerLoad = async (event) => {
 
 export const actions: Actions = {
 	signInEmail: async (event) => {
+		const auth = get_auth();
 		const form_data = await event.request.formData();
 		const email = form_data.get('email')?.toString() ?? '';
 		const password = form_data.get('password')?.toString() ?? '';
@@ -34,6 +35,7 @@ export const actions: Actions = {
 		return redirect(302, '/demo/better-auth');
 	},
 	signUpEmail: async (event) => {
+		const auth = get_auth();
 		const form_data = await event.request.formData();
 		const email = form_data.get('email')?.toString() ?? '';
 		const password = form_data.get('password')?.toString() ?? '';

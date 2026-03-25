@@ -3,12 +3,20 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { env } from '$env/dynamic/private';
 import { getRequestEvent } from '$app/server';
-import { db } from '$lib/server/db';
+import { get_db } from '$lib/server/db';
 
-export const auth = betterAuth({
-	baseURL: env['ORIGIN'],
-	secret: env['BETTER_AUTH_SECRET'],
-	database: drizzleAdapter(db, { provider: 'pg' }),
-	emailAndPassword: { enabled: true },
-	plugins: [sveltekitCookies(getRequestEvent)] // make sure this is the last plugin in the array
-});
+const create_auth = () =>
+	betterAuth({
+		baseURL: env['ORIGIN'],
+		secret: env['BETTER_AUTH_SECRET'],
+		database: drizzleAdapter(get_db(), { provider: 'pg' }),
+		emailAndPassword: { enabled: true },
+		plugins: [sveltekitCookies(getRequestEvent)] // make sure this is the last plugin in the array
+	});
+
+let auth: ReturnType<typeof create_auth> | undefined;
+
+export const get_auth = (): ReturnType<typeof create_auth> => {
+	auth ??= create_auth();
+	return auth;
+};

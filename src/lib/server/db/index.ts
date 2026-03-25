@@ -13,6 +13,14 @@ const resolve_database_url = (): string => {
 	return database_url;
 };
 
-const client = neon(resolve_database_url());
+const create_db = () => {
+	const client = neon(resolve_database_url());
+	return drizzle(client, { schema });
+};
 
-export const db = drizzle(client, { schema });
+let db: ReturnType<typeof create_db> | undefined;
+
+export const get_db = (): ReturnType<typeof create_db> => {
+	db ??= create_db();
+	return db;
+};
