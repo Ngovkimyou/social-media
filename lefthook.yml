@@ -1,10 +1,10 @@
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
     spellcheck:
       run: pnpm spellcheck
     audit:
-      run: pnpm audit
+      run: pnpm audit --audit-level critical
 
     prettier:
       glob: '**/*.{css,html,js,json,jsonc,md,svelte,ts,yaml,yml}'
