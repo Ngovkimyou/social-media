@@ -6,7 +6,7 @@
 	"pnpm": {
 		"overrides": {
 			"@mrleebo/prisma-ast": "0.15.0",
-			"camelcase": "8.0.0",
+			"camelcase": "5",
 			"cookie": "0.7.2",
 			"esbuild": "0.25.12"
 		}
