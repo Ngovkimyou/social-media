@@ -19,12 +19,24 @@ const handle_paraglide: Handle = ({ event, resolve }) =>
 	});
 
 const handle_better_auth: Handle = async ({ event, resolve }) => {
-	const auth = get_auth();
-	const session = await auth.api.getSession({ headers: event.request.headers });
+	let auth: ReturnType<typeof get_auth> | undefined;
 
-	if (session) {
-		event.locals.session = session.session;
-		event.locals.user = session.user;
+	try {
+		auth = get_auth();
+	} catch (error) {
+		console.error('Auth initialization failed', error);
+		return resolve(event);
+	}
+
+	try {
+		const session = await auth.api.getSession({ headers: event.request.headers });
+
+		if (session) {
+			event.locals.session = session.session;
+			event.locals.user = session.user;
+		}
+	} catch (error) {
+		console.error('Auth session resolution failed', error);
 	}
 
 	return svelteKitHandler({ event, resolve, auth, building });

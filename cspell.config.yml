@@ -16,8 +16,10 @@ ignorePaths:
 files:
   - '**/*.{ts,js,svelte,json,md,yaml,yml}'
 words:
+  - ASUS
   - authschema
   - autodocs
+  - dbname
   - drizzle
   - esbuild
   - eslint
@@ -29,13 +31,12 @@ words:
   - OneDrive
   - paraglide
   - playwright
+  - pooler
   - prettierrc
   - sonarjs
+  - sslmode
   - storybook
   - sveltekit
   - SvelteKit
   - tailwindcss
   - vitest
-  - pooler
-  - dbname
-  - sslmode
