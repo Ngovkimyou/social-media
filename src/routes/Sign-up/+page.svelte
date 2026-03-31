@@ -5,64 +5,129 @@
 	const { form }: { form: ActionData } = $props();
 </script>
 
-<h1>Login</h1>
-<div class="login-container">
-	<div>
-		<form method="post" action="?/signInEmail" use:enhance>
-			<div class="mt-1">
-				<label>
-					Email
-					<input
-						type="email"
-						name="email"
-						class="rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-					/>
-				</label>
-			</div>
-			<div class="mt-1">
-				<label>
-					Password
-					<input
-						type="password"
-						name="password"
-						class="rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-					/>
-				</label>
-			</div>
-			<div class="mt-1">
-				<label>
-					Name (for registration)
-					<input
-						name="name"
-						class="rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-					/>
-				</label>
-			</div>
-			<button
-				formaction="?/signUpEmail"
-				class="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-700"
-				>Register</button
-			>
-		</form>
+<div class="body">
+	<div class="login-container">
+		<div class="form-container">
+			<h1 class="login-title">Login</h1>
+			<form method="post" action="?/signInEmail" use:enhance>
+				<div>
+					<label class="login-label">
+						Email
+						<input
+							type="email"
+							name="email"
+							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+						/>
+					</label>
+				</div>
+				<div>
+					<label class="login-label">
+						Password
+						<input
+							type="password"
+							name="password"
+							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+						/>
+					</label>
+				</div>
+				<div>
+					<label class="login-label">
+						Name
+						<input
+							name="name"
+							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+						/>
+					</label>
+				</div>
+				<button formaction="?/signUpEmail" class="login-button">Register</button>
+			</form>
+			<p class="login-message">
+				{form?.message ?? ''}
+			</p>
+		</div>
+		<img src="/assets/Pixel Art.gif" alt="Login Illustration" class="login-img" />
 	</div>
-	<img
-		src="/assets/Pixel Art.gif"
-		alt="Login Illustration"
-		class="h-full w-full max-w-md shadow-md"
-	/>
 </div>
-<p class="text-red-500">{form?.message ?? ''}</p>
 
 <style>
 	.login-container {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
-		max-width: 400px;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		max-width: 95vw;
+		width: 90vw;
+		max-height: 95vh;
+		aspect-ratio: 16/10;
 		margin: 0 auto;
 		padding: 0;
 		background-color: #ffffff;
-		border-radius: 8px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		border-radius: 2cqw;
+		container-type: inline-size;
+		box-shadow: 0 2cqw 4cqw rgba(0, 0, 0, 0.2);
+	}
+	.form-container {
+		display: flex;
+		flex-direction: column;
+		max-height: 100%;
+		height: 100%;
+		min-width: 0;
+		padding: 1cqw 3cqw 1cqw 5cqw;
+		justify-content: center;
+	}
+
+	.form-container,
+	.login-img {
+		min-width: 0;
+		min-height: 0;
+	}
+	.body {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		background: linear-gradient(135deg, #cd82ff, #7dd4ff);
+		height: 100vh;
+		width: 100vw;
+	}
+	.login-title {
+		font-size: 5cqw; /* Text grows with the box */
+		font-weight: bold;
+		margin-bottom: 2cqw;
+	}
+
+	.login-label {
+		font-size: 2.5cqw;
+		margin-top: 1.5cqw;
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+	}
+
+	.login-input {
+		font-size: 2.5cqw;
+		padding: 1cqw 1.5cqw;
+		border: 0.2cqw solid #d1d5db;
+		border-radius: 0.5cqw;
+		margin-top: 0.5cqw;
+	}
+
+	.login-button {
+		margin-top: 2cqw;
+		background-color: #2563eb;
+		color: white;
+		padding: 1cqw 2cqw;
+		font-size: 2cqw;
+		border-radius: 0.5cqw;
+	}
+
+	.login-message {
+		color: red;
+		margin-top: 1cqw;
+		font-size: 2cqw;
+	}
+
+	.login-img {
+		width: 100%;
+		height: 100%;
+		border-radius: 0cqw 2cqw 2cqw 0cqw;
+		object-fit: cover;
 	}
 </style>
