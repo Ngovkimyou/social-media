@@ -6,9 +6,25 @@ import { env } from '$env/dynamic/private';
 import { getRequestEvent } from '$app/server';
 import { get_db } from '$lib/server/db';
 
+const resolve_base_url = (): string => {
+	const origin = env['ORIGIN'];
+
+	if (origin) {
+		return origin;
+	}
+
+	const vercel_url = env['VERCEL_URL'];
+
+	if (vercel_url) {
+		return `https://${vercel_url}`;
+	}
+
+	throw new Error('ORIGIN is not configured. Set ORIGIN or provide VERCEL_URL in deployment.');
+};
+
 const create_auth = (): ReturnType<typeof betterAuth> =>
 	betterAuth({
-		baseURL: env['ORIGIN'],
+		baseURL: resolve_base_url(),
 		secret: env['BETTER_AUTH_SECRET'],
 		database: drizzleAdapter(get_db(), { provider: 'pg' }),
 		emailAndPassword: { enabled: true },

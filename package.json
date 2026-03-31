@@ -6,6 +6,7 @@
 	"pnpm": {
 		"overrides": {
 			"@mrleebo/prisma-ast": "0.15.0",
+			"camelcase": "5",
 			"cookie": "0.7.2",
 			"esbuild": "0.25.12"
 		}
@@ -83,7 +84,7 @@
 		"prettier-plugin-svelte": "^3.5.1",
 		"prettier-plugin-tailwindcss": "^0.7.2",
 		"storybook": "^10.3.3",
-		"svelte": "^5.55.1",
+		"svelte": "^5.55.0",
 		"svelte-check": "^4.4.5",
 		"tailwindcss": "^4.2.2",
 		"typescript": "^5.9.3",
@@ -94,6 +95,7 @@
 	},
 	"dependencies": {
 		"@better-auth/infra": "^0.1.13",
+		"@better-auth/sso": "1.4.22",
 		"cloudinary": "^2.9.0"
 	}
 }
