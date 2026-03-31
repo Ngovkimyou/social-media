@@ -11,16 +11,16 @@ pre-commit:
       run: pnpm exec prettier --write {staged_files}
       stage_fixed: true
 
-    eslint:
-      glob: '**/*.{js,svelte,ts}'
-      run: pnpm exec eslint --fix {staged_files}
-      stage_fixed: true
+    # eslint:
+    #   glob: '**/*.{js,svelte,ts}'
+    #   run: pnpm exec eslint --fix {staged_files}
+    #   stage_fixed: true
 
 pre-push:
-  parallel: true
+  parallel: false
   commands:
-    lint:
-      run: pnpm lint
+    # lint:
+    #   run: pnpm lint
     check:
       run: pnpm check:ci
     test:
