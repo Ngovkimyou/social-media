@@ -12,6 +12,10 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+      ORIGIN: http://127.0.0.1:4173
 
     steps:
       - uses: actions/checkout@v4
