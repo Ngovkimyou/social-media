@@ -1,34 +1,50 @@
-<!-- Header Section -->
-<div class="mb-12 flex items-center justify-between">
-	<h2 class="text-6xl font-bold text-white">Feed</h2>
-	<button class="p-2 text-white/70 transition-colors hover:text-white">
-		<span class="material-symbols-outlined text-4xl" style="font-variation-settings: 'FILL' 1"
-			>grid_view</span
-		>
-	</button>
-</div>
+<script lang="ts">
+	import { page } from '$app/state';
+	import { locales, localizeHref } from '$lib/paraglide/runtime';
+	import '../layout.css';
+	import favicon from '$lib/assets/favicon.svg';
 
-<!-- Bento Grid Feed Content -->
-<div class="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-3">
-	<div class="glow-card aspect-square rounded-4xl"></div>
-	<div class="glow-card aspect-square rounded-4xl"></div>
-	<div class="glow-card aspect-square rounded-4xl"></div>
-	<div class="glow-card aspect-square rounded-4xl"></div>
-	<div class="glow-card aspect-square rounded-4xl"></div>
-	<div class="glow-card aspect-square rounded-4xl"></div>
+	const { children } = $props();
+</script>
+
+<svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<main class="min-h-screen p-12">
+	<div class="min-h-[calc(100vh-6rem)] rounded-[3rem] bg-(--color-surface-container)/50 p-12">
+		{@render children()}
+	</div>
+</main>
+
+<div style="display:none">
+	{#each locales as locale (locale)}
+		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+		<a href={localizeHref(page.url.pathname, { locale })}>{locale}</a>
+	{/each}
 </div>
 
 <style>
-	.glow-card {
-		background: rgba(17, 13, 38, 0.4);
-		backdrop-filter: blur(8px);
-		border: 2px solid rgba(210, 148, 255, 0.3);
-		box-shadow: 0 0 20px rgba(210, 148, 255, 0.15);
-		transition: all 0.3s ease;
+	:global(:root) {
+		--color-background: #09051c;
+		--color-surface-container: #0d062d;
+		--color-primary: #d294ff;
+		--color-on-surface: #ffffff;
+		--color-on-surface-variant: #aea8c0;
+
+		--font-family-headline: 'Plus Jakarta Sans', sans-serif;
+		--font-family-body: 'Plus Jakarta Sans', sans-serif;
 	}
 
-	.glow-card:hover {
-		box-shadow: 0 0 30px rgba(210, 148, 255, 0.3);
-		border-color: rgba(210, 148, 255, 0.5);
+	:global(body) {
+		background-color: var(--color-background);
+		color: var(--color-on-surface);
+		font-family: var(--font-family-body);
+		overflow-x: hidden;
+	}
+
+	:global(.material-symbols-outlined) {
+		font-variation-settings:
+			'FILL' 0,
+			'wght' 400,
+			'GRAD' 0,
+			'opsz' 24;
 	}
 </style>

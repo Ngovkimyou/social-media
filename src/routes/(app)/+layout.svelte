@@ -1,25 +1,13 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import { locales, localizeHref } from '$lib/paraglide/runtime';
-	import '../layout.css';
-	import favicon from '$lib/assets/favicon.svg';
-
+	import GeneralTabs from '$lib/components/GeneralTabs.svelte';
 	const { children } = $props();
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
-<main class="min-h-screen p-12">
-	<div class="min-h-[calc(100vh-6rem)] rounded-[3rem] bg-(--color-surface-container)/50 p-12">
-		{@render children()}
-	</div>
-</main>
+<GeneralTabs />
 
-<div style="display:none">
-	{#each locales as locale (locale)}
-		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-		<a href={localizeHref(page.url.pathname, { locale })}>{locale}</a>
-	{/each}
-</div>
+<main class="pb-18 md:min-h-screen md:pt-6 md:pr-6 md:pb-0 md:pl-72">
+	{@render children()}
+</main>
 
 <style>
 	:global(:root) {
