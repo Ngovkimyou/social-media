@@ -1,4 +1,4 @@
-version: '0.2'
+version: "0.2"
 language: en
 ignorePaths:
   - node_modules
@@ -14,7 +14,7 @@ ignorePaths:
   - src/lib/server/db/auth.schema.ts
   - src/stories/assets
 files:
-  - '**/*.{ts,js,svelte,json,md,yaml,yml}'
+  - "**/*.{ts,js,svelte,json,md,yaml,yml}"
 words:
   - ASUS
   - authschema
@@ -30,6 +30,7 @@ words:
   - mdsvex
   - neondatabase
   - OneDrive
+  - opsz
   - paraglide
   - playwright
   - pooler
@@ -41,3 +42,4 @@ words:
   - SvelteKit
   - tailwindcss
   - vitest
+  - wght
