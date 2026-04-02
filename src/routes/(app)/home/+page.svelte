@@ -5,7 +5,7 @@
 	const { data }: { data: PageData } = $props();
 </script>
 
-<div class="px-4 pt-5 md:px-0 md:pt-0">
+<div class="h-screen overflow-scroll overscroll-x-none overscroll-y-none px-4 pt-5 md:px-0 md:pt-0">
 	<!-- Header Section -->
 	<div class="mb-12 flex items-center justify-between">
 		<h2 class="text-6xl font-bold text-white">Feed</h2>
