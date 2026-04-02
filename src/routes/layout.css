@@ -2,21 +2,11 @@
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
-@font-face {
-	font-family: 'Silver';
-	src: url('/fonts/Silver.woff2') format('woff2');
-	font-weight: normal;
-	font-style: normal;
-	font-display: swap;
-	size-adjust: 135%;
-}
-
 @theme {
-	/* This creates the 'font-brand' class automatically */
-	--font-brand: 'Silver', sans-serif;
-
-	/* OPTIONAL: If you want this to be the default font for the whole app */
-	--font-sans: var(--font-brand);
+	--font-madimi: 'Madimi One', sans-serif;
+	--font-sans: var(--font-madimi), ui-sans-serif, system-ui, sans-serif;
 }
 
-/* src/routes/layout.css */
+body {
+	font-family: var(--font-sans);
+}

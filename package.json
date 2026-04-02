@@ -100,5 +100,11 @@
 		"@better-auth/infra": "^0.1.13",
 		"@better-auth/sso": "1.4.22",
 		"cloudinary": "^2.9.0"
+	},
+	"devEngines": {
+		"packageManager": {
+			"name": "pnpm",
+			"onFail": "error"
+		}
 	}
 }

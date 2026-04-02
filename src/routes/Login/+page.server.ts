@@ -5,7 +5,7 @@ import { APIError } from 'better-auth/api';
 
 export const load: PageServerLoad = async (event) => {
 	if (event.locals.user) {
-		return redirect(302, '/demo/better-auth');
+		return redirect(302, '/home');
 	}
 	return {};
 };
@@ -32,6 +32,6 @@ export const actions: Actions = {
 			return fail(500, { message: 'Unexpected error' });
 		}
 
-		return redirect(302, '/demo/better-auth');
+		return redirect(302, '/home');
 	}
 };

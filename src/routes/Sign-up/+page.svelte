@@ -8,7 +8,7 @@
 <div class="body">
 	<div class="login-container">
 		<div class="form-container">
-			<h1 class="login-title">Login</h1>
+			<h1 class="login-title">Sign Up</h1>
 			<form method="post" action="?/signInEmail" use:enhance>
 				<div>
 					<label class="login-label">
@@ -53,9 +53,9 @@
 	.login-container {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		max-width: 95vw;
-		width: 90vw;
-		max-height: 95vh;
+		max-width: 75vw;
+		width: 70vw;
+		max-height: 85vh;
 		aspect-ratio: 16/10;
 		margin: 0 auto;
 		padding: 0;
@@ -111,7 +111,7 @@
 
 	.login-button {
 		margin-top: 2cqw;
-		background-color: #2563eb;
+		background: linear-gradient(135deg, #cd82ff, #7dd4ff);
 		color: white;
 		padding: 1cqw 2cqw;
 		font-size: 2cqw;
