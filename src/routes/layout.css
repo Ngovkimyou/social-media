@@ -9,4 +9,5 @@
 
 body {
 	font-family: var(--font-sans);
+	letter-spacing: 0.02em;
 }

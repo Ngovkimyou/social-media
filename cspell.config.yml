@@ -25,7 +25,10 @@ words:
   - eslint
   - haha
   - inlang
+  - isexpanding
+  - iskeeploading
   - ison
+  - issearching
   - Kysely
   - mdsvex
   - neondatabase
@@ -40,4 +43,6 @@ words:
   - sveltekit
   - SvelteKit
   - tailwindcss
+  - tsquery
+  - tsvector
   - vitest
