@@ -11,6 +11,14 @@
 		add: '/img/profile/Add.png'
 	};
 
+	const profile_icons = {
+		share: '/img/profile/share-account.png',
+		edit: '/img/profile/edit-profile.png',
+		settings: '/img/profile/setting.png',
+		relationship: '/img/profile/add-friend.png',
+		message: '/img/profile/send-message-icon.png'
+	};
+
 	const profile_about = $derived(
 		data['profile'] as (typeof data)['profile'] & {
 			location?: string | null;
@@ -27,7 +35,9 @@
 	);
 
 	// eslint-disable-next-line @typescript-eslint/naming-convention
-	const success_message = $derived(form?.success === true);
+	const success_message = $derived(
+		(form as { success?: boolean } | null | undefined)?.success === true
+	);
 	const profile_display_name = $derived(data['profile'].name ?? data['profile'].username);
 	const profile_avatar = $derived(data['profile'].image);
 	const profile_cover = $derived(data['profile'].cover_image ?? cover_image);
@@ -45,6 +55,7 @@
 	let selected_image = $state<File>();
 	let image_src = $state('');
 	let caption = $state('');
+	let share_feedback = $state('');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let submitting_post = $state(false);
 
@@ -91,6 +102,46 @@
 
 	function handle_cover_image_change(event: Event) {
 		submit_selected_image(event);
+	}
+
+	function handle_relationship_button_click() {
+		if (data['relationship'].is_own_profile) {
+			return;
+		}
+
+		const follow_form = document.getElementById(
+			'relationship-action-form'
+		) as HTMLFormElement | null;
+		follow_form?.requestSubmit();
+	}
+
+	async function handle_share_profile_click() {
+		const profile_url = window.location.href;
+
+		try {
+			if (navigator.share) {
+				await navigator.share({
+					title: `${profile_display_name} (@${data['profile'].username})`,
+					text: `Check out ${profile_display_name}'s profile`,
+					url: profile_url
+				});
+				share_feedback = 'Profile link shared.';
+			} else {
+				await navigator.clipboard.writeText(profile_url);
+				share_feedback = 'Profile link copied.';
+			}
+		} catch {
+			try {
+				await navigator.clipboard.writeText(profile_url);
+				share_feedback = 'Profile link copied.';
+			} catch {
+				share_feedback = 'Unable to share profile link.';
+			}
+		}
+
+		setTimeout(() => {
+			share_feedback = '';
+		}, 2500);
 	}
 </script>
 
@@ -186,37 +237,58 @@
 					class="absolute top-10 -left-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 md:shadow-md lg:-left-70 lg:h-15 lg:w-15"
 				>
 					<img
-						src="/img/profile/edit-profile.png"
+						src={data['relationship'].is_own_profile ? profile_icons.edit : profile_icons.message}
 						alt="Edit"
-						class="h-5 w-5 object-contain pl-1 lg:h-9 lg:w-9"
+						class="h-5 w-5 object-contain lg:h-9 lg:w-9 {data['relationship'].is_own_profile
+							? 'pl-1'
+							: ''}"
 					/>
 				</button>
 
 				<button
+					type="button"
+					onclick={() => {
+						void handle_share_profile_click();
+					}}
 					class="absolute bottom-5 -left-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 sm:z-20 md:z-20 md:shadow-md lg:-left-40 lg:h-15 lg:w-15"
 				>
 					<img
-						src="/img/profile/share-account.png"
+						src={profile_icons.share}
 						alt="Share"
 						class="h-5 w-5 object-contain pr-1 lg:h-8 lg:w-8"
 					/>
 				</button>
 
 				<button
+					type="button"
+					onclick={handle_relationship_button_click}
 					class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 md:shadow-md lg:-right-40 lg:h-15 lg:w-15"
 				>
 					<img
-						src="/img/profile/add-friend.png"
-						alt="Add"
+						src={profile_icons.relationship}
+						alt={data['relationship'].is_own_profile
+							? 'Add'
+							: data['relationship'].is_following
+								? 'Unfollow'
+								: 'Follow'}
 						class="h-6 w-6 object-contain pl-1 lg:h-9 lg:w-9"
 					/>
 				</button>
+
+				{#if !data['relationship'].is_own_profile}
+					<form
+						id="relationship-action-form"
+						method="post"
+						action={data['relationship'].is_following ? '?/unfollow' : '?/follow'}
+						class="hidden"
+					></form>
+				{/if}
 
 				<button
 					class="absolute top-10 -right-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 md:shadow-md lg:-right-70 lg:h-15 lg:w-15"
 				>
 					<img
-						src="/img/profile/setting.png"
+						src={profile_icons.settings}
 						alt="Settings"
 						class="h-6 w-6 object-contain lg:h-8 lg:w-8"
 					/>
@@ -229,23 +301,8 @@
 				{data['profile'].name ?? data['profile'].username}
 			</h1>
 			<p class="md:text-md text-sm text-slate-400">@{data['profile'].username}</p>
-			{#if !data['relationship'].is_own_profile}
-				<form
-					class="mt-4"
-					method="post"
-					action={data['relationship'].is_following ? '?/unfollow' : '?/follow'}
-				>
-					<button
-						type="submit"
-						class="rounded-full border px-6 py-2 text-sm font-semibold text-white transition {data[
-							'relationship'
-						].is_following
-							? 'border-[#E9A0F8] bg-[#62218D] hover:bg-[#7a2aac]'
-							: 'border-[#7DD4FF] bg-[#4B7F99] hover:bg-[#5e97b4]'}"
-					>
-						{data['relationship'].is_following ? 'Following' : 'Follow'}
-					</button>
-				</form>
+			{#if share_feedback}
+				<p class="mt-3 text-xs font-medium text-sky-300">{share_feedback}</p>
 			{/if}
 		</div>
 
@@ -294,7 +351,7 @@
 			</span>
 
 			<p class="relative z-10 mt-1 text-sm whitespace-pre-wrap text-slate-200">
-				{data['profile'].bio || 'This user has not added a bio yet.'}
+				{data['profile'].bio || 'No bio added yet.'}
 			</p>
 
 			<div class="relative z-10 mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300">
@@ -303,7 +360,7 @@
 						<img src={about_icons.location} alt="Location" class="h-4 w-4" />
 						{profile_about.location}
 					</div>
-				{:else}
+				{:else if data['relationship'].is_own_profile}
 					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
 						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add location
 					</div>
@@ -314,7 +371,7 @@
 						<img src={about_icons.email} alt="Email" class="h-4 w-4" />
 						{profile_about.email}
 					</div>
-				{:else}
+				{:else if data['relationship'].is_own_profile}
 					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
 						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add email
 					</div>
@@ -325,15 +382,17 @@
 						<img src={about_icons.phone} alt="Phone" class="h-4 w-4" />
 						{profile_about.phone}
 					</div>
-				{:else}
+				{:else if data['relationship'].is_own_profile}
 					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
 						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add phone number
 					</div>
 				{/if}
 
-				<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
-					<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add More
-				</div>
+				{#if data['relationship'].is_own_profile}
+					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
+						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add More
+					</div>
+				{/if}
 			</div>
 		</div>
 
@@ -371,13 +430,15 @@
 
 		{#if active_tab === 'posts'}
 			<div class="mx-6 mt-6 grid grid-cols-3 gap-1 pb-8 md:gap-3">
-				<button
-					type="button"
-					onclick={open_upload_modal}
-					class="flex aspect-square cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
-				>
-					<span class="text-5xl font-light text-white/70">+</span>
-				</button>
+				{#if data['relationship'].is_own_profile}
+					<button
+						type="button"
+						onclick={open_upload_modal}
+						class="flex aspect-square cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
+					>
+						<span class="text-5xl font-light text-white/70">+</span>
+					</button>
+				{/if}
 
 				{#each post_tiles as post (post.id)}
 					<div
@@ -391,12 +452,14 @@
 
 		{#if active_tab === 'videos'}
 			<div class="mx-6 mt-6 grid grid-cols-3 gap-1 pb-8 md:gap-3">
-				<button
-					type="button"
-					class="flex aspect-9/16 cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
-				>
-					<span class="text-5xl font-light text-white/70">+</span>
-				</button>
+				{#if data['relationship'].is_own_profile}
+					<button
+						type="button"
+						class="flex aspect-9/16 cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
+					>
+						<span class="text-5xl font-light text-white/70">+</span>
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>

@@ -235,7 +235,7 @@ export const actions = {
 			})
 			.onConflictDoNothing();
 
-		return { success: true };
+		throw redirect(303, `/profile/${params.username}`);
 	},
 	unfollow: async ({ locals, params }) => {
 		if (!locals.user) {
@@ -258,6 +258,6 @@ export const actions = {
 				)
 			);
 
-		return { success: true };
+		throw redirect(303, `/profile/${params.username}`);
 	}
 } satisfies Actions;
