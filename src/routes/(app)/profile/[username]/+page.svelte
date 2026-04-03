@@ -19,31 +19,129 @@
 	);
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	let upload_modal_open = $state(false);
 
 	const post_tiles = $derived.by(() =>
 		data['photo_urls'].map((img: string, index: number) => ({ id: index + 1, img }))
 	);
+
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	const success_message = $derived(form?.success === true);
+	const profile_display_name = $derived(data['profile'].name ?? data['profile'].username);
+	const profile_avatar = $derived(data['profile'].image);
+	const profile_cover = $derived(data['profile'].cover_image ?? cover_image);
+
+	function open_upload_modal() {
+		submitting_post = false;
+		upload_modal_open = true;
+	}
+
+	function close_upload_modal() {
+		submitting_post = false;
+		upload_modal_open = false;
+	}
+
+	let selected_image = $state<File>();
+	let image_src = $state('');
+	let caption = $state('');
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	let submitting_post = $state(false);
+
+	function handle_file_change(event: Event) {
+		const target = event.currentTarget as HTMLInputElement | null;
+		const file = target?.files?.[0];
+
+		if (file) {
+			selected_image = file;
+			image_src = URL.createObjectURL(file);
+			return;
+		}
+
+		selected_image = undefined;
+		image_src = '';
+	}
+
+	function remove_image() {
+		selected_image = undefined;
+		image_src = '';
+
+		// Reset the file input so it can be reused
+		const file_input = document.getElementById('file-upload') as HTMLInputElement | null;
+		if (file_input) {
+			file_input.value = '';
+		}
+	}
+
+	function handle_post_submit() {
+		submitting_post = true;
+	}
+
+	function submit_selected_image(event: Event) {
+		const target = event.currentTarget as HTMLInputElement | null;
+
+		if (target?.files?.[0]) {
+			target.form?.requestSubmit();
+		}
+	}
+
+	function handle_profile_image_change(event: Event) {
+		submit_selected_image(event);
+	}
+
+	function handle_cover_image_change(event: Event) {
+		submit_selected_image(event);
+	}
 </script>
 
 <svelte:head>
 	<title>{data['profile'].name ?? data['profile'].username} (@{data['profile'].username})</title>
 </svelte:head>
 
-<div class="flex min-h-screen justify-center bg-[#070814] text-white">
-	<div class="flex min-h-screen w-full max-w-6xl flex-col bg-[#0a0b1e] p-6 px-10 shadow-2xl">
+<div
+	class="flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white"
+>
+	<div class="flex w-full max-w-6xl flex-col p-6 px-10 shadow-2xl">
 		<div class="relative h-56 w-full md:h-74">
-			<img src={cover_image} alt="Cover" class="h-full w-full rounded-3xl object-cover" />
+			<div class="relative h-full w-full overflow-hidden rounded-3xl">
+				<img src={profile_cover} alt="Cover" class="h-full w-full object-cover" />
+
+				{#if data['relationship'].is_own_profile}
+					<form
+						method="post"
+						action="?/update_cover_image"
+						enctype="multipart/form-data"
+						class="absolute inset-0 z-20"
+					>
+						<label
+							for="cover-image-upload"
+							class="group relative block h-full w-full cursor-pointer"
+						>
+							<span
+								class="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20"
+							></span>
+						</label>
+						<input
+							id="cover-image-upload"
+							type="file"
+							name="cover"
+							accept="image/*"
+							class="sr-only"
+							onchange={handle_cover_image_change}
+						/>
+					</form>
+				{/if}
+			</div>
 
 			<div
-				class="absolute -bottom-14 left-1/2 h-32 w-32 -translate-x-1/2 md:-bottom-20 md:h-48 md:w-48"
+				class="absolute -bottom-14 left-1/2 z-30 h-32 w-32 -translate-x-1/2 md:-bottom-20 md:h-48 md:w-48"
 			>
 				{#if data['profile'].image}
 					<div
 						class="relative z-10 h-full w-full overflow-hidden rounded-full border-5 border-[#0a0b1e] bg-[#1b1c31] lg:border-7"
 					>
 						<img
-							src={data['profile'].image ||
-								'/img/profile/profiles and wallpapers/night-light fury profile.jpg'}
+							src={data['profile'].image}
 							alt={data['profile'].name
 								? `${data['profile'].name} avatar`
 								: `${data['profile'].username} avatar`}
@@ -51,22 +149,37 @@
 						/>
 					</div>
 				{:else}
-					<!-- <div
-					 	class="relative z-10 flex h-full w-full items-center justify-center rounded-full border-5 border-[#0a0b1e] bg-[#1b1c31] text-5xl font-bold text-slate-300 lg:border-7"
-					> -->
 					<div
-						class="relative z-10 h-full w-full overflow-hidden rounded-full border-5 border-[#0a0b1e] bg-[#1b1c31] lg:border-7"
+						class="relative z-10 flex h-full w-full items-center justify-center rounded-full border-5 border-[#0a0b1e] bg-[#1b1c31] text-5xl font-bold text-slate-300 lg:border-7"
 					>
-						<!-- {data.profile.username.slice(0, 1).toUpperCase()} -->
-						<img
-							src={data['profile'].image ||
-								'/img/profile/profiles and wallpapers/night-light fury profile.jpg'}
-							alt={data['profile'].name
-								? `${data['profile'].name} avatar`
-								: `${data['profile'].username} avatar`}
-							class="h-full w-full object-cover"
-						/>
+						{data['profile'].username.slice(0, 1).toUpperCase()}
 					</div>
+				{/if}
+
+				{#if data['relationship'].is_own_profile}
+					<form
+						method="post"
+						action="?/update_profile_image"
+						enctype="multipart/form-data"
+						class="absolute inset-0 z-30"
+					>
+						<label
+							for="profile-image-upload"
+							class="group relative block h-full w-full cursor-pointer rounded-full"
+						>
+							<span
+								class="pointer-events-none absolute inset-0 rounded-full bg-black/0 transition-colors group-hover:bg-black/20"
+							></span>
+						</label>
+						<input
+							id="profile-image-upload"
+							type="file"
+							name="avatar"
+							accept="image/*"
+							class="sr-only"
+							onchange={handle_profile_image_change}
+						/>
+					</form>
 				{/if}
 
 				<button
@@ -138,7 +251,9 @@
 
 		{#if form?.message}
 			<p
-				class="mx-6 mt-4 rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 py-3 text-sm text-rose-100"
+				class="mx-6 mt-4 rounded-xl border px-4 py-3 text-sm {success_message
+					? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
+					: 'border-rose-400/40 bg-rose-500/15 text-rose-100'}"
 			>
 				{form.message}
 			</p>
@@ -254,14 +369,16 @@
 			</button>
 		</div>
 
-		<div class="mx-6 mt-6 grid grid-cols-3 gap-1 pb-8 md:gap-3">
-			{#if post_tiles.length === 0}
+		{#if active_tab === 'posts'}
+			<div class="mx-6 mt-6 grid grid-cols-3 gap-1 pb-8 md:gap-3">
 				<button
+					type="button"
+					onclick={open_upload_modal}
 					class="flex aspect-square cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
 				>
 					<span class="text-5xl font-light text-white/70">+</span>
 				</button>
-			{:else}
+
 				{#each post_tiles as post (post.id)}
 					<div
 						class="aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
@@ -269,7 +386,154 @@
 						<img src={post.img} alt="Post" class="h-full w-full object-cover" loading="lazy" />
 					</div>
 				{/each}
-			{/if}
-		</div>
+			</div>
+		{/if}
+
+		{#if active_tab === 'videos'}
+			<div class="mx-6 mt-6 grid grid-cols-3 gap-1 pb-8 md:gap-3">
+				<button
+					type="button"
+					class="flex aspect-9/16 cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
+				>
+					<span class="text-5xl font-light text-white/70">+</span>
+				</button>
+			</div>
+		{/if}
 	</div>
 </div>
+
+{#if upload_modal_open}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		onclick={(event) => {
+			if (event.target === event.currentTarget) {
+				close_upload_modal();
+			}
+		}}
+		onkeydown={(event) => {
+			if (event.key === 'Escape') {
+				close_upload_modal();
+			}
+		}}
+	>
+		<div
+			class="flex max-h-[90vh] w-full overflow-hidden rounded-3xl border border-[#CD82FF] bg-[#1a1224] shadow-[0_0_15px_rgba(255,0,229,10)] transition-all duration-500 ease-in-out {image_src
+				? 'max-w-4xl'
+				: 'max-w-lg'}"
+		>
+			<form
+				method="post"
+				action="?/create_post"
+				enctype="multipart/form-data"
+				onsubmit={handle_post_submit}
+				class="flex flex-1 flex-col"
+			>
+				<div class="flex items-center justify-between border-b border-white/40 px-4 py-3">
+					<div class="w-5"></div>
+
+					<h2 class="text-base font-semibold text-white">Create post</h2>
+
+					<button
+						type="button"
+						onclick={close_upload_modal}
+						class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-white hover:bg-[#4e4f50]"
+					>
+						✕
+					</button>
+				</div>
+
+				<div class="flex flex-1 flex-col overflow-hidden md:flex-row">
+					{#if image_src}
+						<div
+							class="relative flex min-h-96 w-full items-center justify-center border-r border-white/40 bg-[#18191a] md:min-h-0 md:w-1/2"
+						>
+							<img src={image_src} alt="Preview" class="h-100 w-full object-cover" />
+
+							<button
+								type="button"
+								onclick={remove_image}
+								class="absolute top-4 right-4 cursor-pointer rounded-full bg-black/60 px-3 py-1.5 text-white hover:bg-black/80"
+							>
+								✕
+							</button>
+						</div>
+					{/if}
+
+					<div class="flex w-full flex-1 flex-col p-4 {image_src ? 'md:w-1/2' : ''}">
+						<div class="mb-4 flex items-center gap-3">
+							<div
+								class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-500 text-xs text-white"
+							>
+								{#if profile_avatar}
+									<img
+										src={profile_avatar}
+										alt={`${profile_display_name} avatar`}
+										class="h-full w-full object-cover"
+									/>
+								{:else}
+									<span>{data['profile'].username.slice(0, 1).toUpperCase()}</span>
+								{/if}
+							</div>
+							<div>
+								<p class="text-sm font-semibold text-white">{profile_display_name}</p>
+								<p class="text-xs text-slate-400">@{data['profile'].username}</p>
+							</div>
+						</div>
+
+						<textarea
+							id="upload-caption"
+							name="caption"
+							bind:value={caption}
+							rows={image_src ? 6 : 4}
+							placeholder="Write a caption..."
+							class="w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none {image_src
+								? 'text-sm'
+								: 'text-lg'}"
+						></textarea>
+
+						<div class="my-2 flex items-center justify-between text-slate-400">
+							<span class="text-xs">{caption.length}/2200</span>
+							{#if caption.length > 2200}
+								<span class="text-xs text-rose-400">Caption exceeds maximum length!</span>
+							{/if}
+						</div>
+
+						<label
+							for="file-upload"
+							class="mt-auto flex cursor-pointer items-center justify-between rounded-lg border border-white/40 px-4 py-3 hover:bg-white/5"
+						>
+							<span class="text-sm font-semibold text-white">
+								{image_src ? 'Photo selected' : 'Add a photo'}
+							</span>
+
+							<span class="rounded-full p-1 text-xl">🖼️</span>
+						</label>
+						<input
+							id="file-upload"
+							type="file"
+							name="image"
+							accept="image/*"
+							class="sr-only"
+							onchange={handle_file_change}
+						/>
+
+						<button
+							type="submit"
+							class="mt-4 w-full cursor-pointer rounded-xl bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] py-2 text-sm font-semibold text-white transition-transform hover:scale-[0.98] {!selected_image ||
+							caption.length > 2200 ||
+							submitting_post
+								? 'cursor-not-allowed opacity-50'
+								: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
+							disabled={!selected_image || caption.length > 2200 || submitting_post}
+						>
+							{submitting_post ? 'Posting...' : 'Post'}
+						</button>
+					</div>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}

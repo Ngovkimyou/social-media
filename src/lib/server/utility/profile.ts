@@ -76,6 +76,7 @@ export const get_profile_by_username = async (
 			name: string | null;
 			email: string;
 			image: string | null;
+			cover_image: string | null;
 			created_at: Date;
 			username: string;
 			bio: string | null;
@@ -92,6 +93,7 @@ export const get_profile_by_username = async (
 			name: auth_user.name,
 			email: auth_user.email,
 			image: auth_user.image,
+			cover_image: profiles.cover_image,
 			created_at: auth_user.createdAt,
 			username: profiles.username,
 			bio: profiles.bio,
@@ -126,6 +128,7 @@ type ProfilePageData = {
 		name: string | null;
 		email: string;
 		image: string | null;
+		cover_image: string | null;
 		created_at: Date;
 		username: string;
 		bio: string | null;

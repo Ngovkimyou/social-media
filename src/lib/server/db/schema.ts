@@ -170,6 +170,7 @@ export const profiles = pgTable(
 			.primaryKey()
 			.references(() => auth_user.id, { onDelete: 'cascade' }),
 		username: text('username').notNull(),
+		cover_image: text('cover_image'),
 		bio: text('bio'),
 		location: text('location'),
 		phone: text('phone'),
