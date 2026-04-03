@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { get_auth } from '$lib/server/auth';
 import { APIError } from 'better-auth/api';
-import { email_validator, password_validator } from '$lib/utilities/validator';
+import { email_validator, password_validator, name_validator } from '$lib/utilities/validator';
 
 export const load: PageServerLoad = async (event) => {
 	if (event.locals.user) {
@@ -26,20 +26,17 @@ export const actions: Actions = {
 
 			const is_password_Valid = password_validator(password);
 			if (!is_password_Valid.is_Valid) {
-				return fail(400, {
-					message:
-						'Password must be at least 8 characters long and contain uppercase, lowercase, and a number'
-				});
+				return fail(400, { message: is_password_Valid.message });
 			}
 
-			if (name.length < 3 || name.length > 15) {
-				return fail(400, { message: 'Name must be (min 3 , max 15) characters long' });
+			const is_name_Valid = name_validator(name);
+			if (!is_name_Valid.is_Valid) {
+				return fail(400, { message: is_name_Valid.message });
 			}
 
 			const is_email_Valid = email_validator(email);
-
-			if (!is_email_Valid) {
-				return fail(400, { message: 'Invalid email format' });
+			if (!is_email_Valid.is_Valid) {
+				return fail(400, { message: is_email_Valid.message });
 			}
 
 			await auth.api.signUpEmail({

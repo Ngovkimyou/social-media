@@ -9,7 +9,7 @@
 	<div class="login-container">
 		<div class="form-container">
 			<h1 class="login-title">Sign Up</h1>
-			<form method="post" action="?/signInEmail" use:enhance>
+			<form method="post" action="?/signUpEmail" use:enhance>
 				<div>
 					<label class="login-label">
 						Email
@@ -17,6 +17,7 @@
 							type="email"
 							name="email"
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+							placeholder="Enter your email address"
 						/>
 					</label>
 				</div>
@@ -26,7 +27,9 @@
 						<input
 							type="password"
 							name="password"
+							minlength="8"
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+							placeholder="Enter your password"
 						/>
 					</label>
 				</div>
@@ -34,8 +37,12 @@
 					<label class="login-label">
 						Name
 						<input
+							type="text"
 							name="name"
+							minlength="3"
+							maxlength="15"
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+							placeholder="Enter your username"
 						/>
 					</label>
 				</div>
