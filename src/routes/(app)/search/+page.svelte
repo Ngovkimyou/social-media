@@ -200,7 +200,8 @@
 </script>
 
 <section
-	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8">
+	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
+>
 	<h1 class="text-3xl font-bold tracking-wide md:text-5xl">Search</h1>
 
 	<label for="search-users" class="mt-4 block cursor-pointer md:mt-6">
@@ -214,18 +215,19 @@
 				bind:value={query}
 				type="search"
 				placeholder="Search username"
-				class="w-full border-none bg-transparent p-0 pr-8 text-lg text-white cursor-pointer! outline-none ring-0 placeholder:text-white/70 focus:cursor-pointer! focus:border-none focus:ring-0"
+				class="w-full cursor-pointer! border-none bg-transparent p-0 pr-8 text-lg text-white ring-0 outline-none placeholder:text-white/70 focus:cursor-pointer! focus:border-none focus:ring-0"
 				autocomplete="off"
 				spellcheck="false"
 			/>
 			{#if query.length > 0}
 				<button
 					type="button"
-					class="absolute top-1/2 right-3 -translate-y-1/2 text-2xl w-8 h-8 grid place-items-center text-red-500 transition-colors hover:text-red-400"
+					class="absolute top-1/2 right-3 grid h-8 w-8 -translate-y-1/2 place-items-center text-2xl text-red-500 transition-colors hover:text-red-400"
 					onclick={() => {
 						query = '';
 					}}
-					aria-label="Clear search">
+					aria-label="Clear search"
+				>
 					x
 				</button>
 			{/if}

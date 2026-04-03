@@ -5,6 +5,6 @@
 
 <GeneralTabs />
 
-<main class="pb-18 md:min-h-screen md:pl-72">
+<main class="md:min-h-screen md:pl-72">
 	{@render children()}
 </main>

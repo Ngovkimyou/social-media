@@ -8,7 +8,11 @@
 			"@mrleebo/prisma-ast": "0.15.0",
 			"camelcase": "5",
 			"cookie": "0.7.2",
-			"esbuild": "0.25.12"
+			"esbuild": "0.25.12",
+			"lodash-es@>=4.0.0 <=4.17.23": ">=4.18.0",
+			"lodash@>=4.0.0 <=4.17.23": ">=4.18.0",
+			"lodash-es@<=4.17.23": ">=4.18.0",
+			"lodash@<=4.17.23": ">=4.18.0"
 		}
 	},
 	"scripts": {
@@ -20,8 +24,8 @@
 		"paraglide:compile": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
 		"check:ci": "pnpm run paraglide:compile && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "pnpm run paraglide:compile && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"format": "prettier --write \"**/*.{js,ts,json,md,yaml,yml}\"",
-		"lint": "prettier --check \"**/*.{js,ts,json,md,yaml,yml}\" && eslint \"**/*.{js,ts}\"",
+		"format": "prettier --write \"**/*.{css,html,js,json,jsonc,md,svelte,ts,yaml,yml}\"",
+		"lint": "prettier --check \"**/*.{css,html,js,json,jsonc,md,svelte,ts,yaml,yml}\" && eslint \"**/*.{js,ts,svelte}\"",
 		"lint:eslint": "eslint \"**/*.{js,ts}\"",
 		"spellcheck": "cspell \"**/*.{js,ts,svelte,md,json,yaml,yml}\" --no-progress",
 		"spellcheck:strict": "cspell \"**/*.{js,ts,svelte,md,json,yaml,yml}\" --no-progress --fail-fast",

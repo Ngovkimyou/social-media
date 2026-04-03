@@ -6,7 +6,7 @@ const typescriptRules = [
 		files: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.mts', 'src/**/*.cts'],
 		languageOptions: {
 			parserOptions: {
-				project: './tsconfig.json'
+				project: ['./tsconfig.json', './tsconfig.eslint.json']
 			}
 		}
 	},

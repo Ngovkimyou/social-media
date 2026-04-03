@@ -5,8 +5,10 @@
 	const active_path = $derived(page.url.pathname);
 	const home_href = resolve('/home');
 	const search_href = resolve('/search');
+	const profile_href = resolve('/profile');
 	const ison_home = $derived(active_path === home_href);
 	const ison_search = $derived(active_path === search_href);
+	const ison_profile = $derived(active_path.startsWith('/profile'));
 	const glow_base =
 		"before:content-[''] before:absolute before:inset-0 before:rounded-full before:bg-[radial-gradient(circle,rgba(210,150,255,0.95)_0%,rgba(146,95,255,0.55)_65%,rgba(146,95,255,0.2)_100%)] before:shadow-[0_0_24px_rgba(180,120,255,0.7)] before:transition-all before:duration-300 before:ease-out";
 	const glow_off = 'before:opacity-0 before:scale-90';
@@ -67,9 +69,13 @@
 			<img src="/images/open-messages.png" alt="Send Messages icon" class="h-8 opacity-80" />
 		</button>
 
-		<button class="relative grid h-14 w-14 place-items-center" type="button" aria-label="Profile">
+		<a
+			href={profile_href}
+			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
+			aria-label="Profile"
+		>
 			<img src="/images/go-to-profile.png" alt="Profile icon" class="h-8 opacity-80" />
-		</button>
+		</a>
 	</div>
 </nav>
 
@@ -100,10 +106,10 @@
 			<span class="text-lg font-semibold">Search</span>
 		</a>
 
-		<button type="button" class={nav_link_base}>
+		<a href={profile_href} class={`${nav_link_base} ${ison_profile ? active_link : ''}`}>
 			<img src="/images/go-to-profile.png" alt="Profile icon" class="h-6 w-6" />
 			<span class="text-lg font-semibold">Profile</span>
-		</button>
+		</a>
 
 		<button type="button" class={nav_link_base}>
 			<img src="/images/open-messages.png" alt="Messages icon" class="h-6 w-6" />
