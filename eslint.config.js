@@ -8,7 +8,6 @@ import ignores from './eslint/rules/ignores.js';
 import namingConventionRules from './eslint/rules/naming-convention.js';
 import sonarjsRules from './eslint/rules/sonarjs.js';
 import storybookRules from './eslint/rules/storybook.js';
-import svelteRules from './eslint/rules/svelte.js';
 import typescriptRules from './eslint/rules/typescript.js';
 import unicornRules from './eslint/rules/unicorn.js';
 
@@ -21,7 +20,6 @@ export default defineConfig(
 	...codeQualityRules,
 	...typescriptRules,
 	...namingConventionRules,
-	...svelteRules,
 	...unicornRules,
 	...sonarjsRules,
 	...storybookRules,
