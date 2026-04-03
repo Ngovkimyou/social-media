@@ -39,7 +39,7 @@
 <div class="overscroll-hidden overflow-y-scroll overscroll-y-none px-8 pb-8">
 	{#if grid_view}
 		<!-- Grid View -->
-		<div class="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-3">
+		<div class="grid aspect-square grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-3">
 			{#each data.posts as post (post.id)}
 				<div
 					class="overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
@@ -68,7 +68,7 @@
 					<!-- Post image with caption overlay -->
 					<div class="relative mx-4 mt-3 overflow-hidden rounded-2xl">
 						{#if post.media_url && post.media_type === 'image'}
-							<img src={post.media_url} alt="post" class="w-full object-cover" />
+							<img src={post.media_url} alt="post" class="h-50 w-full object-cover" />
 						{/if}
 						{#if post.content}
 							<div
@@ -79,7 +79,18 @@
 						{/if}
 					</div>
 					<!-- Space reserved for reaction buttons -->
-					<div class="h-12"></div>
+					<!-- Reaction buttons -->
+					<div class="mx-5 flex items-center gap-5 pt-10 pb-4">
+						<button class="transition-opacity hover:opacity-70">
+							<img src="/images/unliked-state.avif" alt="like" class="h-6 w-auto" />
+						</button>
+						<button class="transition-opacity hover:opacity-70">
+							<img src="/images/comment-icon.avif" alt="comment" class="h-6 w-auto" />
+						</button>
+						<button class="transition-opacity hover:opacity-70">
+							<img src="/images/share-post-icon.avif" alt="share" class="h-6 w-auto" />
+						</button>
+					</div>
 				</div>
 			{/each}
 		</div>
@@ -114,7 +125,7 @@
 					<!-- Post image with caption overlay -->
 					<div class="relative mx-4 mt-3 overflow-hidden rounded-2xl">
 						{#if post.media_url && post.media_type === 'image'}
-							<img src={post.media_url} alt="post" class="w-full object-cover" />
+							<img src={post.media_url} alt="post" class="h-56 w-full object-cover object-top" />
 						{/if}
 						{#if post.content}
 							<p
@@ -125,7 +136,18 @@
 						{/if}
 					</div>
 					<!-- Space reserved for reaction buttons -->
-					<div class="h-12"></div>
+					<!-- Reaction buttons -->
+					<div class="flex items-center gap-5 px-5 py-3">
+						<button class="transition-opacity hover:opacity-70">
+							<img src="/images/unliked-state.avif" alt="like" class="h-6 w-auto" />
+						</button>
+						<button class="transition-opacity hover:opacity-70">
+							<img src="/images/comment-icon.avif" alt="comment" class="h-6 w-auto" />
+						</button>
+						<button class="transition-opacity hover:opacity-70">
+							<img src="/images/share-post-icon.avif" alt="share" class="h-6 w-auto" />
+						</button>
+					</div>
 				</div>
 			{/each}
 		</div>
