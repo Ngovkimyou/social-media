@@ -1,75 +1,132 @@
+import { env } from '$env/dynamic/private';
+import { get_db } from '$lib/server/db';
 import type { RequestEvent } from '@sveltejs/kit';
-
-type RateLimitEntry = {
-	count: number;
-	window_ends_at: number;
-};
+import { sql } from 'drizzle-orm';
 
 type AuthRateLimitScope = 'sign-in' | 'sign-up';
 
-const WINDOW_MS = 5 * 60 * 1000;
+const WINDOW_SECONDS = 5 * 60;
 const MAX_ATTEMPTS_PER_WINDOW = 5;
-const attempts_by_key = new Map<string, RateLimitEntry>();
 
-const cleanup_expired_entries = (): void => {
-	const now = Date.now();
+let init_promise: Promise<void> | undefined;
 
-	for (const [key, value] of attempts_by_key.entries()) {
-		if (value.window_ends_at <= now) {
-			attempts_by_key.delete(key);
-		}
+const initialize_auth_rate_limit_store = async (): Promise<void> => {
+	if (init_promise) {
+		return init_promise;
+	}
+
+	init_promise = (async () => {
+		const db = get_db();
+		await db.execute(sql`
+			create table if not exists auth_rate_limit_bucket (
+				bucket_key text primary key,
+				attempt_count integer not null,
+				expires_at timestamptz not null
+			)
+		`);
+	})();
+
+	return init_promise;
+};
+
+const parse_trusted_proxy_ips = (): Set<string> => {
+	const configured = env['TRUSTED_PROXY_IPS'] ?? '';
+	const entries = configured
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+
+	return new Set(entries);
+};
+
+const trusted_proxy_ips = parse_trusted_proxy_ips();
+
+const get_server_client_ip = (event: RequestEvent): string | undefined => {
+	try {
+		const client_ip = event.getClientAddress().trim();
+		return client_ip.length ? client_ip : undefined;
+	} catch {
+		return undefined;
 	}
 };
 
 const get_client_ip = (event: RequestEvent): string => {
+	const server_ip = get_server_client_ip(event);
+
+	if (server_ip && !trusted_proxy_ips.has(server_ip)) {
+		return server_ip;
+	}
+
 	const forwarded_for = event.request.headers.get('x-forwarded-for');
-	const first_forwarded_ip = forwarded_for?.split(',')[0]?.trim();
+	const forwarded_ip = forwarded_for?.split(',')[0]?.trim();
 
-	if (first_forwarded_ip) {
-		return first_forwarded_ip;
+	if (server_ip && trusted_proxy_ips.has(server_ip) && forwarded_ip?.length) {
+		return forwarded_ip;
 	}
 
-	try {
-		return event.getClientAddress();
-	} catch {
-		return 'unknown-ip';
-	}
+	return server_ip ?? 'unknown-ip';
 };
 
 const get_scope_key = (event: RequestEvent, scope: AuthRateLimitScope): string =>
 	`${scope}:${get_client_ip(event)}`;
 
-export const consume_auth_rate_limit = (
+export const consume_auth_rate_limit = async (
 	event: RequestEvent,
 	scope: AuthRateLimitScope
-): { is_allowed: true } | { is_allowed: false; retry_after_seconds: number } => {
-	cleanup_expired_entries();
+): Promise<{ is_allowed: true } | { is_allowed: false; retry_after_seconds: number }> => {
+	await initialize_auth_rate_limit_store();
 
-	const key = get_scope_key(event, scope);
-	const now = Date.now();
-	const current = attempts_by_key.get(key);
+	const db = get_db();
+	const bucket_key = get_scope_key(event, scope);
 
-	if (!current || current.window_ends_at <= now) {
-		attempts_by_key.set(key, {
-			count: 1,
-			window_ends_at: now + WINDOW_MS
-		});
+	const upserted_rows = await db.execute<{
+		attempt_count: number;
+		retry_after_seconds: number;
+	}>(sql`
+		insert into auth_rate_limit_bucket (bucket_key, attempt_count, expires_at)
+		values (${bucket_key}, 1, now() + (${WINDOW_SECONDS} * interval '1 second'))
+		on conflict (bucket_key)
+		do update set
+			attempt_count = case
+				when auth_rate_limit_bucket.expires_at <= now() then 1
+				else auth_rate_limit_bucket.attempt_count + 1
+			end,
+			expires_at = case
+				when auth_rate_limit_bucket.expires_at <= now()
+					then now() + (${WINDOW_SECONDS} * interval '1 second')
+				else auth_rate_limit_bucket.expires_at
+			end
+		returning
+			attempt_count,
+			greatest(
+				1,
+				cast(ceil(extract(epoch from (expires_at - now()))) as integer)
+			) as retry_after_seconds
+	`);
+
+	const current_bucket = upserted_rows.rows[0];
+
+	if (!current_bucket) {
 		return { is_allowed: true };
 	}
 
-	if (current.count >= MAX_ATTEMPTS_PER_WINDOW) {
-		const retry_after_seconds = Math.max(1, Math.ceil((current.window_ends_at - now) / 1000));
-		return { is_allowed: false, retry_after_seconds };
+	if (current_bucket.attempt_count > MAX_ATTEMPTS_PER_WINDOW) {
+		return {
+			is_allowed: false,
+			retry_after_seconds: current_bucket.retry_after_seconds
+		};
 	}
-
-	attempts_by_key.set(key, {
-		count: current.count + 1,
-		window_ends_at: current.window_ends_at
-	});
 
 	return { is_allowed: true };
 };
 
-export const clear_auth_rate_limit = (event: RequestEvent, scope: AuthRateLimitScope): void => {
-	attempts_by_key.delete(get_scope_key(event, scope));
+export const clear_auth_rate_limit = async (
+	event: RequestEvent,
+	scope: AuthRateLimitScope
+): Promise<void> => {
+	await initialize_auth_rate_limit_store();
+	const db = get_db();
+	await db.execute(
+		sql`delete from auth_rate_limit_bucket where bucket_key = ${get_scope_key(event, scope)}`
+	);
 };

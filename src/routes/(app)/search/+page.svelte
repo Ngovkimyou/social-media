@@ -312,6 +312,7 @@
 		if (trimmed_query.length < 1) {
 			fast_controller?.abort();
 			full_controller?.abort();
+			active_request_id = 0;
 			users = [];
 			issearching = false;
 			isexpanding = false;
@@ -441,45 +442,52 @@
 					{/each}
 				</ul>
 			{/if}
-		{:else if issearching}
-			<p class="text-sm text-white/70">Searching users...</p>
-		{:else if isexpanding}
-			<p class="text-sm text-white/70">Loading more matches...</p>
-		{:else if error_message}
-			<p class="text-sm text-rose-300">{error_message}</p>
-		{:else if trimmed_query.length >= 1 && users.length === 0}
-			<p class="text-sm text-white/70">No users found.</p>
 		{:else}
-			<ul class="space-y-3">
-				{#each users as listed_user (listed_user.id)}
-					{@const listed_avatar = get_user_avatar_source(listed_user.image)}
-					<li>
-						<a
-							href={resolve(`/profile/${encodeURIComponent(listed_user.username)}`)}
-							onclick={() => {
-								save_recent_user(listed_user, { update_ui: false });
-							}}
-							class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 hover:border-white/25 hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:border-[#7DD4FF] focus-visible:bg-white/10 focus-visible:outline-none"
-						>
-							<ProgressiveImage
-								src={listed_avatar.src}
-								srcset={listed_avatar.srcset}
-								sizes="44px"
-								alt={`${listed_user.name} profile`}
-								wrapper_class="h-11 w-11 rounded-full border border-white/20"
-								img_class="h-11 w-11 rounded-full object-cover transition-transform duration-200 group-hover:scale-105"
-								skeleton_class="rounded-full"
-								loading="lazy"
-								decoding="async"
-							/>
-							<span
-								class="text-lg font-semibold text-white transition-colors group-hover:text-[#BDE7FF]"
-								>{listed_user.name}</span
+			{#if issearching}
+				<p class="mb-2 text-sm text-white/70">Searching users...</p>
+			{/if}
+			{#if isexpanding}
+				<p class="mb-2 text-sm text-white/70">Loading more matches...</p>
+			{/if}
+			{#if error_message}
+				<p class="mb-2 text-sm text-rose-300">{error_message}</p>
+			{/if}
+			{#if trimmed_query.length >= 1 && users.length === 0 && !issearching}
+				<p class="text-sm text-white/70">No users found.</p>
+			{/if}
+
+			{#if users.length > 0}
+				<ul class="space-y-3">
+					{#each users as listed_user (listed_user.id)}
+						{@const listed_avatar = get_user_avatar_source(listed_user.image)}
+						<li>
+							<a
+								href={resolve(`/profile/${encodeURIComponent(listed_user.username)}`)}
+								onclick={() => {
+									save_recent_user(listed_user, { update_ui: false });
+								}}
+								class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 hover:border-white/25 hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:border-[#7DD4FF] focus-visible:bg-white/10 focus-visible:outline-none"
 							>
-						</a>
-					</li>
-				{/each}
-			</ul>
+								<ProgressiveImage
+									src={listed_avatar.src}
+									srcset={listed_avatar.srcset}
+									sizes="44px"
+									alt={`${listed_user.name} profile`}
+									wrapper_class="h-11 w-11 rounded-full border border-white/20"
+									img_class="h-11 w-11 rounded-full object-cover transition-transform duration-200 group-hover:scale-105"
+									skeleton_class="rounded-full"
+									loading="lazy"
+									decoding="async"
+								/>
+								<span
+									class="text-lg font-semibold text-white transition-colors group-hover:text-[#BDE7FF]"
+									>{listed_user.name}</span
+								>
+							</a>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		{/if}
 	</div>
 </section>

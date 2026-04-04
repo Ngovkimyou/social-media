@@ -1,4 +1,4 @@
-version: '0.2'
+version: "0.2"
 language: en
 ignorePaths:
   - node_modules
@@ -14,7 +14,7 @@ ignorePaths:
   - src/lib/server/db/auth.schema.ts
   - src/stories/assets
 files:
-  - '**/*.{ts,js,svelte,json,md,yaml,yml}'
+  - "**/*.{ts,js,svelte,json,md,yaml,yml}"
 words:
   - ASUS
   - authschema
@@ -25,14 +25,18 @@ words:
   - esbuild
   - eslint
   - haha
+  - hasfollowing
   - hasnavigation
   - inlang
+  - iscloudinary
   - isexpanding
   - iskeeploading
   - isloaded
+  - ismedia
   - isnavigating
   - isnext
   - ison
+  - ispost
   - isrelationship
   - issearching
   - Kysely
@@ -42,6 +46,7 @@ words:
   - OneDrive
   - paraglide
   - playwright
+  - plpgsql
   - pooler
   - prettierrc
   - sonarjs
@@ -50,6 +55,8 @@ words:
   - sveltekit
   - SvelteKit
   - tailwindcss
+  - timestamptz
   - tsquery
   - tsvector
+  - upserted
   - vitest

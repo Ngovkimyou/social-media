@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import type { PageProps } from './$types';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
@@ -34,6 +34,7 @@
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let upload_modal_open = $state(false);
+	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 
 	const post_tiles = $derived.by(() =>
 		data['photo_urls'].map((img: string, index: number) => ({
@@ -124,6 +125,16 @@
 		profile_followers_count = data['stats'].followers_count;
 	});
 
+	$effect(() => {
+		if (!upload_modal_open) {
+			return;
+		}
+
+		void tick().then(() => {
+			upload_modal_backdrop?.focus();
+		});
+	});
+
 	function handle_file_change(event: Event) {
 		const target = event.currentTarget as HTMLInputElement | null;
 		const file = target?.files?.[0];
@@ -182,6 +193,8 @@
 			return;
 		}
 
+		const hasfollowing_before_request = isrelationship_following;
+		const previous_followers_count = profile_followers_count;
 		const isnext_following = !isrelationship_following;
 		isrelationship_following = isnext_following;
 		profile_followers_count = Math.max(0, profile_followers_count + (isnext_following ? 1 : -1));
@@ -190,7 +203,7 @@
 		relationship_sync_queue = relationship_sync_queue
 			.then(async () => {
 				const action_form_data = new FormData();
-				await fetch(action, {
+				const response = await fetch(action, {
 					method: 'POST',
 					body: action_form_data,
 					headers: {
@@ -198,9 +211,16 @@
 					},
 					credentials: 'same-origin'
 				});
+
+				if (!response.ok || response.redirected) {
+					isrelationship_following = hasfollowing_before_request;
+					profile_followers_count = previous_followers_count;
+					console.warn('Relationship sync request failed.');
+				}
 			})
 			.catch(() => {
-				// Keep UI responsive; server sync can be retried on next toggle or page reload.
+				isrelationship_following = hasfollowing_before_request;
+				profile_followers_count = previous_followers_count;
 				console.warn('Relationship sync request failed.');
 			});
 	}
@@ -598,7 +618,8 @@
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm"
 		role="dialog"
 		aria-modal="true"
-		tabindex="-1"
+		tabindex="0"
+		bind:this={upload_modal_backdrop}
 		onclick={(event) => {
 			if (event.target === event.currentTarget) {
 				close_upload_modal();
@@ -698,8 +719,8 @@
 							></textarea>
 
 							<div class="my-2 flex items-center justify-between text-slate-400">
-								<span class="text-xs">{caption.length}/2200</span>
-								{#if caption.length > 2200}
+								<span class="text-xs">{caption.length}/1000</span>
+								{#if caption.length > 1000}
 									<span class="text-xs text-rose-400">Caption exceeds maximum length!</span>
 								{/if}
 							</div>
@@ -726,11 +747,11 @@
 							<button
 								type="submit"
 								class="text-md mt-4 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-3 font-semibold text-white shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] {!selected_image ||
-								caption.length > 2200 ||
+								caption.length > 1000 ||
 								submitting_post
 									? 'cursor-not-allowed opacity-50'
 									: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
-								disabled={!selected_image || caption.length > 2200 || submitting_post}
+								disabled={!selected_image || caption.length > 1000 || submitting_post}
 							>
 								{submitting_post ? 'Posting...' : 'Post'}
 							</button>

@@ -4,7 +4,7 @@ pre-commit:
     spellcheck:
       run: pnpm spellcheck
     audit:
-      run: pnpm audit --audit-level critical
+      run: pnpm audit --audit-level high
 
     prettier:
       glob: '**/*.{css,html,js,json,jsonc,md,svelte,ts,yaml,yml}'

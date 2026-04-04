@@ -65,7 +65,7 @@ export const load: PageServerLoad = async (event) => {
 export const actions: Actions = {
 	signUpEmail: async (event) => {
 		const auth = get_auth();
-		const rate_limit = consume_auth_rate_limit(event, 'sign-up');
+		const rate_limit = await consume_auth_rate_limit(event, 'sign-up');
 		if (!rate_limit.is_allowed) {
 			return fail(429, {
 				message: `Too many sign-up attempts. Please try again in ${rate_limit.retry_after_seconds} seconds.`
@@ -75,7 +75,7 @@ export const actions: Actions = {
 		const form_data = await event.request.formData();
 		const email = form_data.get('email')?.toString().trim() ?? '';
 		const password = form_data.get('password')?.toString() ?? '';
-		const name = form_data.get('name')?.toString() ?? '';
+		const name = form_data.get('name')?.toString().trim() ?? '';
 
 		try {
 			const validation = validate_sign_up_input({ email, password, name });
@@ -100,7 +100,7 @@ export const actions: Actions = {
 			return fail(500, { message: 'Unable to create account right now. Please try again later.' });
 		}
 
-		clear_auth_rate_limit(event, 'sign-up');
+		await clear_auth_rate_limit(event, 'sign-up');
 		return redirect(302, '/home');
 	}
 };

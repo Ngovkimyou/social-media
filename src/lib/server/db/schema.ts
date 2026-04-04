@@ -180,10 +180,7 @@ export const profiles = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull()
 	},
-	(table) => [
-		uniqueIndex('profile_username_unique').on(table.username),
-		index('profile_user_id_idx').on(table.user_id)
-	]
+	(table) => [uniqueIndex('profile_username_unique').on(table.username)]
 );
 
 // Better Auth tables are generated into auth.schema.ts and re-exported here.

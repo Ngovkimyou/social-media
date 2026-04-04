@@ -11,16 +11,32 @@ import {
 const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
 const PROFILE_PAGE_CACHE_TTL_MS = 15_000;
 
+const trim_surrounding_underscores = (value: string): string => {
+	let start_index = 0;
+	let end_index = value.length;
+
+	while (start_index < end_index && value[start_index] === '_') {
+		start_index += 1;
+	}
+
+	while (end_index > start_index && value[end_index - 1] === '_') {
+		end_index -= 1;
+	}
+
+	return value.slice(start_index, end_index);
+};
+
 const slugify_username = (value: string): string => {
 	const out = value
 		.normalize('NFKC')
 		.trim()
 		.toLowerCase()
 		.replaceAll(/[^\p{L}\p{N}_]+/gu, '_')
-		.replaceAll(/^_+|_+$/g, '')
-		.slice(0, 24);
+		.slice(0, 64);
 
-	return out || 'user';
+	const normalized = trim_surrounding_underscores(out).slice(0, 24);
+
+	return normalized || 'user';
 };
 
 const is_unique_violation_error = (error: unknown): boolean =>
@@ -72,19 +88,21 @@ export const build_unique_username = async (
 export const ensure_profile_for_user = async (params: {
 	user_id: string;
 	name: string;
-}): Promise<void> => {
+}): Promise<string> => {
 	const db = get_db();
 
 	// Retry a few times to handle concurrent profile creation and username collisions.
 	for (let attempt = 0; attempt < 5; attempt += 1) {
 		const existing = await db
-			.select({ user_id: profiles.user_id })
+			.select({ user_id: profiles.user_id, username: profiles.username })
 			.from(profiles)
 			.where(eq(profiles.user_id, params.user_id))
 			.limit(1);
 
-		if (existing.length > 0) {
-			return;
+		const existing_profile = existing[0];
+
+		if (existing_profile?.username) {
+			return existing_profile.username;
 		}
 
 		const username = await build_unique_username(params.name || params.user_id, params.user_id);
@@ -103,13 +121,15 @@ export const ensure_profile_for_user = async (params: {
 				username
 			});
 
-			return;
+			return username;
 		} catch (error) {
 			// 23505 = unique_violation (e.g. concurrent username insert). Retry with a new candidate.
 			rethrow_unless_unique_violation(error);
 			continue;
 		}
 	}
+
+	throw new Error(`Failed to create profile after retries for user ${params.user_id}`);
 };
 
 export const get_profile_by_username = async (

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import type { ActionData } from './$types';
 
@@ -63,7 +64,7 @@
 				</div>
 				<div class="login-actions">
 					<button formaction="?/signUpEmail" class="login-button">Register</button>
-					<a href="/login" class="login-button login-signup-link">Back to Login</a>
+					<a href={resolve('/login')} class="login-button login-signup-link">Back to Login</a>
 				</div>
 			</form>
 			<p class="login-message" aria-live="polite">

@@ -64,7 +64,7 @@ export const name_validator = (name: string): ValidatorOutput => {
 		return { is_Valid: false, message: 'Name must not contain more than two parts' };
 	}
 
-	const name_regex = /^[a-zA-Z\s\d]+$/;
+	const name_regex = /^[a-zA-Z\s]+$/;
 	// Check if the name contains special characters
 	if (!name_regex.test(trimmed_name)) {
 		return { is_Valid: false, message: 'Name cannot contain special characters. Ex. !@#$%^&*()' };

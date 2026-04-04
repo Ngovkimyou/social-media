@@ -10,7 +10,32 @@ import { follows, media, post_media, posts, profiles } from '$lib/server/db/sche
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { upload_image_from_file } from '$lib/server/cloudinary';
+import { delete_image_by_public_id, upload_image_from_file } from '$lib/server/cloudinary';
+
+const rollback_failed_post_creation = async (params: {
+	db: ReturnType<typeof get_db>;
+	media_id: string;
+	post_id: string;
+	ismedia_created: boolean;
+	ispost_created: boolean;
+	uploaded_public_id: string;
+}): Promise<void> => {
+	const { db, media_id, post_id, ismedia_created, ispost_created, uploaded_public_id } = params;
+
+	if (ismedia_created) {
+		await db.delete(media).where(eq(media.id, media_id));
+	}
+
+	if (ispost_created) {
+		await db.delete(posts).where(eq(posts.id, post_id));
+	}
+
+	try {
+		await delete_image_by_public_id(uploaded_public_id);
+	} catch {
+		console.error('Failed to clean up Cloudinary image after post creation failure');
+	}
+};
 
 export const load = (async ({ params, locals }) => {
 	const profile_data = await get_profile_page_data(params.username, locals.user?.id);
@@ -185,10 +210,8 @@ export const actions = {
 		const db = get_db();
 		const post_id = randomUUID();
 		const media_id = randomUUID();
-		// eslint-disable-next-line @typescript-eslint/naming-convention
-		let post_created = false;
-		// eslint-disable-next-line @typescript-eslint/naming-convention
-		let media_created = false;
+		let ispost_created = false;
+		let ismedia_created = false;
 
 		try {
 			await db.insert(posts).values({
@@ -196,7 +219,7 @@ export const actions = {
 				author_id: locals.user.id,
 				content: caption || ''
 			});
-			post_created = true;
+			ispost_created = true;
 
 			await db.insert(media).values({
 				id: media_id,
@@ -204,7 +227,7 @@ export const actions = {
 				url: uploaded.secureUrl,
 				type: 'image'
 			});
-			media_created = true;
+			ismedia_created = true;
 
 			await db.insert(post_media).values({
 				post_id,
@@ -212,13 +235,14 @@ export const actions = {
 				sort_order: 0
 			});
 		} catch {
-			if (media_created) {
-				await db.delete(media).where(eq(media.id, media_id));
-			}
-
-			if (post_created) {
-				await db.delete(posts).where(eq(posts.id, post_id));
-			}
+			await rollback_failed_post_creation({
+				db,
+				media_id,
+				post_id,
+				ismedia_created,
+				ispost_created,
+				uploaded_public_id: uploaded.publicId
+			});
 
 			return fail(500, { message: 'Failed to save post. Please try again.' });
 		}

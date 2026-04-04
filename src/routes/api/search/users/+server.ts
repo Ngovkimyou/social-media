@@ -25,6 +25,7 @@ const search_response_cache = new Map<
 		users: SearchUserPayload[];
 	}
 >();
+let search_index_init_promise: Promise<void> | undefined;
 
 const clamp_limit = (raw_limit: string | null): number => {
 	const parsed = Number.parseInt(raw_limit ?? `${default_limit}`, 10);
@@ -82,7 +83,132 @@ const set_cached_search_result = (cache_key: string, users: SearchUserPayload[])
 	}
 };
 
-export const GET: RequestHandler = async ({ url }) => {
+const ensure_search_index_ready = async (): Promise<void> => {
+	if (search_index_init_promise !== undefined) {
+		await search_index_init_promise;
+		return;
+	}
+
+	search_index_init_promise = (async () => {
+		const db = get_db();
+		await db.execute(sql`
+			create table if not exists profile_search_index (
+				user_id text primary key references "user"(id) on delete cascade,
+				username text not null,
+				name text not null,
+				search_vector tsvector not null
+			)
+		`);
+
+		await db.execute(sql`
+			create index if not exists profile_search_index_search_vector_idx
+			on profile_search_index
+			using gin (search_vector)
+		`);
+
+		await db.execute(sql`
+			insert into profile_search_index (user_id, username, name, search_vector)
+			select
+				p.user_id,
+				p.username,
+				u.name,
+				to_tsvector('simple', concat_ws(' ', coalesce(p.username, ''), coalesce(u.name, '')))
+			from profile p
+			inner join "user" u on u.id = p.user_id
+			on conflict (user_id)
+			do update set
+				username = excluded.username,
+				name = excluded.name,
+				search_vector = excluded.search_vector
+		`);
+
+		await db.execute(sql`
+			create or replace function refresh_profile_search_index(target_user_id text)
+			returns void
+			language plpgsql
+			as $$
+			begin
+				delete from profile_search_index where user_id = target_user_id;
+
+				insert into profile_search_index (user_id, username, name, search_vector)
+				select
+					p.user_id,
+					p.username,
+					u.name,
+					to_tsvector('simple', concat_ws(' ', coalesce(p.username, ''), coalesce(u.name, '')))
+				from profile p
+				inner join "user" u on u.id = p.user_id
+				where p.user_id = target_user_id
+				on conflict (user_id)
+				do update set
+					username = excluded.username,
+					name = excluded.name,
+					search_vector = excluded.search_vector;
+			end;
+			$$
+		`);
+
+		await db.execute(sql`
+			create or replace function profile_search_index_profile_trigger()
+			returns trigger
+			language plpgsql
+			as $$
+			begin
+				if tg_op = 'DELETE' then
+					perform refresh_profile_search_index(old.user_id);
+					return old;
+				end if;
+
+				perform refresh_profile_search_index(new.user_id);
+				return new;
+			end;
+			$$
+		`);
+
+		await db.execute(sql`
+			create or replace function profile_search_index_user_trigger()
+			returns trigger
+			language plpgsql
+			as $$
+			begin
+				if tg_op = 'DELETE' then
+					perform refresh_profile_search_index(old.id);
+					return old;
+				end if;
+
+				perform refresh_profile_search_index(new.id);
+				return new;
+			end;
+			$$
+		`);
+
+		await db.execute(sql`
+			drop trigger if exists profile_search_index_profile_changes on profile
+		`);
+		await db.execute(sql`
+			create trigger profile_search_index_profile_changes
+			after insert or update or delete on profile
+			for each row execute function profile_search_index_profile_trigger()
+		`);
+
+		await db.execute(sql`
+			drop trigger if exists profile_search_index_user_changes on "user"
+		`);
+		await db.execute(sql`
+			create trigger profile_search_index_user_changes
+			after insert or update or delete on "user"
+			for each row execute function profile_search_index_user_trigger()
+		`);
+	})();
+
+	await search_index_init_promise;
+};
+
+export const GET: RequestHandler = async ({ url, locals }) => {
+	if (!locals.user) {
+		return json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
 	const query = url.searchParams.get('query')?.trim() ?? '';
 	const limit = clamp_limit(url.searchParams.get('limit'));
 
@@ -110,9 +236,13 @@ export const GET: RequestHandler = async ({ url }) => {
 		);
 	}
 
+	await ensure_search_index_ready();
 	const db = get_db();
-	const search_vector = sql`to_tsvector('simple', concat_ws(' ', coalesce(${profiles.username}, ''), coalesce(${user.name}, '')))`;
-	const rank_expr = sql<number>`ts_rank_cd(${search_vector}, to_tsquery('simple', ${ts_query}))`;
+	const rank_expr = sql<number>`coalesce((
+		select ts_rank_cd(psi.search_vector, to_tsquery('simple', ${ts_query}))
+		from profile_search_index psi
+		where psi.user_id = ${profiles.user_id}
+	), 0)`;
 
 	const users = await db
 		.select({
@@ -122,9 +252,17 @@ export const GET: RequestHandler = async ({ url }) => {
 			username: profiles.username,
 			rank: rank_expr
 		})
-		.from(user)
-		.innerJoin(profiles, eq(profiles.user_id, user.id))
-		.where(sql`${search_vector} @@ to_tsquery('simple', ${ts_query})`)
+		.from(profiles)
+		.innerJoin(user, eq(user.id, profiles.user_id))
+		.where(
+			sql`exists (
+				select 1
+				from profile_search_index psi
+				where
+					psi.user_id = ${profiles.user_id}
+					and psi.search_vector @@ to_tsquery('simple', ${ts_query})
+			)`
+		)
 		.orderBy(sql`${rank_expr} DESC`, user.name)
 		.limit(limit);
 

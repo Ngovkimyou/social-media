@@ -1,10 +1,10 @@
 import { env } from '$env/dynamic/private';
 import { v2 as cloudinary } from 'cloudinary';
 
-let is_cloudinary_configured = false;
+let iscloudinary_configured = false;
 
 const ensure_cloudinary_configured = (): void => {
-	if (is_cloudinary_configured) {
+	if (iscloudinary_configured) {
 		return;
 	}
 
@@ -24,7 +24,7 @@ const ensure_cloudinary_configured = (): void => {
 		api_secret
 	});
 
-	is_cloudinary_configured = true;
+	iscloudinary_configured = true;
 };
 
 export type UploadImageOptions = {
@@ -81,5 +81,12 @@ export function get_optimized_image_url(public_id: string): string {
 	return cloudinary.url(public_id, {
 		fetch_format: 'auto',
 		quality: 'auto'
+	});
+}
+
+export async function delete_image_by_public_id(public_id: string): Promise<void> {
+	ensure_cloudinary_configured();
+	await cloudinary.uploader.destroy(public_id, {
+		resource_type: 'image'
 	});
 }

@@ -22,7 +22,7 @@
 		"build": "vite build --configLoader native",
 		"preview": "vite preview --configLoader native",
 		"prepare": "lefthook install",
-		"auth:schema": "pnpm dlx @better-auth/cli@1.4.22 better-auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes",
+		"auth:schema": "pnpm dlx @better-auth/cli@1.5.6 better-auth generate --config src/lib/server/auth.ts --output src/lib/server/db/auth.schema.ts --yes",
 		"paraglide:compile": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
 		"check:ci": "pnpm run paraglide:compile && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "pnpm run paraglide:compile && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",

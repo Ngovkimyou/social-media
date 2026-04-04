@@ -6,9 +6,10 @@
 	const active_path = $derived(page.url.pathname);
 	const home_href = resolve('/home');
 	const search_href = resolve('/search');
+	const profile_href = resolve('/profile');
 	const ison_home = $derived(active_path === home_href);
 	const ison_search = $derived(active_path === search_href);
-	const ison_profile = $derived(active_path.startsWith('/profile'));
+	const ison_profile = $derived(active_path.startsWith(profile_href));
 	const glow_base =
 		"before:content-[''] before:absolute before:inset-0 before:rounded-full before:bg-[radial-gradient(circle,rgba(210,150,255,0.95)_0%,rgba(146,95,255,0.55)_65%,rgba(146,95,255,0.2)_100%)] before:shadow-[0_0_24px_rgba(180,120,255,0.7)] before:transition-all before:duration-300 before:ease-out";
 	const glow_off = 'before:opacity-0 before:scale-90';

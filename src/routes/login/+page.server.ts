@@ -54,7 +54,7 @@ export const load: PageServerLoad = async (event) => {
 export const actions: Actions = {
 	signInEmail: async (event) => {
 		const auth = get_auth();
-		const rate_limit = consume_auth_rate_limit(event, 'sign-in');
+		const rate_limit = await consume_auth_rate_limit(event, 'sign-in');
 		if (!rate_limit.is_allowed) {
 			return fail(429, {
 				message: `Too many login attempts. Please try again in ${rate_limit.retry_after_seconds} seconds.`
@@ -87,7 +87,7 @@ export const actions: Actions = {
 			return fail(500, { message: 'Unable to sign in right now. Please try again later.' });
 		}
 
-		clear_auth_rate_limit(event, 'sign-in');
+		await clear_auth_rate_limit(event, 'sign-in');
 		return redirect(302, '/home');
 	}
 };
