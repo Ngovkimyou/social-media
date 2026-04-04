@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import type { ActionData } from './$types';
 	const { form }: { form: ActionData } = $props();
@@ -42,7 +41,7 @@
 				</div>
 				<div class="login-actions">
 					<button formaction="?/signInEmail" class="login-button">Login</button>
-					<a href={resolve('/sign-up')} class="login-button login-signup-link">Sign Up</a>
+					<a href="/sign-up" class="login-button login-signup-link">Sign Up</a>
 				</div>
 			</form>
 			<p class="login-message" aria-live="polite">
