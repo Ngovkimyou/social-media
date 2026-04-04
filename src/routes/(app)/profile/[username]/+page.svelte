@@ -43,7 +43,7 @@
 				widths: [360, 540, 720, 960, 1200],
 				height: 'match-width',
 				fit: 'lfill',
-				quality: 'auto'
+				quality: 100
 			})
 		}))
 	);
@@ -59,7 +59,7 @@
 		build_responsive_image_source(profile_cover, {
 			widths: [960, 1280, 1600, 1920, 2560],
 			fit: 'lfill',
-			quality: 'auto'
+			quality: 100
 		})
 	);
 	const profile_avatar_source = $derived(
@@ -68,7 +68,7 @@
 					widths: [128, 192, 256, 384, 512, 640],
 					height: 'match-width',
 					fit: 'lfill',
-					quality: 'auto'
+					quality: 100
 				})
 			: undefined
 	);
