@@ -22,16 +22,20 @@
 <!-- Top Tab (scrolls naturally) -->
 <div class="flex h-18 w-full items-center justify-between bg-[#09051C] px-6 md:hidden">
 	<a href={home_href} class="cursor-pointer transition-opacity hover:opacity-80">
-		<img src="/images/Space-and-Time-logo.png" alt="Space and Time Logo" class="h-12" />
+		<img
+			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
+			alt="Space and Time Logo"
+			class="h-12"
+		/>
 	</a>
 	<div class="flex items-center gap-6">
 		<img
-			src="/images/dark-mode.png"
+			src="/images/sidebar-and-search/dark-mode.avif"
 			alt="dark/light mode switch icon"
 			class="h-8 transition-opacity hover:opacity-80"
 		/>
 		<img
-			src="/images/more-setting.png"
+			src="/images/sidebar-and-search/more-setting.avif"
 			alt="More Settings"
 			class="h-8 transition-opacity hover:opacity-80"
 		/>
@@ -44,21 +48,25 @@
 >
 	<div class="flex w-full items-center justify-around">
 		<button class="relative grid h-14 w-14 place-items-center" type="button" aria-label="Settings">
-			<img src="/images/setting.png" alt="Settings" class="h-8 opacity-80" />
+			<img src="/images/sidebar-and-search/setting.avif" alt="Settings" class="h-8 opacity-80" />
 		</button>
 
 		<a
 			href={search_href}
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_search ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
-			<img src="/images/search.png" alt="Search" class="relative z-10 h-8" />
+			<img src="/images/sidebar-and-search/search.avif" alt="Search" class="relative z-10 h-8" />
 		</a>
 
 		<a
 			href={home_href}
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_home ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
-			<img src="/images/home-page-icon.png" alt="Home Screen" class="relative z-10 h-8" />
+			<img
+				src="/images/sidebar-and-search/home-page-icon.avif"
+				alt="Home Screen"
+				class="relative z-10 h-8"
+			/>
 		</a>
 
 		<button
@@ -66,7 +74,11 @@
 			type="button"
 			aria-label="Send Messages"
 		>
-			<img src="/images/open-messages.png" alt="Send Messages icon" class="h-8 opacity-80" />
+			<img
+				src="/images/sidebar-and-search/open-messages.avif"
+				alt="Send Messages icon"
+				class="h-8 opacity-80"
+			/>
 		</button>
 
 		<a
@@ -74,7 +86,11 @@
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
 			aria-label="Profile"
 		>
-			<img src="/images/go-to-profile.png" alt="Profile icon" class="h-8 opacity-80" />
+			<img
+				src="/images/sidebar-and-search/go-to-profile.avif"
+				alt="Profile icon"
+				class="h-8 opacity-80"
+			/>
 		</a>
 	</div>
 </nav>
@@ -84,51 +100,67 @@
 	class="fixed top-0 left-0 hidden h-screen w-72 flex-col gap-15 bg-[#09051C] p-6 text-white md:flex"
 >
 	<a href={home_href} class="block w-fit self-center transition-opacity hover:opacity-80">
-		<img src="/images/Space-and-Time-logo.png" alt="Space and Time Logo" class="h-16" />
+		<img
+			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
+			alt="Space and Time Logo"
+			class="h-16"
+		/>
 	</a>
 
 	<button
 		type="button"
 		class="flex items-center gap-3 rounded-xl px-3 py-2 text-left text-lg font-semibold text-white/90 transition-colors hover:bg-white/6"
 	>
-		<img src="/images/expand-tab.png" alt="Close Tab icon" class="h-6 w-6" />
+		<img src="/images/sidebar-and-search/expand-tab.avif" alt="Close Tab icon" class="h-6 w-6" />
 		<span>Close Tab</span>
 	</button>
 
 	<nav class="space-y-2">
 		<a href={home_href} class={`${nav_link_base} ${ison_home ? active_link : ''}`}>
-			<img src="/images/home-page-icon.png" alt="Home Page icon" class="h-6 w-6" />
+			<img
+				src="/images/sidebar-and-search/home-page-icon.avif"
+				alt="Home Page icon"
+				class="h-6 w-6"
+			/>
 			<span class="text-lg font-semibold">Home</span>
 		</a>
 
 		<a href={search_href} class={`${nav_link_base} ${ison_search ? active_link : ''}`}>
-			<img src="/images/search.png" alt="Search icon" class="h-6 w-6" />
+			<img src="/images/sidebar-and-search/search.avif" alt="Search icon" class="h-6 w-6" />
 			<span class="text-lg font-semibold">Search</span>
 		</a>
 
 		<a href={profile_href} class={`${nav_link_base} ${ison_profile ? active_link : ''}`}>
-			<img src="/images/go-to-profile.png" alt="Profile icon" class="h-6 w-6" />
+			<img src="/images/sidebar-and-search/go-to-profile.avif" alt="Profile icon" class="h-6 w-6" />
 			<span class="text-lg font-semibold">Profile</span>
 		</a>
 
 		<button type="button" class={nav_link_base}>
-			<img src="/images/open-messages.png" alt="Messages icon" class="h-6 w-6" />
+			<img
+				src="/images/sidebar-and-search/open-messages.avif"
+				alt="Messages icon"
+				class="h-6 w-6"
+			/>
 			<span class="text-lg font-semibold">Message</span>
 		</button>
 
 		<button type="button" class={nav_link_base}>
-			<img src="/images/setting.png" alt="Settings icon" class="h-6 w-6" />
+			<img src="/images/sidebar-and-search/setting.avif" alt="Settings icon" class="h-6 w-6" />
 			<span class="text-lg font-semibold">Setting</span>
 		</button>
 
 		<button type="button" class={nav_link_base}>
-			<img src="/images/change-theme-icon.png" alt="Change Theme icon" class="h-6 w-6" />
+			<img
+				src="/images/sidebar-and-search/change-theme-icon.avif"
+				alt="Change Theme icon"
+				class="h-6 w-6"
+			/>
 			<span class="text-lg font-semibold">Theme</span>
 		</button>
 
 		<button type="button" class={nav_link_base}>
 			<img
-				src="/images/about-this-account-icon.png"
+				src="/images/sidebar-and-search/about-this-account-icon.avif"
 				alt="About this Account icon"
 				class="h-6 w-6"
 			/>
@@ -142,7 +174,11 @@
 			class="rounded-xl p-2 transition-colors duration-200 hover:bg-white/6"
 			aria-label="Toggle theme"
 		>
-			<img src="/images/dark-mode.png" alt="Toggle light/dark mode icon" class="h-7 w-7" />
+			<img
+				src="/images/sidebar-and-search/dark-mode.avif"
+				alt="Toggle light/dark mode icon"
+				class="h-7 w-7"
+			/>
 		</button>
 	</div>
 </aside>

@@ -5,18 +5,18 @@
 
 	const cover_image = 'https://images.unsplash.com/photo-1519681393784-d120267933ba';
 	const about_icons = {
-		location: '/img/profile/Address.png',
-		email: '/img/profile/Gmail.png',
-		phone: '/img/profile/Phone.png',
-		add: '/img/profile/Add.png'
+		location: '/images/profile/Address.avif',
+		email: '/images/profile/Gmail.avif',
+		phone: '/images/profile/Phone.avif',
+		add: '/images/profile/Add.avif'
 	};
 
 	const profile_icons = {
-		share: '/img/profile/share-account.png',
-		edit: '/img/profile/edit-profile.png',
-		settings: '/img/profile/setting.png',
-		relationship: '/img/profile/add-friend.png',
-		message: '/img/profile/send-message-icon.png'
+		share: '/images/profile/share-account.avif',
+		edit: '/images/profile/edit-profile.avif',
+		settings: '/images/profile/setting.avif',
+		relationship: '/images/profile/add-friend.avif',
+		message: '/images/profile/send-message-icon.avif'
 	};
 
 	const profile_about = $derived(

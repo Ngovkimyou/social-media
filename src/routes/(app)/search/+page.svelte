@@ -209,7 +209,11 @@
 		<div
 			class="relative flex items-center gap-3 rounded-2xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] px-4 py-3 shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px]"
 		>
-			<img src="/images/search.png" alt="Search icon" class="h-5 w-5 opacity-90" />
+			<img
+				src="/images/sidebar-and-search/search.avif"
+				alt="Search icon"
+				class="h-5 w-5 opacity-90"
+			/>
 			<input
 				id="search-users"
 				bind:value={query}
@@ -251,7 +255,7 @@
 					<li>
 						<div class="flex items-center gap-3 rounded-xl px-1 py-1">
 							<img
-								src={listed_user.image || '/images/go-to-profile.png'}
+								src={listed_user.image || '/images/sidebar-and-search/go-to-profile.avif'}
 								alt={`${listed_user.name} profile`}
 								class="h-11 w-11 rounded-full border border-white/20 object-cover"
 							/>
