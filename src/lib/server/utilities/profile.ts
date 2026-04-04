@@ -2,6 +2,14 @@ import { and, count, desc, eq, isNull, ne } from 'drizzle-orm';
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { get_db } from '$lib/server/db';
 import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
+import {
+	get_or_set_short_ttl_cache,
+	invalidate_short_ttl_cache_key,
+	invalidate_short_ttl_cache_prefix
+} from '$lib/server/utilities/short-ttl-cache';
+
+const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
+const PROFILE_PAGE_CACHE_TTL_MS = 15_000;
 
 const slugify_username = (value: string): string => {
 	const out = value
@@ -90,6 +98,11 @@ export const ensure_profile_for_user = async (params: {
 				})
 				.onConflictDoNothing({ target: profiles.user_id });
 
+			invalidate_profile_cache({
+				profile_user_id: params.user_id,
+				username
+			});
+
 			return;
 		} catch (error) {
 			// 23505 = unique_violation (e.g. concurrent username insert). Retry with a new candidate.
@@ -142,15 +155,18 @@ export const get_profile_by_username = async (
 export const get_profile_username_by_user_id = async (
 	user_id: string
 ): Promise<string | undefined> => {
-	const db = get_db();
+	const cache_key = `profile:username-by-user-id:${user_id}`;
 
-	const rows = await db
-		.select({ username: profiles.username })
-		.from(profiles)
-		.where(eq(profiles.user_id, user_id))
-		.limit(1);
+	return get_or_set_short_ttl_cache(cache_key, PROFILE_USERNAME_CACHE_TTL_MS, async () => {
+		const db = get_db();
+		const rows = await db
+			.select({ username: profiles.username })
+			.from(profiles)
+			.where(eq(profiles.user_id, user_id))
+			.limit(1);
 
-	return rows[0]?.username;
+		return rows[0]?.username;
+	});
 };
 
 type ProfilePageData = {
@@ -205,7 +221,7 @@ const get_relationship = async (
 	};
 };
 
-export const get_profile_page_data = async (
+const load_profile_page_data = async (
 	username: string,
 	viewer_user_id?: string
 ): Promise<ProfilePageData | undefined> => {
@@ -251,4 +267,29 @@ export const get_profile_page_data = async (
 		relationship,
 		photo_urls
 	};
+};
+
+export const get_profile_page_data = async (
+	username: string,
+	viewer_user_id?: string
+): Promise<ProfilePageData | undefined> => {
+	const viewer_key = viewer_user_id ?? 'anon';
+	const cache_key = `profile:page:${username}:${viewer_key}`;
+
+	return get_or_set_short_ttl_cache(cache_key, PROFILE_PAGE_CACHE_TTL_MS, async () =>
+		load_profile_page_data(username, viewer_user_id)
+	);
+};
+
+export const invalidate_profile_cache = (params: {
+	profile_user_id?: string;
+	username?: string;
+}): void => {
+	if (params.profile_user_id) {
+		invalidate_short_ttl_cache_key(`profile:username-by-user-id:${params.profile_user_id}`);
+	}
+
+	if (params.username) {
+		invalidate_short_ttl_cache_prefix(`profile:page:${params.username}:`);
+	}
 };

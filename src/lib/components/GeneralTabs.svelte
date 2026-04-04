@@ -45,6 +45,7 @@
 <!-- Bottom Tab (fixed) -->
 <nav
 	class="fixed right-0 bottom-0 left-0 z-50 flex h-18 w-full items-center justify-center bg-[#09051C] md:hidden"
+	data-sveltekit-preload-code="viewport"
 >
 	<div class="flex w-full items-center justify-around">
 		<button class="relative grid h-14 w-14 place-items-center" type="button" aria-label="Settings">
@@ -53,6 +54,7 @@
 
 		<a
 			href={search_href}
+			data-sveltekit-preload-data="tap"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_search ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
 			<img src="/images/sidebar-and-search/search.avif" alt="Search" class="relative z-10 h-8" />
@@ -60,6 +62,7 @@
 
 		<a
 			href={home_href}
+			data-sveltekit-preload-data="tap"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_home ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
 			<img
@@ -103,6 +106,7 @@
 <!-- Desktop Sidebar -->
 <aside
 	class="fixed top-0 left-0 hidden h-screen w-72 flex-col gap-15 bg-[#09051C] p-6 text-white md:flex"
+	data-sveltekit-preload-code="viewport"
 >
 	<a href={home_href} class="block w-fit self-center transition-opacity hover:opacity-80">
 		<img
@@ -121,7 +125,11 @@
 	</button>
 
 	<nav class="space-y-2">
-		<a href={home_href} class={`${nav_link_base} ${ison_home ? active_link : ''}`}>
+		<a
+			href={home_href}
+			data-sveltekit-preload-data="tap"
+			class={`${nav_link_base} ${ison_home ? active_link : ''}`}
+		>
 			<img
 				src="/images/sidebar-and-search/home-page-icon.avif"
 				alt="Home Page icon"
@@ -130,7 +138,11 @@
 			<span class="text-lg font-semibold">Home</span>
 		</a>
 
-		<a href={search_href} class={`${nav_link_base} ${ison_search ? active_link : ''}`}>
+		<a
+			href={search_href}
+			data-sveltekit-preload-data="tap"
+			class={`${nav_link_base} ${ison_search ? active_link : ''}`}
+		>
 			<img src="/images/sidebar-and-search/search.avif" alt="Search icon" class="h-6 w-6" />
 			<span class="text-lg font-semibold">Search</span>
 		</a>

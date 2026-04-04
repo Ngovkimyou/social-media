@@ -3,6 +3,8 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { PageData } from './$types';
+	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
+	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
 
 	type SearchUser = {
 		id: string;
@@ -27,6 +29,7 @@
 	const get_recent_storage_key = (): string => `recent-search-users:${data['user_id']}`;
 	const max_recent_users = 15;
 	const generic_username_pattern = /^user(?:_\d+)?$/i;
+	const fallback_avatar = '/images/sidebar-and-search/go-to-profile.avif';
 
 	const search_cache = new SvelteMap<string, SearchUser[]>();
 
@@ -213,6 +216,13 @@
 		return recent_user.username;
 	};
 
+	const get_user_avatar_source = (image_url: string | null): { src: string; srcset?: string } =>
+		build_responsive_image_source(image_url ?? fallback_avatar, {
+			widths: [64, 96, 128],
+			height: 128,
+			fit: 'fill'
+		});
+
 	const remove_recent_user = (username: string): void => {
 		const next_recent_users = recent_users.filter(
 			(recent_user) => recent_user.username !== username
@@ -310,6 +320,8 @@
 				src="/images/sidebar-and-search/search.avif"
 				alt="Search icon"
 				class="h-5 w-5 opacity-90"
+				loading="eager"
+				decoding="async"
 			/>
 			<input
 				id="search-users"
@@ -353,6 +365,7 @@
 			{#if has_recent_users}
 				<ul class="space-y-3">
 					{#each recent_users as recent_user (recent_user.username)}
+						{@const recent_avatar = get_user_avatar_source(recent_user.image)}
 						<li>
 							<div
 								class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 focus-within:border-[#7DD4FF] focus-within:bg-white/10 hover:border-[#CD82FF] hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
@@ -364,10 +377,16 @@
 									}}
 									class="flex min-w-0 flex-1 items-center gap-3 outline-none"
 								>
-									<img
-										src={recent_user.image || '/images/sidebar-and-search/go-to-profile.avif'}
+									<ProgressiveImage
+										src={recent_avatar.src}
+										srcset={recent_avatar.srcset}
+										sizes="44px"
 										alt={`${recent_user.name} profile`}
-										class="h-11 w-11 rounded-full border border-white/20 object-cover transition-transform duration-200 group-hover:scale-105"
+										wrapper_class="h-11 w-11 rounded-full border border-white/20"
+										img_class="h-11 w-11 rounded-full object-cover transition-transform duration-200 group-hover:scale-105"
+										skeleton_class="rounded-full"
+										loading="lazy"
+										decoding="async"
 									/>
 									<span
 										class="truncate text-lg font-semibold text-white transition-colors group-hover:text-[#7DD4FF]"
@@ -400,6 +419,7 @@
 		{:else}
 			<ul class="space-y-3">
 				{#each users as listed_user (listed_user.id)}
+					{@const listed_avatar = get_user_avatar_source(listed_user.image)}
 					<li>
 						<a
 							href={resolve(`/profile/${encodeURIComponent(listed_user.username)}`)}
@@ -408,10 +428,16 @@
 							}}
 							class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 hover:border-white/25 hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:border-[#7DD4FF] focus-visible:bg-white/10 focus-visible:outline-none"
 						>
-							<img
-								src={listed_user.image || '/images/sidebar-and-search/go-to-profile.avif'}
+							<ProgressiveImage
+								src={listed_avatar.src}
+								srcset={listed_avatar.srcset}
+								sizes="44px"
 								alt={`${listed_user.name} profile`}
-								class="h-11 w-11 rounded-full border border-white/20 object-cover transition-transform duration-200 group-hover:scale-105"
+								wrapper_class="h-11 w-11 rounded-full border border-white/20"
+								img_class="h-11 w-11 rounded-full object-cover transition-transform duration-200 group-hover:scale-105"
+								skeleton_class="rounded-full"
+								loading="lazy"
+								decoding="async"
 							/>
 							<span
 								class="text-lg font-semibold text-white transition-colors group-hover:text-[#BDE7FF]"

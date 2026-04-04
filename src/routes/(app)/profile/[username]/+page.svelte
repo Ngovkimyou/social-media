@@ -1,9 +1,13 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import type { PageProps } from './$types';
+	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
+	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
 
 	const { data, form }: PageProps = $props();
 
-	const cover_image = 'https://images.unsplash.com/photo-1519681393784-d120267933ba';
+	const cover_image =
+		'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=1600&q=75';
 	const about_icons = {
 		location: '/images/profile/Address.avif',
 		email: '/images/profile/Gmail.avif',
@@ -31,7 +35,15 @@
 	let upload_modal_open = $state(false);
 
 	const post_tiles = $derived.by(() =>
-		data['photo_urls'].map((img: string, index: number) => ({ id: index + 1, img }))
+		data['photo_urls'].map((img: string, index: number) => ({
+			id: index + 1,
+			image: build_responsive_image_source(img, {
+				widths: [360, 540, 720, 960, 1200],
+				height: 'match-width',
+				fit: 'lfill',
+				quality: 'auto'
+			})
+		}))
 	);
 
 	// eslint-disable-next-line @typescript-eslint/naming-convention
@@ -41,6 +53,23 @@
 	const profile_display_name = $derived(data['profile'].name ?? data['profile'].username);
 	const profile_avatar = $derived(data['profile'].image);
 	const profile_cover = $derived(data['profile'].cover_image ?? cover_image);
+	const profile_cover_source = $derived(
+		build_responsive_image_source(profile_cover, {
+			widths: [960, 1280, 1600, 1920, 2560],
+			fit: 'lfill',
+			quality: 'auto'
+		})
+	);
+	const profile_avatar_source = $derived(
+		profile_avatar
+			? build_responsive_image_source(profile_avatar, {
+					widths: [128, 192, 256, 384, 512, 640],
+					height: 'match-width',
+					fit: 'lfill',
+					quality: 'auto'
+				})
+			: undefined
+	);
 
 	function open_upload_modal() {
 		submitting_post = false;
@@ -63,6 +92,10 @@
 		const target = event.currentTarget as HTMLInputElement | null;
 		const file = target?.files?.[0];
 
+		if (image_src) {
+			URL.revokeObjectURL(image_src);
+		}
+
 		if (file) {
 			selected_image = file;
 			image_src = URL.createObjectURL(file);
@@ -74,6 +107,10 @@
 	}
 
 	function remove_image() {
+		if (image_src) {
+			URL.revokeObjectURL(image_src);
+		}
+
 		selected_image = undefined;
 		image_src = '';
 
@@ -143,10 +180,25 @@
 			share_feedback = '';
 		}, 2500);
 	}
+
+	onDestroy(() => {
+		if (image_src) {
+			URL.revokeObjectURL(image_src);
+		}
+	});
 </script>
 
 <svelte:head>
 	<title>Profile | Space and Time</title>
+	<link rel="preload" as="image" href={profile_cover_source.src} fetchpriority="high" />
+	{#if profile_avatar}
+		<link
+			rel="preload"
+			as="image"
+			href={profile_avatar_source?.src ?? profile_avatar}
+			fetchpriority="high"
+		/>
+	{/if}
 </svelte:head>
 
 <div
@@ -155,7 +207,18 @@
 	<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
 		<div class="relative h-56 w-full md:h-74">
 			<div class="relative h-full w-full overflow-hidden rounded-3xl">
-				<img src={profile_cover} alt="Cover" class="h-full w-full object-cover" />
+				<ProgressiveImage
+					src={profile_cover_source.src}
+					srcset={profile_cover_source.srcset}
+					sizes="(max-width: 768px) 100vw, 960px"
+					alt="Cover"
+					wrapper_class="h-full w-full"
+					img_class="h-full w-full object-cover"
+					skeleton_class="rounded-3xl"
+					loading="eager"
+					decoding="async"
+					fetchpriority="high"
+				/>
 
 				{#if data['relationship'].is_own_profile}
 					<form
@@ -191,12 +254,19 @@
 					<div
 						class="relative z-10 h-full w-full overflow-hidden rounded-full border-5 border-[#0a0b1e] bg-[#1b1c31] lg:border-7"
 					>
-						<img
-							src={data['profile'].image}
+						<ProgressiveImage
+							src={profile_avatar_source?.src ?? data['profile'].image}
+							srcset={profile_avatar_source?.srcset}
+							sizes="(max-width: 768px) 128px, 192px"
 							alt={data['profile'].name
 								? `${data['profile'].name} avatar`
 								: `${data['profile'].username} avatar`}
-							class="h-full w-full object-cover"
+							wrapper_class="h-full w-full rounded-full"
+							img_class="h-full w-full rounded-full object-cover"
+							skeleton_class="rounded-full"
+							loading="eager"
+							decoding="async"
+							fetchpriority="high"
 						/>
 					</div>
 				{:else}
@@ -429,7 +499,10 @@
 		</div>
 
 		{#if active_tab === 'posts'}
-			<div class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-8 md:gap-3">
+			<div
+				class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-8 md:gap-3"
+				style="content-visibility:auto; contain-intrinsic-size: 720px;"
+			>
 				{#if data['relationship'].is_own_profile}
 					<button
 						type="button"
@@ -444,7 +517,17 @@
 					<div
 						class="aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
 					>
-						<img src={post.img} alt="Post" class="h-full w-full object-cover" loading="lazy" />
+						<ProgressiveImage
+							src={post.image.src}
+							srcset={post.image.srcset}
+							sizes="(max-width: 768px) 33vw, (max-width: 1280px) 30vw, 360px"
+							alt="Post"
+							wrapper_class="h-full w-full"
+							img_class="h-full w-full object-cover"
+							skeleton_class="rounded-xl md:rounded-2xl"
+							loading="lazy"
+							decoding="async"
+						/>
 					</div>
 				{/each}
 			</div>
@@ -513,7 +596,12 @@
 						<div
 							class="relative flex min-h-96 w-full items-center justify-center border-r border-white/40 bg-[#18191a] md:min-h-0 md:w-1/2"
 						>
-							<img src={image_src} alt="Preview" class="h-100 w-full object-cover" />
+							<img
+								src={image_src}
+								alt="Preview"
+								class="h-100 w-full object-cover"
+								decoding="async"
+							/>
 
 							<button
 								type="button"
@@ -532,9 +620,13 @@
 							>
 								{#if profile_avatar}
 									<img
-										src={profile_avatar}
+										src={profile_avatar_source?.src ?? profile_avatar}
+										srcset={profile_avatar_source?.srcset}
+										sizes="40px"
 										alt={`${profile_display_name} avatar`}
 										class="h-full w-full object-cover"
+										loading="lazy"
+										decoding="async"
 									/>
 								{:else}
 									<span>{data['profile'].username.slice(0, 1).toUpperCase()}</span>

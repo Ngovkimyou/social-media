@@ -1,6 +1,10 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { get_profile_page_data } from '$lib/server/utilities/profile';
+import {
+	get_profile_page_data,
+	get_profile_username_by_user_id,
+	invalidate_profile_cache
+} from '$lib/server/utilities/profile';
 import { get_db } from '$lib/server/db';
 import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import { user as auth_user } from '$lib/server/db/auth.schema';
@@ -67,6 +71,11 @@ export const actions = {
 			.set({ cover_image: uploaded.secureUrl })
 			.where(eq(profiles.user_id, locals.user.id));
 
+		invalidate_profile_cache({
+			profile_user_id: locals.user.id,
+			username: params.username
+		});
+
 		throw redirect(303, `/profile/${params.username}`);
 	},
 
@@ -117,6 +126,11 @@ export const actions = {
 			.update(auth_user)
 			.set({ image: uploaded.secureUrl })
 			.where(eq(auth_user.id, locals.user.id));
+
+		invalidate_profile_cache({
+			profile_user_id: locals.user.id,
+			username: params.username
+		});
 
 		throw redirect(303, `/profile/${params.username}`);
 	},
@@ -209,6 +223,11 @@ export const actions = {
 			return fail(500, { message: 'Failed to save post. Please try again.' });
 		}
 
+		invalidate_profile_cache({
+			profile_user_id: locals.user.id,
+			username: params.username
+		});
+
 		throw redirect(303, `/profile/${params.username}`);
 	},
 	follow: async ({ locals, params }) => {
@@ -235,6 +254,17 @@ export const actions = {
 			})
 			.onConflictDoNothing();
 
+		invalidate_profile_cache({ username: params.username });
+
+		const viewer_username = await get_profile_username_by_user_id(locals.user.id);
+
+		if (viewer_username) {
+			invalidate_profile_cache({
+				profile_user_id: locals.user.id,
+				username: viewer_username
+			});
+		}
+
 		throw redirect(303, `/profile/${params.username}`);
 	},
 	unfollow: async ({ locals, params }) => {
@@ -257,6 +287,17 @@ export const actions = {
 					eq(follows.following_id, profile_data.profile.user_id)
 				)
 			);
+
+		invalidate_profile_cache({ username: params.username });
+
+		const viewer_username = await get_profile_username_by_user_id(locals.user.id);
+
+		if (viewer_username) {
+			invalidate_profile_cache({
+				profile_user_id: locals.user.id,
+				username: viewer_username
+			});
+		}
 
 		throw redirect(303, `/profile/${params.username}`);
 	}
