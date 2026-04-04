@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { get_profile_page_data } from '$lib/server/utility/profile';
+import { get_profile_page_data } from '$lib/server/utilities/profile';
 import { get_db } from '$lib/server/db';
 import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import { user as auth_user } from '$lib/server/db/auth.schema';

@@ -146,7 +146,7 @@
 </script>
 
 <svelte:head>
-	<title>{data['profile'].name ?? data['profile'].username} (@{data['profile'].username})</title>
+	<title>Profile | Space and Time</title>
 </svelte:head>
 
 <div

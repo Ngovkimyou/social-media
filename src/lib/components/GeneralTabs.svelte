@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	const { profile_username = '' }: { profile_username: string } = $props();
 
 	const active_path = $derived(page.url.pathname);
 	const home_href = resolve('/home');
 	const search_href = resolve('/search');
-	const profile_href = resolve('/profile');
 	const ison_home = $derived(active_path === home_href);
 	const ison_search = $derived(active_path === search_href);
 	const ison_profile = $derived(active_path.startsWith('/profile'));
@@ -82,7 +82,12 @@
 		</button>
 
 		<a
-			href={profile_href}
+			href={resolve(
+				profile_username.length > 0
+					? `/profile/${encodeURIComponent(profile_username)}`
+					: '/profile'
+			)}
+			data-sveltekit-preload-data="tap"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
 			aria-label="Profile"
 		>
@@ -130,7 +135,15 @@
 			<span class="text-lg font-semibold">Search</span>
 		</a>
 
-		<a href={profile_href} class={`${nav_link_base} ${ison_profile ? active_link : ''}`}>
+		<a
+			href={resolve(
+				profile_username.length > 0
+					? `/profile/${encodeURIComponent(profile_username)}`
+					: '/profile'
+			)}
+			data-sveltekit-preload-data="tap"
+			class={`${nav_link_base} ${ison_profile ? active_link : ''}`}
+		>
 			<img src="/images/sidebar-and-search/go-to-profile.avif" alt="Profile icon" class="h-6 w-6" />
 			<span class="text-lg font-semibold">Profile</span>
 		</a>

@@ -3,7 +3,7 @@ import { profiles, user } from '$lib/server/db/schema';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { ensure_profile_for_user } from '$lib/server/utility/profile';
+import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 
 const token_pattern = /[^\p{L}\p{N}_]+/gu;
 const default_limit = 25;

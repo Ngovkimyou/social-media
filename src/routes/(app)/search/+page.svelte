@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { onDestroy, onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import type { PageData } from './$types';
 
 	type SearchUser = {
 		id: string;
@@ -10,6 +11,7 @@
 		username: string;
 	};
 	type RecentUser = Pick<SearchUser, 'id' | 'name' | 'image' | 'username'>;
+	const { data }: { data: PageData } = $props();
 
 	let query = $state('');
 	let users = $state<SearchUser[]>([]);
@@ -22,7 +24,7 @@
 	let fast_controller: AbortController | undefined;
 	let full_controller: AbortController | undefined;
 	let active_request_id = 0;
-	const recent_storage_key = 'recent-search-users';
+	const get_recent_storage_key = (): string => `recent-search-users:${data['user_id']}`;
 	const max_recent_users = 15;
 	const generic_username_pattern = /^user(?:_\d+)?$/i;
 
@@ -175,7 +177,7 @@
 
 	const persist_recent_users = (next_recent_users: RecentUser[]) => {
 		try {
-			localStorage.setItem(recent_storage_key, JSON.stringify(next_recent_users));
+			localStorage.setItem(get_recent_storage_key(), JSON.stringify(next_recent_users));
 		} catch {
 			// Ignore localStorage failures in restricted browsing modes.
 		}
@@ -226,7 +228,7 @@
 
 	onMount(() => {
 		try {
-			const raw_recent_users = localStorage.getItem(recent_storage_key);
+			const raw_recent_users = localStorage.getItem(get_recent_storage_key());
 
 			if (!raw_recent_users) {
 				return;

@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import {
 	ensure_profile_for_user,
 	get_profile_username_by_user_id
-} from '$lib/server/utility/profile';
+} from '$lib/server/utilities/profile';
 
 export const load = (async ({ locals }) => {
 	if (!locals.user) {

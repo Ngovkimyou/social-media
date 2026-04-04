@@ -216,29 +216,30 @@ export const get_profile_page_data = async (
 		return undefined;
 	}
 
-	const [post_count_row, followers_count_row, following_count_row] = await Promise.all([
+	const [counts, photo_rows, relationship] = await Promise.all([
+		Promise.all([
+			db
+				.select({ value: count() })
+				.from(posts)
+				.where(and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at))),
+			db.select({ value: count() }).from(follows).where(eq(follows.following_id, profile.user_id)),
+			db.select({ value: count() }).from(follows).where(eq(follows.follower_id, profile.user_id))
+		]),
 		db
-			.select({ value: count() })
+			.select({ url: media.url })
 			.from(posts)
-			.where(and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at))),
-		db.select({ value: count() }).from(follows).where(eq(follows.following_id, profile.user_id)),
-		db.select({ value: count() }).from(follows).where(eq(follows.follower_id, profile.user_id))
+			.innerJoin(post_media, eq(post_media.post_id, posts.id))
+			.innerJoin(media, eq(media.id, post_media.media_id))
+			.where(
+				and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at), eq(media.type, 'image'))
+			)
+			.orderBy(desc(posts.created_at), post_media.sort_order)
+			.limit(30),
+		get_relationship(viewer_user_id, profile.user_id)
 	]);
 
-	const photo_rows = await db
-		.select({ url: media.url })
-		.from(posts)
-		.innerJoin(post_media, eq(post_media.post_id, posts.id))
-		.innerJoin(media, eq(media.id, post_media.media_id))
-		.where(
-			and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at), eq(media.type, 'image'))
-		)
-		.orderBy(desc(posts.created_at), post_media.sort_order)
-		.limit(30);
-
+	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_urls = photo_rows.map((row) => row.url);
-
-	const relationship = await get_relationship(viewer_user_id, profile.user_id);
 
 	return {
 		profile,

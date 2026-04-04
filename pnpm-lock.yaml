@@ -13,6 +13,9 @@ overrides:
   lodash@>=4.0.0 <=4.17.23: '>=4.18.0'
   lodash-es@<=4.17.23: '>=4.18.0'
   lodash@<=4.17.23: '>=4.18.0'
+  happy-dom@>=15.10.0 <=20.8.7: '>=20.8.8'
+  brace-expansion@>=4.0.0 <5.0.5: '>=5.0.5'
+  happy-dom@<20.8.9: '>=20.8.9'
 
 importers:
 
@@ -3550,7 +3553,7 @@ packages:
       '@vitest/browser-preview': 4.1.2
       '@vitest/browser-webdriverio': 4.1.2
       '@vitest/ui': 4.1.2
-      happy-dom: '*'
+      happy-dom: '>=20.8.9'
       jsdom: '*'
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
     peerDependenciesMeta:

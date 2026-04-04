@@ -1,9 +1,9 @@
 <script lang="ts">
 	import GeneralTabs from '$lib/components/GeneralTabs.svelte';
-	const { children } = $props();
+	const { children, data } = $props();
 </script>
 
-<GeneralTabs />
+<GeneralTabs profile_username={data['profile_username']} />
 
 <main class="md:min-h-screen md:pl-72">
 	{@render children()}
