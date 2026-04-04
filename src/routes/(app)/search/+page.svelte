@@ -30,6 +30,10 @@
 	const max_recent_users = 15;
 	const generic_username_pattern = /^user(?:_\d+)?$/i;
 	const fallback_avatar = '/images/sidebar-and-search/go-to-profile.avif';
+	const fast_search_limit = 8;
+	const full_search_limit = 25;
+	const full_search_min_query_length = 2;
+	const max_search_cache_entries = 80;
 
 	const search_cache = new SvelteMap<string, SearchUser[]>();
 
@@ -50,6 +54,20 @@
 		}
 
 		return unique_users;
+	};
+
+	const cache_search_results = (search_query: string, result_users: SearchUser[]): void => {
+		search_cache.set(search_query, result_users);
+
+		if (search_cache.size <= max_search_cache_entries) {
+			return;
+		}
+
+		const oldest_key = search_cache.keys().next().value;
+
+		if (typeof oldest_key === 'string') {
+			search_cache.delete(oldest_key);
+		}
 	};
 
 	const get_cached_results = (search_query: string): SearchUser[] | undefined => {
@@ -90,30 +108,34 @@
 		search_query: string,
 		request_id: number,
 		cached_users: SearchUser[] | undefined
-	): Promise<boolean> => {
+	): Promise<SearchUser[] | undefined> => {
 		try {
 			const current_fast_controller = new AbortController();
 			fast_controller = current_fast_controller;
 
-			const fast_users = await fetch_users(search_query, 8, current_fast_controller);
+			const fast_users = await fetch_users(
+				search_query,
+				fast_search_limit,
+				current_fast_controller
+			);
 
 			if (request_id !== active_request_id) {
-				return false;
+				return undefined;
 			}
 
 			users = fast_users;
-			search_cache.set(search_query, fast_users);
-			return true;
+			cache_search_results(search_query, fast_users);
+			return fast_users;
 		} catch (error) {
 			if (error instanceof DOMException && error.name === 'AbortError') {
-				return false;
+				return undefined;
 			}
 
 			if (!cached_users) {
 				users = [];
 			}
 			error_message = 'Search failed. Please try again.';
-			return false;
+			return undefined;
 		} finally {
 			if (request_id === active_request_id) {
 				issearching = false;
@@ -128,7 +150,11 @@
 			const current_full_controller = new AbortController();
 			full_controller = current_full_controller;
 
-			const full_users = await fetch_users(search_query, 25, current_full_controller);
+			const full_users = await fetch_users(
+				search_query,
+				full_search_limit,
+				current_full_controller
+			);
 
 			if (request_id !== active_request_id) {
 				return;
@@ -136,7 +162,7 @@
 
 			const merged_users = merge_users(full_users, users);
 			users = merged_users;
-			search_cache.set(search_query, merged_users);
+			cache_search_results(search_query, merged_users);
 		} catch (error) {
 			if (error instanceof DOMException && error.name === 'AbortError') {
 				return;
@@ -165,9 +191,16 @@
 		isexpanding = false;
 		error_message = '';
 
-		const iskeeploading = await run_fast_search(search_query, request_id, cached_users);
+		const fast_users = await run_fast_search(search_query, request_id, cached_users);
 
-		if (!iskeeploading || request_id !== active_request_id) {
+		if (!fast_users || request_id !== active_request_id) {
+			return;
+		}
+
+		const canrun_full_search =
+			search_query.length >= full_search_min_query_length && fast_users.length >= fast_search_limit;
+
+		if (!canrun_full_search) {
 			return;
 		}
 

@@ -20,6 +20,7 @@
 		edit: '/images/profile/edit-profile.avif',
 		settings: '/images/profile/setting.avif',
 		relationship: '/images/profile/add-friend.avif',
+		relationship_followed: '/images/profile/followed-icon.avif',
 		message: '/images/profile/send-message-icon.avif'
 	};
 
@@ -70,6 +71,28 @@
 				})
 			: undefined
 	);
+	let isrelationship_following = $state(false);
+	let profile_followers_count = $state(0);
+	let relationship_profile_sync_key = $state('');
+	let relationship_sync_queue = Promise.resolve();
+	const relationship_icon_source = $derived(
+		isrelationship_following ? profile_icons.relationship_followed : profile_icons.relationship
+	);
+	const relationship_background_style = $derived(
+		isrelationship_following
+			? 'linear-gradient(90deg, #AAAAAA30 0%, #77777730 50%, #7AA5BB30 75%, #7DD4FF30 100%)'
+			: '#3F2C56'
+	);
+	const relationship_shadow_style = $derived(
+		isrelationship_following
+			? '0 4px 12px rgba(125, 212, 255, 0.55), inset 1px -1px 30px 0px #CD82FF, inset 0.5px -0.5px 10px 0px #CD82FF'
+			: ''
+	);
+	const relationship_followed_effect_style = $derived(
+		isrelationship_following
+			? `box-shadow:${relationship_shadow_style};backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);`
+			: ''
+	);
 
 	function open_upload_modal() {
 		submitting_post = false;
@@ -87,6 +110,19 @@
 	let share_feedback = $state('');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let submitting_post = $state(false);
+
+	$effect(() => {
+		const next_sync_key = data['profile'].user_id;
+
+		if (relationship_profile_sync_key === next_sync_key) {
+			return;
+		}
+
+		relationship_profile_sync_key = next_sync_key;
+		isrelationship_following =
+			!data['relationship'].is_own_profile && data['relationship'].is_following;
+		profile_followers_count = data['stats'].followers_count;
+	});
 
 	function handle_file_change(event: Event) {
 		const target = event.currentTarget as HTMLInputElement | null;
@@ -141,15 +177,32 @@
 		submit_selected_image(event);
 	}
 
-	function handle_relationship_button_click() {
+	async function handle_relationship_button_click() {
 		if (data['relationship'].is_own_profile) {
 			return;
 		}
 
-		const follow_form = document.getElementById(
-			'relationship-action-form'
-		) as HTMLFormElement | null;
-		follow_form?.requestSubmit();
+		const isnext_following = !isrelationship_following;
+		isrelationship_following = isnext_following;
+		profile_followers_count = Math.max(0, profile_followers_count + (isnext_following ? 1 : -1));
+
+		const action = isnext_following ? '?/follow' : '?/unfollow';
+		relationship_sync_queue = relationship_sync_queue
+			.then(async () => {
+				const action_form_data = new FormData();
+				await fetch(action, {
+					method: 'POST',
+					body: action_form_data,
+					headers: {
+						'x-sveltekit-action': 'true'
+					},
+					credentials: 'same-origin'
+				});
+			})
+			.catch(() => {
+				// Keep UI responsive; server sync can be retried on next toggle or page reload.
+				console.warn('Relationship sync request failed.');
+			});
 	}
 
 	async function handle_share_profile_click() {
@@ -332,27 +385,19 @@
 				<button
 					type="button"
 					onclick={handle_relationship_button_click}
-					class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-12 md:-right-15 md:shadow-md lg:-right-25 lg:h-15 lg:w-15 xl:-right-40"
+					class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-12 md:-right-15 md:shadow-md lg:-right-25 lg:h-15 lg:w-15 xl:-right-40"
+					style={`background:${relationship_background_style};${relationship_followed_effect_style}`}
 				>
 					<img
-						src={profile_icons.relationship}
+						src={relationship_icon_source}
 						alt={data['relationship'].is_own_profile
 							? 'Add'
-							: data['relationship'].is_following
+							: isrelationship_following
 								? 'Unfollow'
 								: 'Follow'}
 						class="h-6 w-6 object-contain pl-1 lg:h-9 lg:w-9"
 					/>
 				</button>
-
-				{#if !data['relationship'].is_own_profile}
-					<form
-						id="relationship-action-form"
-						method="post"
-						action={data['relationship'].is_following ? '?/unfollow' : '?/follow'}
-						class="hidden"
-					></form>
-				{/if}
 
 				<button
 					class="absolute top-10 -right-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-25 md:-right-30 md:shadow-md lg:-right-45 lg:h-15 lg:w-15 xl:-right-70"
@@ -395,7 +440,7 @@
 			<div class="h-8 w-px bg-slate-700"></div>
 
 			<div class="text-center">
-				<div class="text-2xl font-bold text-sky-400">{data['stats'].followers_count}</div>
+				<div class="text-2xl font-bold text-sky-400">{profile_followers_count}</div>
 				<div class="text-xs tracking-wider text-slate-500 uppercase">Followers</div>
 			</div>
 

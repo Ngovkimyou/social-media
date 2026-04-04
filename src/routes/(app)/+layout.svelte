@@ -43,7 +43,11 @@
 </main>
 
 {#if hasnavigation_skeleton_visible}
-	<div class="nav_skeleton pointer-events-none fixed inset-0 z-70 md:left-72">
+	<div
+		class="nav_skeleton pointer-events-none fixed right-0 left-0 z-70 {isnavigating_to_profile
+			? 'top-0 bottom-0'
+			: 'top-18 bottom-18'} md:top-0 md:bottom-0 md:left-72"
+	>
 		{#if isnavigating_to_search}
 			<section
 				class="search_skeleton_screen search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
@@ -88,7 +92,14 @@
 			>
 				<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
 					<div class="relative h-56 w-full md:h-74">
-						<div class="skeleton relative h-full w-full overflow-hidden rounded-3xl"></div>
+						<div
+							class="skeleton skeleton_cover relative h-full w-full overflow-hidden rounded-3xl"
+						></div>
+						<div class="absolute inset-0 z-20 rounded-3xl border border-white/10">
+							<div
+								class="skeleton absolute top-3 right-3 h-8 w-24 rounded-full md:top-4 md:right-4 md:h-9 md:w-28"
+							></div>
+						</div>
 						<div
 							class="absolute -bottom-14 left-1/2 z-30 h-32 w-32 -translate-x-1/2 md:-bottom-20 md:h-48 md:w-48"
 						>
@@ -208,6 +219,28 @@
 			0 0 0 1px rgba(125, 212, 255, 0.04),
 			0 8px 24px rgba(5, 2, 22, 0.26);
 		animation: skeleton_slide 1.5s ease infinite;
+	}
+
+	.skeleton_cover {
+		background:
+			radial-gradient(120% 160% at 20% 20%, rgba(255, 198, 246, 0.24), transparent 45%),
+			radial-gradient(120% 160% at 85% 10%, rgba(125, 212, 255, 0.24), transparent 50%),
+			linear-gradient(
+					102deg,
+					rgba(125, 212, 255, 0.12) 12%,
+					rgba(125, 212, 255, 0.24) 28%,
+					rgba(205, 130, 255, 0.4) 46%,
+					rgba(255, 13, 166, 0.2) 58%,
+					rgba(125, 212, 255, 0.24) 74%,
+					rgba(125, 212, 255, 0.12) 88%
+				)
+				0 0 / 250% 100% no-repeat,
+			linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.1),
+			inset 0 -1px 0 rgba(12, 8, 34, 0.45),
+			0 0 0 1px rgba(125, 212, 255, 0.06),
+			0 12px 28px rgba(5, 2, 22, 0.3);
 	}
 
 	@keyframes skeleton_slide {

@@ -19,6 +19,7 @@ words:
   - ASUS
   - authschema
   - autodocs
+  - canrun
   - dbname
   - drizzle
   - esbuild
@@ -29,7 +30,9 @@ words:
   - isexpanding
   - iskeeploading
   - isnavigating
+  - isnext
   - ison
+  - isrelationship
   - issearching
   - Kysely
   - lfill

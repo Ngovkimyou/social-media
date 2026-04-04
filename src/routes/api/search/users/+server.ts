@@ -1,16 +1,30 @@
 import { get_db } from '$lib/server/db';
 import { profiles, user } from '$lib/server/db/schema';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 
 const token_pattern = /[^\p{L}\p{N}_]+/gu;
 const default_limit = 25;
 const minimum_limit = 1;
 const maximum_limit = 50;
+const search_cache_ttl_ms = 10_000;
+const search_cache_max_entries = 200;
 
-let index_init_promise: Promise<void> | undefined;
+type SearchUserPayload = {
+	id: string;
+	name: string;
+	image: string | null;
+	username: string;
+};
+
+const search_response_cache = new Map<
+	string,
+	{
+		expires_at: number;
+		users: SearchUserPayload[];
+	}
+>();
 
 const clamp_limit = (raw_limit: string | null): number => {
 	const parsed = Number.parseInt(raw_limit ?? `${default_limit}`, 10);
@@ -36,24 +50,35 @@ const build_prefix_tsquery = (value: string): string | undefined => {
 	return tokens.map((token) => `${token}:*`).join(' & ');
 };
 
-const ensure_search_index = async (): Promise<void> => {
-	if (index_init_promise !== undefined) {
-		return index_init_promise;
+const get_cached_search_result = (cache_key: string): SearchUserPayload[] | undefined => {
+	const cached = search_response_cache.get(cache_key);
+
+	if (!cached) {
+		return undefined;
 	}
 
-	const db = get_db();
+	if (cached.expires_at <= Date.now()) {
+		search_response_cache.delete(cache_key);
+		return undefined;
+	}
 
-	index_init_promise = (async () => {
-		await db.execute(
-			sql`CREATE INDEX IF NOT EXISTS user_name_search_tsv_idx ON "user" USING GIN (to_tsvector('simple', coalesce(name, '')))`
-		);
-	})();
+	return cached.users;
+};
 
-	try {
-		await index_init_promise;
-	} catch (error) {
-		// If index creation is blocked by DB permissions, search still works without it.
-		console.warn('Search index initialization failed; continuing without index.', error);
+const set_cached_search_result = (cache_key: string, users: SearchUserPayload[]): void => {
+	search_response_cache.set(cache_key, {
+		expires_at: Date.now() + search_cache_ttl_ms,
+		users
+	});
+
+	if (search_response_cache.size <= search_cache_max_entries) {
+		return;
+	}
+
+	const oldest_key = search_response_cache.keys().next().value;
+
+	if (typeof oldest_key === 'string') {
+		search_response_cache.delete(oldest_key);
 	}
 };
 
@@ -71,67 +96,51 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ users: [] });
 	}
 
-	await ensure_search_index();
+	const cache_key = `${query.toLowerCase()}|${limit}`;
+	const cached_users = get_cached_search_result(cache_key);
+
+	if (cached_users) {
+		return json(
+			{ users: cached_users },
+			{
+				headers: {
+					'cache-control': 'private, max-age=10'
+				}
+			}
+		);
+	}
 
 	const db = get_db();
-	const search_vector = sql`to_tsvector('simple', concat_ws(' ', coalesce(${user.name}, ''), coalesce(${profiles.username}, '')))`;
+	const search_vector = sql`to_tsvector('simple', concat_ws(' ', coalesce(${profiles.username}, ''), coalesce(${user.name}, '')))`;
 	const rank_expr = sql<number>`ts_rank_cd(${search_vector}, to_tsquery('simple', ${ts_query}))`;
 
 	const users = await db
 		.select({
 			id: user.id,
 			name: user.name,
-			email: user.email,
 			image: user.image,
 			username: profiles.username,
 			rank: rank_expr
 		})
 		.from(user)
-		.leftJoin(profiles, eq(profiles.user_id, user.id))
+		.innerJoin(profiles, eq(profiles.user_id, user.id))
 		.where(sql`${search_vector} @@ to_tsquery('simple', ${ts_query})`)
 		.orderBy(sql`${rank_expr} DESC`, user.name)
 		.limit(limit);
 
-	const users_missing_profile = users.filter((listed_user) => !listed_user.username);
+	const normalized_users = users.map(({ rank: _unused_rank, ...listed_user }) => ({
+		...listed_user
+	}));
+	set_cached_search_result(cache_key, normalized_users);
 
-	for (const listed_user of users_missing_profile) {
-		try {
-			await ensure_profile_for_user({
-				user_id: listed_user.id,
-				name: listed_user.name
-			});
-		} catch (error) {
-			console.warn(
-				`Search profile backfill failed for user ${listed_user.id}; continuing without backfill.`,
-				error
-			);
+	return json(
+		{
+			users: normalized_users
+		},
+		{
+			headers: {
+				'cache-control': 'private, max-age=10'
+			}
 		}
-	}
-
-	const user_ids = users.map((listed_user) => listed_user.id);
-	const username_rows =
-		user_ids.length > 0
-			? await db
-					.select({
-						user_id: profiles.user_id,
-						username: profiles.username
-					})
-					.from(profiles)
-					.where(inArray(profiles.user_id, user_ids))
-			: [];
-	const username_by_user_id = new Map(
-		username_rows.map((profile_row) => [profile_row.user_id, profile_row.username])
 	);
-
-	return json({
-		users: users
-			.map(({ rank: _unused_rank, email: _unused_email, ...listed_user }) => ({
-				...listed_user,
-				username: username_by_user_id.get(listed_user.id) ?? listed_user.username ?? undefined
-			}))
-			.filter(
-				(listed_user): listed_user is typeof listed_user & { username: string } =>
-					typeof listed_user.username === 'string' && listed_user.username.length > 0
-			)
-	});
 };
