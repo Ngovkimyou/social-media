@@ -54,7 +54,7 @@
 
 		<a
 			href={search_href}
-			data-sveltekit-preload-data="tap"
+			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_search ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
 			<img src="/images/sidebar-and-search/search.avif" alt="Search" class="relative z-10 h-8" />
@@ -62,7 +62,7 @@
 
 		<a
 			href={home_href}
-			data-sveltekit-preload-data="tap"
+			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_home ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
 			<img
@@ -90,7 +90,7 @@
 					? `/profile/${encodeURIComponent(profile_username)}`
 					: '/profile'
 			)}
-			data-sveltekit-preload-data="tap"
+			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
 			aria-label="Profile"
 		>
@@ -127,7 +127,7 @@
 	<nav class="space-y-2">
 		<a
 			href={home_href}
-			data-sveltekit-preload-data="tap"
+			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${ison_home ? active_link : ''}`}
 		>
 			<img
@@ -140,7 +140,7 @@
 
 		<a
 			href={search_href}
-			data-sveltekit-preload-data="tap"
+			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${ison_search ? active_link : ''}`}
 		>
 			<img src="/images/sidebar-and-search/search.avif" alt="Search icon" class="h-6 w-6" />
@@ -153,7 +153,7 @@
 					? `/profile/${encodeURIComponent(profile_username)}`
 					: '/profile'
 			)}
-			data-sveltekit-preload-data="tap"
+			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${ison_profile ? active_link : ''}`}
 		>
 			<img src="/images/sidebar-and-search/go-to-profile.avif" alt="Profile icon" class="h-6 w-6" />

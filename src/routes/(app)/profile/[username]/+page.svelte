@@ -566,129 +566,133 @@
 		}}
 	>
 		<div
-			class="flex max-h-[90vh] w-full overflow-hidden rounded-3xl border border-[#CD82FF] bg-[#1a1224] shadow-[0_0_15px_rgba(255,0,229,10)] transition-all duration-500 ease-in-out {image_src
+			class="w-full rounded-3xl bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out {image_src
 				? 'max-w-4xl'
 				: 'max-w-lg'}"
 		>
-			<form
-				method="post"
-				action="?/create_post"
-				enctype="multipart/form-data"
-				onsubmit={handle_post_submit}
-				class="flex flex-1 flex-col"
+			<div
+				class="flex max-h-[90vh] w-full overflow-hidden rounded-3xl bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)]"
 			>
-				<div class="flex items-center justify-between border-b border-white/40 px-4 py-3">
-					<div class="w-5"></div>
+				<form
+					method="post"
+					action="?/create_post"
+					enctype="multipart/form-data"
+					onsubmit={handle_post_submit}
+					class="flex flex-1 flex-col"
+				>
+					<div class="flex items-center justify-between border-b border-white/40 px-4 py-3">
+						<div class="w-5"></div>
 
-					<h2 class="text-base font-semibold text-white">Create post</h2>
+						<h2 class="text-base font-semibold text-white">Create post</h2>
 
-					<button
-						type="button"
-						onclick={close_upload_modal}
-						class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-white hover:bg-[#4e4f50]"
-					>
-						✕
-					</button>
-				</div>
-
-				<div class="flex flex-1 flex-col overflow-hidden md:flex-row">
-					{#if image_src}
-						<div
-							class="relative flex min-h-96 w-full items-center justify-center border-r border-white/40 bg-[#18191a] md:min-h-0 md:w-1/2"
+						<button
+							type="button"
+							onclick={close_upload_modal}
+							class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-white hover:bg-[#4e4f50]"
 						>
-							<img
-								src={image_src}
-								alt="Preview"
-								class="h-100 w-full object-cover"
-								decoding="async"
+							✕
+						</button>
+					</div>
+
+					<div class="flex flex-1 flex-col overflow-hidden md:flex-row">
+						{#if image_src}
+							<div
+								class="relative flex min-h-96 w-full items-center justify-center border-r border-white/40 bg-[#18191a] md:min-h-0 md:w-1/2"
+							>
+								<img
+									src={image_src}
+									alt="Preview"
+									class="h-100 w-full object-cover"
+									decoding="async"
+								/>
+
+								<button
+									type="button"
+									onclick={remove_image}
+									class="absolute top-4 right-4 cursor-pointer rounded-full bg-black/60 px-3 py-1.5 text-white hover:bg-black/80"
+								>
+									✕
+								</button>
+							</div>
+						{/if}
+
+						<div class="flex w-full flex-1 flex-col p-4 {image_src ? 'md:w-1/2' : ''}">
+							<div class="mb-4 flex items-center gap-3">
+								<div
+									class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-500 text-xs text-white"
+								>
+									{#if profile_avatar}
+										<img
+											src={profile_avatar_source?.src ?? profile_avatar}
+											srcset={profile_avatar_source?.srcset}
+											sizes="40px"
+											alt={`${profile_display_name} avatar`}
+											class="h-full w-full object-cover"
+											loading="lazy"
+											decoding="async"
+										/>
+									{:else}
+										<span>{data['profile'].username.slice(0, 1).toUpperCase()}</span>
+									{/if}
+								</div>
+								<div>
+									<p class="text-sm font-semibold text-white">{profile_display_name}</p>
+									<p class="text-xs text-slate-400">@{data['profile'].username}</p>
+								</div>
+							</div>
+
+							<textarea
+								id="upload-caption"
+								name="caption"
+								bind:value={caption}
+								rows={image_src ? 6 : 4}
+								placeholder="Write a caption..."
+								class="w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none {image_src
+									? 'text-sm'
+									: 'text-lg'}"
+							></textarea>
+
+							<div class="my-2 flex items-center justify-between text-slate-400">
+								<span class="text-xs">{caption.length}/2200</span>
+								{#if caption.length > 2200}
+									<span class="text-xs text-rose-400">Caption exceeds maximum length!</span>
+								{/if}
+							</div>
+
+							<label
+								for="file-upload"
+								class="mt-auto flex cursor-pointer items-center justify-between rounded-lg border border-white/40 px-4 py-3 hover:bg-white/5"
+							>
+								<span class="text-sm font-semibold text-white">
+									{image_src ? 'Photo selected' : 'Add a photo'}
+								</span>
+
+								<span class="rounded-full p-1 text-xl">🖼️</span>
+							</label>
+							<input
+								id="file-upload"
+								type="file"
+								name="image"
+								accept="image/*"
+								class="sr-only"
+								onchange={handle_file_change}
 							/>
 
 							<button
-								type="button"
-								onclick={remove_image}
-								class="absolute top-4 right-4 cursor-pointer rounded-full bg-black/60 px-3 py-1.5 text-white hover:bg-black/80"
+								type="submit"
+								class="text-md mt-4 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-3 font-semibold text-white shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] {!selected_image ||
+								caption.length > 2200 ||
+								submitting_post
+									? 'cursor-not-allowed opacity-50'
+									: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
+								disabled={!selected_image || caption.length > 2200 || submitting_post}
 							>
-								✕
+								{submitting_post ? 'Posting...' : 'Post'}
 							</button>
 						</div>
-					{/if}
-
-					<div class="flex w-full flex-1 flex-col p-4 {image_src ? 'md:w-1/2' : ''}">
-						<div class="mb-4 flex items-center gap-3">
-							<div
-								class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-500 text-xs text-white"
-							>
-								{#if profile_avatar}
-									<img
-										src={profile_avatar_source?.src ?? profile_avatar}
-										srcset={profile_avatar_source?.srcset}
-										sizes="40px"
-										alt={`${profile_display_name} avatar`}
-										class="h-full w-full object-cover"
-										loading="lazy"
-										decoding="async"
-									/>
-								{:else}
-									<span>{data['profile'].username.slice(0, 1).toUpperCase()}</span>
-								{/if}
-							</div>
-							<div>
-								<p class="text-sm font-semibold text-white">{profile_display_name}</p>
-								<p class="text-xs text-slate-400">@{data['profile'].username}</p>
-							</div>
-						</div>
-
-						<textarea
-							id="upload-caption"
-							name="caption"
-							bind:value={caption}
-							rows={image_src ? 6 : 4}
-							placeholder="Write a caption..."
-							class="w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none {image_src
-								? 'text-sm'
-								: 'text-lg'}"
-						></textarea>
-
-						<div class="my-2 flex items-center justify-between text-slate-400">
-							<span class="text-xs">{caption.length}/2200</span>
-							{#if caption.length > 2200}
-								<span class="text-xs text-rose-400">Caption exceeds maximum length!</span>
-							{/if}
-						</div>
-
-						<label
-							for="file-upload"
-							class="mt-auto flex cursor-pointer items-center justify-between rounded-lg border border-white/40 px-4 py-3 hover:bg-white/5"
-						>
-							<span class="text-sm font-semibold text-white">
-								{image_src ? 'Photo selected' : 'Add a photo'}
-							</span>
-
-							<span class="rounded-full p-1 text-xl">🖼️</span>
-						</label>
-						<input
-							id="file-upload"
-							type="file"
-							name="image"
-							accept="image/*"
-							class="sr-only"
-							onchange={handle_file_change}
-						/>
-
-						<button
-							type="submit"
-							class="mt-4 w-full cursor-pointer rounded-xl bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] py-2 text-sm font-semibold text-white transition-transform hover:scale-[0.98] {!selected_image ||
-							caption.length > 2200 ||
-							submitting_post
-								? 'cursor-not-allowed opacity-50'
-								: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
-							disabled={!selected_image || caption.length > 2200 || submitting_post}
-						>
-							{submitting_post ? 'Posting...' : 'Post'}
-						</button>
 					</div>
-				</div>
-			</form>
+				</form>
+			</div>
 		</div>
 	</div>
 {/if}

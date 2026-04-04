@@ -24,12 +24,15 @@ words:
   - esbuild
   - eslint
   - haha
+  - hasnavigation
   - inlang
   - isexpanding
   - iskeeploading
+  - isnavigating
   - ison
   - issearching
   - Kysely
+  - lfill
   - mdsvex
   - neondatabase
   - OneDrive
