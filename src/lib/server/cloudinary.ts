@@ -80,7 +80,7 @@ export function get_optimized_image_url(public_id: string): string {
 	ensure_cloudinary_configured();
 	return cloudinary.url(public_id, {
 		fetch_format: 'auto',
-		quality: 'auto'
+		quality: 100
 	});
 }
 
