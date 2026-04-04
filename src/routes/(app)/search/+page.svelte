@@ -1,15 +1,19 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { resolve } from '$app/paths';
+	import { onDestroy, onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 
 	type SearchUser = {
 		id: string;
 		name: string;
 		image: string | null;
+		username: string;
 	};
+	type RecentUser = Pick<SearchUser, 'id' | 'name' | 'image' | 'username'>;
 
 	let query = $state('');
 	let users = $state<SearchUser[]>([]);
+	let recent_users = $state<RecentUser[]>([]);
 	let issearching = $state(false);
 	let isexpanding = $state(false);
 	let error_message = $state('');
@@ -18,6 +22,9 @@
 	let fast_controller: AbortController | undefined;
 	let full_controller: AbortController | undefined;
 	let active_request_id = 0;
+	const recent_storage_key = 'recent-search-users';
+	const max_recent_users = 15;
+	const generic_username_pattern = /^user(?:_\d+)?$/i;
 
 	const search_cache = new SvelteMap<string, SearchUser[]>();
 
@@ -163,6 +170,94 @@
 	};
 
 	const trimmed_query = $derived(query.trim());
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	const has_recent_users = $derived(recent_users.length > 0);
+
+	const persist_recent_users = (next_recent_users: RecentUser[]) => {
+		try {
+			localStorage.setItem(recent_storage_key, JSON.stringify(next_recent_users));
+		} catch {
+			// Ignore localStorage failures in restricted browsing modes.
+		}
+	};
+
+	const save_recent_user = (
+		listed_user: RecentUser,
+		options: { update_ui?: boolean } = {}
+	): void => {
+		// eslint-disable-next-line @typescript-eslint/naming-convention
+		const should_update_ui = options.update_ui ?? true;
+		const filtered_users = recent_users.filter(
+			(existing_user) => existing_user.username !== listed_user.username
+		);
+		const next_recent_users = [listed_user, ...filtered_users].slice(0, max_recent_users);
+
+		if (should_update_ui) {
+			recent_users = next_recent_users;
+		}
+
+		persist_recent_users(next_recent_users);
+	};
+
+	const get_recent_display_label = (recent_user: RecentUser): string => {
+		if (
+			generic_username_pattern.test(recent_user.username) &&
+			typeof recent_user.name === 'string' &&
+			recent_user.name.trim().length > 0
+		) {
+			return recent_user.name;
+		}
+
+		return recent_user.username;
+	};
+
+	const remove_recent_user = (username: string): void => {
+		const next_recent_users = recent_users.filter(
+			(recent_user) => recent_user.username !== username
+		);
+		recent_users = next_recent_users;
+		persist_recent_users(next_recent_users);
+	};
+
+	const clear_recent_users = (): void => {
+		recent_users = [];
+		persist_recent_users([]);
+	};
+
+	onMount(() => {
+		try {
+			const raw_recent_users = localStorage.getItem(recent_storage_key);
+
+			if (!raw_recent_users) {
+				return;
+			}
+
+			const parsed = JSON.parse(raw_recent_users);
+
+			if (!Array.isArray(parsed)) {
+				return;
+			}
+
+			recent_users = parsed
+				.filter(
+					(recent_user): recent_user is RecentUser =>
+						typeof recent_user === 'object' &&
+						recent_user !== null &&
+						'id' in recent_user &&
+						'name' in recent_user &&
+						'username' in recent_user &&
+						typeof recent_user.id === 'string' &&
+						typeof recent_user.name === 'string' &&
+						typeof recent_user.username === 'string' &&
+						('image' in recent_user
+							? recent_user.image === null || typeof recent_user.image === 'string'
+							: true)
+				)
+				.slice(0, max_recent_users);
+		} catch {
+			recent_users = [];
+		}
+	});
 
 	$effect(() => {
 		if (debounce_timer) {
@@ -240,7 +335,58 @@
 
 	<div class="mt-6 space-y-3">
 		{#if trimmed_query.length < 1}
-			<p class="text-sm text-white/70">Type to search users.</p>
+			<div class="flex items-center justify-between gap-3">
+				<p class="text-lg text-[#7DD4FF]">Recent</p>
+				{#if has_recent_users}
+					<button
+						type="button"
+						class="text-sm font-semibold text-red-500 transition-colors hover:text-red-400"
+						onclick={clear_recent_users}
+						aria-label="Clear all recent users"
+					>
+						Clear All
+					</button>
+				{/if}
+			</div>
+			{#if has_recent_users}
+				<ul class="space-y-3">
+					{#each recent_users as recent_user (recent_user.username)}
+						<li>
+							<div
+								class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 focus-within:border-[#7DD4FF] focus-within:bg-white/10 hover:border-[#CD82FF] hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+							>
+								<a
+									href={resolve(`/profile/${encodeURIComponent(recent_user.username)}`)}
+									onclick={() => {
+										save_recent_user(recent_user, { update_ui: false });
+									}}
+									class="flex min-w-0 flex-1 items-center gap-3 outline-none"
+								>
+									<img
+										src={recent_user.image || '/images/sidebar-and-search/go-to-profile.avif'}
+										alt={`${recent_user.name} profile`}
+										class="h-11 w-11 rounded-full border border-white/20 object-cover transition-transform duration-200 group-hover:scale-105"
+									/>
+									<span
+										class="truncate text-lg font-semibold text-white transition-colors group-hover:text-[#7DD4FF]"
+										>{get_recent_display_label(recent_user)}</span
+									>
+								</a>
+								<button
+									type="button"
+									class="grid h-8 w-8 shrink-0 place-items-center text-2xl text-red-500 transition-colors hover:text-red-400"
+									onclick={() => {
+										remove_recent_user(recent_user.username);
+									}}
+									aria-label={`Remove ${recent_user.name} from recent`}
+								>
+									x
+								</button>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		{:else if issearching}
 			<p class="text-sm text-white/70">Searching users...</p>
 		{:else if isexpanding}
@@ -253,14 +399,23 @@
 			<ul class="space-y-3">
 				{#each users as listed_user (listed_user.id)}
 					<li>
-						<div class="flex items-center gap-3 rounded-xl px-1 py-1">
+						<a
+							href={resolve(`/profile/${encodeURIComponent(listed_user.username)}`)}
+							onclick={() => {
+								save_recent_user(listed_user, { update_ui: false });
+							}}
+							class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 hover:border-white/25 hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)] focus-visible:border-[#7DD4FF] focus-visible:bg-white/10 focus-visible:outline-none"
+						>
 							<img
 								src={listed_user.image || '/images/sidebar-and-search/go-to-profile.avif'}
 								alt={`${listed_user.name} profile`}
-								class="h-11 w-11 rounded-full border border-white/20 object-cover"
+								class="h-11 w-11 rounded-full border border-white/20 object-cover transition-transform duration-200 group-hover:scale-105"
 							/>
-							<span class="text-lg font-semibold text-white">{listed_user.name}</span>
-						</div>
+							<span
+								class="text-lg font-semibold text-white transition-colors group-hover:text-[#BDE7FF]"
+								>{listed_user.name}</span
+							>
+						</a>
 					</li>
 				{/each}
 			</ul>

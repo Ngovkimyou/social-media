@@ -5,12 +5,29 @@ import { follows, media, post_media, posts, profiles } from '$lib/server/db/sche
 
 const slugify_username = (value: string): string => {
 	const out = value
+		.normalize('NFKC')
+		.trim()
 		.toLowerCase()
-		.replaceAll(/[^a-z0-9_]+/g, '_')
+		.replaceAll(/[^\p{L}\p{N}_]+/gu, '_')
 		.replaceAll(/^_+|_+$/g, '')
 		.slice(0, 24);
 
 	return out || 'user';
+};
+
+const is_unique_violation_error = (error: unknown): boolean =>
+	typeof error === 'object' &&
+	error !== null &&
+	'cause' in error &&
+	typeof error.cause === 'object' &&
+	error.cause !== null &&
+	'code' in error.cause &&
+	error.cause.code === '23505';
+
+const rethrow_unless_unique_violation = (error: unknown): void => {
+	if (!is_unique_violation_error(error)) {
+		throw error;
+	}
 };
 
 export const build_unique_username = async (
@@ -50,22 +67,36 @@ export const ensure_profile_for_user = async (params: {
 }): Promise<void> => {
 	const db = get_db();
 
-	const existing = await db
-		.select({ user_id: profiles.user_id })
-		.from(profiles)
-		.where(eq(profiles.user_id, params.user_id))
-		.limit(1);
+	// Retry a few times to handle concurrent profile creation and username collisions.
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		const existing = await db
+			.select({ user_id: profiles.user_id })
+			.from(profiles)
+			.where(eq(profiles.user_id, params.user_id))
+			.limit(1);
 
-	if (existing.length > 0) {
-		return;
+		if (existing.length > 0) {
+			return;
+		}
+
+		const username = await build_unique_username(params.name || params.user_id, params.user_id);
+
+		try {
+			await db
+				.insert(profiles)
+				.values({
+					user_id: params.user_id,
+					username
+				})
+				.onConflictDoNothing({ target: profiles.user_id });
+
+			return;
+		} catch (error) {
+			// 23505 = unique_violation (e.g. concurrent username insert). Retry with a new candidate.
+			rethrow_unless_unique_violation(error);
+			continue;
+		}
 	}
-
-	const username = await build_unique_username(params.name || params.user_id, params.user_id);
-
-	await db.insert(profiles).values({
-		user_id: params.user_id,
-		username
-	});
 };
 
 export const get_profile_by_username = async (

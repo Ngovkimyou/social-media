@@ -1,8 +1,9 @@
 import { get_db } from '$lib/server/db';
-import { user } from '$lib/server/db/schema';
-import { sql } from 'drizzle-orm';
+import { profiles, user } from '$lib/server/db/schema';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { ensure_profile_for_user } from '$lib/server/utility/profile';
 
 const token_pattern = /[^\p{L}\p{N}_]+/gu;
 const default_limit = 25;
@@ -73,23 +74,64 @@ export const GET: RequestHandler = async ({ url }) => {
 	await ensure_search_index();
 
 	const db = get_db();
-	const rank_expr = sql<number>`ts_rank_cd(to_tsvector('simple', coalesce(${user.name}, '')), to_tsquery('simple', ${ts_query}))`;
+	const search_vector = sql`to_tsvector('simple', concat_ws(' ', coalesce(${user.name}, ''), coalesce(${profiles.username}, '')))`;
+	const rank_expr = sql<number>`ts_rank_cd(${search_vector}, to_tsquery('simple', ${ts_query}))`;
 
 	const users = await db
 		.select({
 			id: user.id,
 			name: user.name,
+			email: user.email,
 			image: user.image,
+			username: profiles.username,
 			rank: rank_expr
 		})
 		.from(user)
-		.where(
-			sql`to_tsvector('simple', coalesce(${user.name}, '')) @@ to_tsquery('simple', ${ts_query})`
-		)
+		.leftJoin(profiles, eq(profiles.user_id, user.id))
+		.where(sql`${search_vector} @@ to_tsquery('simple', ${ts_query})`)
 		.orderBy(sql`${rank_expr} DESC`, user.name)
 		.limit(limit);
 
+	const users_missing_profile = users.filter((listed_user) => !listed_user.username);
+
+	for (const listed_user of users_missing_profile) {
+		try {
+			await ensure_profile_for_user({
+				user_id: listed_user.id,
+				name: listed_user.name
+			});
+		} catch (error) {
+			console.warn(
+				`Search profile backfill failed for user ${listed_user.id}; continuing without backfill.`,
+				error
+			);
+		}
+	}
+
+	const user_ids = users.map((listed_user) => listed_user.id);
+	const username_rows =
+		user_ids.length > 0
+			? await db
+					.select({
+						user_id: profiles.user_id,
+						username: profiles.username
+					})
+					.from(profiles)
+					.where(inArray(profiles.user_id, user_ids))
+			: [];
+	const username_by_user_id = new Map(
+		username_rows.map((profile_row) => [profile_row.user_id, profile_row.username])
+	);
+
 	return json({
-		users: users.map(({ rank: _unused_rank, ...listed_user }) => listed_user)
+		users: users
+			.map(({ rank: _unused_rank, email: _unused_email, ...listed_user }) => ({
+				...listed_user,
+				username: username_by_user_id.get(listed_user.id) ?? listed_user.username ?? undefined
+			}))
+			.filter(
+				(listed_user): listed_user is typeof listed_user & { username: string } =>
+					typeof listed_user.username === 'string' && listed_user.username.length > 0
+			)
 	});
 };
