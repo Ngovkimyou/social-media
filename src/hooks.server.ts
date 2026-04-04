@@ -6,6 +6,9 @@ import type { Handle } from '@sveltejs/kit';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 
+const get_safe_error_message = (error: unknown): string =>
+	error instanceof Error ? error.message : 'Unknown error';
+
 const handle_paraglide: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, ({ request, locale }) => {
 		event.request = request;
@@ -24,7 +27,7 @@ const handle_better_auth: Handle = async ({ event, resolve }) => {
 	try {
 		auth = get_auth();
 	} catch (error) {
-		console.error('Auth initialization failed', error);
+		console.error(`Auth initialization failed: ${get_safe_error_message(error)}`);
 		return resolve(event);
 	}
 
@@ -36,7 +39,7 @@ const handle_better_auth: Handle = async ({ event, resolve }) => {
 			event.locals.user = session.user;
 		}
 	} catch (error) {
-		console.error('Auth session resolution failed', error);
+		console.error(`Auth session resolution failed: ${get_safe_error_message(error)}`);
 	}
 
 	return svelteKitHandler({ event, resolve, auth, building });

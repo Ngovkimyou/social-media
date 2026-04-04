@@ -21,9 +21,9 @@ export default defineConfig(
 	...codeQualityRules,
 	...typescriptRules,
 	...namingConventionRules,
-	...svelteRules,
 	...unicornRules,
 	...sonarjsRules,
 	...storybookRules,
+	...svelteRules,
 	...formattingRules
 );

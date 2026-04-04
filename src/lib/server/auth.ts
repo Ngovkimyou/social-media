@@ -22,7 +22,9 @@ const resolve_base_url = (): string => {
 	throw new Error('ORIGIN is not configured. Set ORIGIN or provide VERCEL_URL in deployment.');
 };
 
-const create_auth = (): ReturnType<typeof betterAuth> =>
+// Keep inference for `betterAuth(...)` options shape to avoid broad `BetterAuthOptions` conflicts.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const create_auth = () =>
 	betterAuth({
 		baseURL: resolve_base_url(),
 		secret: env['BETTER_AUTH_SECRET'],

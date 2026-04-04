@@ -3,7 +3,7 @@ import ts from 'typescript-eslint';
 const typescriptRules = [
 	...ts.configs.recommended,
 	{
-		files: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.mts', 'src/**/*.cts'],
+		files: ['src/**/*.{js,ts,tsx,mts,cts}'],
 		languageOptions: {
 			parserOptions: {
 				project: './tsconfig.json'
@@ -11,7 +11,7 @@ const typescriptRules = [
 		}
 	},
 	{
-		files: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.mts', 'src/**/*.cts'],
+		files: ['src/**/*.{js,ts,tsx,mts,cts}'],
 		rules: {
 			// TypeScript correctness and explicitness
 			'@typescript-eslint/ban-ts-comment': [

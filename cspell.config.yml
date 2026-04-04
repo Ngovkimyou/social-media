@@ -19,19 +19,34 @@ words:
   - ASUS
   - authschema
   - autodocs
+  - canrun
   - dbname
   - drizzle
   - esbuild
   - eslint
   - haha
+  - hasfollowing
+  - hasnavigation
   - inlang
+  - iscloudinary
+  - isexpanding
+  - iskeeploading
+  - isloaded
+  - ismedia
+  - isnavigating
+  - isnext
   - ison
+  - ispost
+  - isrelationship
+  - issearching
   - Kysely
+  - lfill
   - mdsvex
   - neondatabase
   - OneDrive
   - paraglide
   - playwright
+  - plpgsql
   - pooler
   - prettierrc
   - sonarjs
@@ -40,4 +55,8 @@ words:
   - sveltekit
   - SvelteKit
   - tailwindcss
+  - timestamptz
+  - tsquery
+  - tsvector
+  - upserted
   - vitest

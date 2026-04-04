@@ -163,5 +163,25 @@ export const shares = pgTable(
 	]
 );
 
+export const profiles = pgTable(
+	'profile',
+	{
+		user_id: text('user_id')
+			.primaryKey()
+			.references(() => auth_user.id, { onDelete: 'cascade' }),
+		username: text('username').notNull(),
+		cover_image: text('cover_image'),
+		bio: text('bio'),
+		location: text('location'),
+		phone: text('phone'),
+		created_at: timestamp('created_at').defaultNow().notNull(),
+		updated_at: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(table) => [uniqueIndex('profile_username_unique').on(table.username)]
+);
+
 // Better Auth tables are generated into auth.schema.ts and re-exported here.
 export * from './auth.schema';

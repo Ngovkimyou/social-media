@@ -61,5 +61,6 @@
 		"unicorn",
 		"vitest"
 	],
-	"js/ts.tsdk.path": "node_modules\\typescript\\lib"
+	"typescript.enablePromptUseWorkspaceTsdk": false,
+	"typescript.tsdk": "node_modules/typescript/lib"
 }
