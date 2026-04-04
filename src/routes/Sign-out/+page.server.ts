@@ -17,8 +17,8 @@ export const actions: Actions = {
 				headers: event.request.headers
 			});
 			return redirect(302, '/login');
-		} catch (error) {
-			console.error('signOut failed', error);
+		} catch {
+			console.error('signOut failed');
 			return redirect(302, '/login');
 		}
 	}

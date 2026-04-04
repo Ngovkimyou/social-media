@@ -3,6 +3,13 @@ import type { Actions, PageServerLoad } from './$types';
 import { get_auth } from '$lib/server/auth';
 import { APIError } from 'better-auth/api';
 import { email_validator, password_validator, name_validator } from '$lib/utilities/validator';
+import {
+	clear_auth_rate_limit,
+	consume_auth_rate_limit
+} from '$lib/server/utilities/auth-rate-limit';
+
+const SIGN_UP_FAILURE_MESSAGE =
+	'Unable to create account. Please check your details and try again.';
 
 const validate_sign_up_input = (params: {
 	email: string;
@@ -11,8 +18,28 @@ const validate_sign_up_input = (params: {
 }): { is_valid: true } | { is_valid: false; message: string } => {
 	const { email, password, name } = params;
 
-	if (!email || !password || !name) {
-		return { is_valid: false, message: 'All fields are required' };
+	if (!email && !password && !name) {
+		return { is_valid: false, message: 'Email, password, and name are required' };
+	}
+
+	if (!email) {
+		return { is_valid: false, message: 'Email is required' };
+	}
+
+	if (!password) {
+		return { is_valid: false, message: 'Password is required' };
+	}
+
+	if (!name) {
+		return { is_valid: false, message: 'Name is required' };
+	}
+
+	const is_email_valid = email_validator(email);
+	if (!is_email_valid.is_Valid) {
+		return {
+			is_valid: false,
+			message: is_email_valid.message ?? 'Please enter a valid email address'
+		};
 	}
 
 	const is_password_valid = password_validator(password);
@@ -23,11 +50,6 @@ const validate_sign_up_input = (params: {
 	const is_name_valid = name_validator(name);
 	if (!is_name_valid.is_Valid) {
 		return { is_valid: false, message: is_name_valid.message ?? 'Invalid name' };
-	}
-
-	const is_email_valid = email_validator(email);
-	if (!is_email_valid.is_Valid) {
-		return { is_valid: false, message: is_email_valid.message ?? 'Invalid email' };
 	}
 
 	return { is_valid: true };
@@ -43,6 +65,13 @@ export const load: PageServerLoad = async (event) => {
 export const actions: Actions = {
 	signUpEmail: async (event) => {
 		const auth = get_auth();
+		const rate_limit = consume_auth_rate_limit(event, 'sign-up');
+		if (!rate_limit.is_allowed) {
+			return fail(429, {
+				message: `Too many sign-up attempts. Please try again in ${rate_limit.retry_after_seconds} seconds.`
+			});
+		}
+
 		const form_data = await event.request.formData();
 		const email = form_data.get('email')?.toString().trim() ?? '';
 		const password = form_data.get('password')?.toString() ?? '';
@@ -64,13 +93,14 @@ export const actions: Actions = {
 			});
 		} catch (error) {
 			if (error instanceof APIError) {
-				console.error('signUpEmail failed', error);
-				return fail(400, { message: 'Registration failed' });
+				console.warn('signUpEmail failed');
+				return fail(400, { message: SIGN_UP_FAILURE_MESSAGE });
 			}
-			console.error('signUpEmail unexpected error', error);
-			return fail(500, { message: 'Unexpected error' });
+			console.error('signUpEmail unexpected error');
+			return fail(500, { message: 'Unable to create account right now. Please try again later.' });
 		}
 
+		clear_auth_rate_limit(event, 'sign-up');
 		return redirect(302, '/home');
 	}
 };
