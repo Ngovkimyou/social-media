@@ -27,7 +27,7 @@ export const get_or_set_short_ttl_cache = async <T>(
 
 	const existing_load = in_flight_loads.get(key);
 
-	if (existing_load) {
+	if (existing_load !== undefined) {
 		return (await existing_load) as T;
 	}
 

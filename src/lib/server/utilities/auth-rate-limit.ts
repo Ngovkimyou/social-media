@@ -11,7 +11,7 @@ const MAX_ATTEMPTS_PER_WINDOW = 5;
 let init_promise: Promise<void> | undefined;
 
 const initialize_auth_rate_limit_store = async (): Promise<void> => {
-	if (init_promise) {
+	if (init_promise !== undefined) {
 		return init_promise;
 	}
 
