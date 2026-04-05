@@ -4,6 +4,11 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import {
+		desktop_sidebar_width,
+		is_desktop_sidebar_collapsed,
+		toggle_desktop_sidebar
+	} from '$lib/state/desktop-sidebar-state';
+	import {
 		get_last_home_feed_state,
 		set_last_home_feed_state,
 		type HomeFeedState
@@ -22,10 +27,42 @@
 	const glow_off = 'before:opacity-0 before:scale-90';
 	const glow_on = 'before:opacity-100 before:scale-100';
 	const nav_link_base =
-		'relative flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-white transition-[background,box-shadow,backdrop-filter,transform] duration-300 ease-out hover:bg-white/6';
+		'relative flex items-center rounded-2xl text-left text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding,gap] duration-300 ease-out hover:bg-white/6';
+	const nav_link_size_class = $derived(
+		$is_desktop_sidebar_collapsed ? 'mx-auto h-12 w-12' : 'w-full gap-3 px-4 py-3'
+	);
 	const active_link =
 		'!text-[#7DD4FF] bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px]';
 	const last_home_state_storage_key = 'post-feed-last-home-state';
+	const desktop_label_class = $derived(
+		$is_desktop_sidebar_collapsed
+			? 'pointer-events-none max-w-0 -translate-x-2 overflow-hidden opacity-0 blur-[2px]'
+			: 'max-w-40 translate-x-0 opacity-100 blur-0'
+	);
+	const desktop_aside_class = $derived(
+		$is_desktop_sidebar_collapsed ? 'items-center px-3 py-6' : 'items-stretch p-6'
+	);
+	const desktop_link_alignment_class = $derived(
+		$is_desktop_sidebar_collapsed
+			? 'mx-auto h-12 w-12 justify-center gap-0 px-0'
+			: 'justify-start px-4'
+	);
+	const desktop_link_content_class = $derived(
+		$is_desktop_sidebar_collapsed ? 'mx-auto flex h-6 w-6 items-center justify-center' : ''
+	);
+	const desktop_toggle_content_class = $derived(
+		$is_desktop_sidebar_collapsed ? 'mx-auto flex h-6 w-6 items-center justify-center' : ''
+	);
+	const desktop_sidebar_button_class = $derived(
+		$is_desktop_sidebar_collapsed
+			? 'mx-auto h-12 w-12 justify-center gap-0 rounded-2xl px-0'
+			: 'w-full justify-start gap-3 rounded-2xl px-4 py-3'
+	);
+	const desktop_sidebar_toggle_icon_class = $derived(
+		$is_desktop_sidebar_collapsed
+			? 'block h-6 w-6 rotate-180 object-contain'
+			: `block h-6 w-6 object-contain ${desktop_toggle_content_class}`
+	);
 
 	function persist_current_home_scroll_position() {
 		if (!ison_home) {
@@ -253,52 +290,71 @@
 
 <!-- Desktop Sidebar -->
 <aside
-	class="fixed top-0 left-0 hidden h-screen w-72 flex-col gap-15 bg-[#09051C] p-6 text-white md:flex"
+	class={`fixed top-0 left-0 hidden h-screen flex-col gap-15 bg-[#09051C] text-white transition-[width,padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${desktop_aside_class}`}
+	style={`width: ${$desktop_sidebar_width};`}
 	data-sveltekit-preload-code="viewport"
 >
 	<a
 		href={home_href}
 		onclick={handle_home_navigation_click}
-		class="block w-fit self-center transition-opacity hover:opacity-80"
+		class={`block transition-opacity hover:opacity-80 ${$is_desktop_sidebar_collapsed ? 'mx-auto self-center' : 'mx-auto w-fit self-center'}`}
 	>
 		<img
 			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
 			alt="Space and Time Logo"
-			class="h-16"
+			class={`object-contain transition-[height,transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${$is_desktop_sidebar_collapsed ? 'h-14 scale-95 opacity-90' : 'h-16 scale-100 opacity-100'}`}
 		/>
 	</a>
 
 	<button
 		type="button"
-		class="flex items-center gap-3 rounded-xl px-3 py-2 text-left text-lg font-semibold text-white/90 transition-colors hover:bg-white/6"
+		onclick={toggle_desktop_sidebar}
+		class={`relative flex items-center text-left text-lg font-semibold text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding,gap,border-radius] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/6 ${desktop_sidebar_button_class}`}
 	>
-		<img src="/images/sidebar-and-search/expand-tab.avif" alt="Close Tab icon" class="h-6 w-6" />
-		<span>Close Tab</span>
+		<img
+			src="/images/sidebar-and-search/expand-tab.avif"
+			alt="Close Tab icon"
+			class={`transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_sidebar_toggle_icon_class}`}
+		/>
+		<span
+			class={`whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+			>Close Tab</span
+		>
 	</button>
 
-	<nav class="space-y-2">
+	<nav class={`space-y-2 ${$is_desktop_sidebar_collapsed ? 'w-full' : ''}`}>
 		<a
 			href={home_href}
 			onclick={handle_home_navigation_click}
 			data-sveltekit-preload-data="hover"
-			class={`${nav_link_base} ${ison_home ? active_link : ''}`}
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_home ? active_link : ''}`}
 		>
 			<img
 				src="/images/sidebar-and-search/home-page-icon.avif"
 				alt="Home Page icon"
-				class="h-6 w-6"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
 			/>
-			<span class="text-lg font-semibold">Home</span>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Home</span
+			>
 		</a>
 
 		<a
 			href={search_href}
 			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
-			class={`${nav_link_base} ${ison_search ? active_link : ''}`}
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_search ? active_link : ''}`}
 		>
-			<img src="/images/sidebar-and-search/search.avif" alt="Search icon" class="h-6 w-6" />
-			<span class="text-lg font-semibold">Search</span>
+			<img
+				src="/images/sidebar-and-search/search.avif"
+				alt="Search icon"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
+			/>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Search</span
+			>
 		</a>
 
 		<a
@@ -309,49 +365,86 @@
 			)}
 			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
-			class={`${nav_link_base} ${ison_profile ? active_link : ''}`}
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_profile ? active_link : ''}`}
 		>
-			<img src="/images/sidebar-and-search/go-to-profile.avif" alt="Profile icon" class="h-6 w-6" />
-			<span class="text-lg font-semibold">Profile</span>
+			<img
+				src="/images/sidebar-and-search/go-to-profile.avif"
+				alt="Profile icon"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
+			/>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Profile</span
+			>
 		</a>
 
-		<button type="button" class={nav_link_base}>
+		<button
+			type="button"
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+		>
 			<img
 				src="/images/sidebar-and-search/open-messages.avif"
 				alt="Messages icon"
-				class="h-6 w-6"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
 			/>
-			<span class="text-lg font-semibold">Message</span>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Message</span
+			>
 		</button>
 
-		<button type="button" class={nav_link_base}>
-			<img src="/images/sidebar-and-search/setting.avif" alt="Settings icon" class="h-6 w-6" />
-			<span class="text-lg font-semibold">Setting</span>
+		<button
+			type="button"
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+		>
+			<img
+				src="/images/sidebar-and-search/setting.avif"
+				alt="Settings icon"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
+			/>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Setting</span
+			>
 		</button>
 
-		<button type="button" class={nav_link_base}>
+		<button
+			type="button"
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+		>
 			<img
 				src="/images/sidebar-and-search/change-theme-icon.avif"
 				alt="Change Theme icon"
-				class="h-6 w-6"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
 			/>
-			<span class="text-lg font-semibold">Theme</span>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Theme</span
+			>
 		</button>
 
-		<button type="button" class={nav_link_base}>
+		<button
+			type="button"
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+		>
 			<img
 				src="/images/sidebar-and-search/about-this-account-icon.avif"
 				alt="About this Account icon"
-				class="h-6 w-6"
+				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
 			/>
-			<span class="text-lg font-semibold">About</span>
+			<span
+				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>About</span
+			>
 		</button>
 	</nav>
 
-	<div class="mt-auto px-2 pb-2">
+	<div
+		class={`mt-auto pb-2 ${$is_desktop_sidebar_collapsed ? 'mx-auto px-0 text-center' : 'px-2'}`}
+	>
 		<button
 			type="button"
-			class="rounded-xl p-2 transition-colors duration-200 hover:bg-white/6"
+			class={`rounded-xl p-2 transition-colors duration-200 hover:bg-white/6 ${$is_desktop_sidebar_collapsed ? 'mx-auto flex h-12 w-12 items-center justify-center' : ''}`}
 			aria-label="Toggle theme"
 		>
 			<img
