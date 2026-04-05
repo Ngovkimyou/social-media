@@ -1,5 +1,8 @@
 <script lang="ts">
 	import './profile.css';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { onDestroy, tick } from 'svelte';
 	import type { PageProps } from './$types';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
@@ -31,6 +34,16 @@
 			phone?: string | null;
 		}
 	);
+	const return_to = $derived.by(() => {
+		const raw_value = page.url.searchParams.get('returnTo')?.trim();
+
+		if (!raw_value || !raw_value.startsWith('/')) {
+			return;
+		}
+
+		return raw_value;
+	});
+	const return_post_id = $derived(page.url.searchParams.get('returnPostId')?.trim() ?? '');
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
@@ -38,9 +51,10 @@
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 
 	const post_tiles = $derived.by(() =>
-		data['photo_urls'].map((img: string, index: number) => ({
-			id: index + 1,
-			image: build_responsive_image_source(img, {
+		data['photo_posts'].map((post) => ({
+			id: post.id,
+			href: `/profile/${encodeURIComponent(data['profile'].username)}/posts/${post.id}`,
+			image: build_responsive_image_source(post.image_url, {
 				widths: [360, 540, 720, 960, 1200],
 				height: 'match-width',
 				fit: 'lfill',
@@ -189,6 +203,25 @@
 		submit_selected_image(event);
 	}
 
+	async function handle_return_navigation() {
+		if (return_to) {
+			const separator = return_to.includes('?') ? '&' : '?';
+			const target_href = return_post_id
+				? `${return_to}${separator}focusPost=${encodeURIComponent(return_post_id)}`
+				: return_to;
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(target_href);
+			return;
+		}
+
+		if (window.history.length > 1) {
+			window.history.back();
+			return;
+		}
+
+		await goto(resolve('/home'));
+	}
+
 	async function handle_relationship_button_click() {
 		if (data['relationship'].is_own_profile) {
 			return;
@@ -280,6 +313,22 @@
 >
 	<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
 		<div class="relative h-56 w-full md:h-74">
+			{#if return_to}
+				<button
+					type="button"
+					onclick={() => {
+						void handle_return_navigation();
+					}}
+					class="absolute top-4 left-4 z-40 block transition-transform duration-200 hover:scale-105 md:top-6 md:left-6"
+					aria-label="Go back"
+				>
+					<img
+						src="/images/profile/go-back-icon.avif"
+						alt=""
+						class="h-10 w-10 object-contain md:h-12 md:w-12"
+					/>
+				</button>
+			{/if}
 			<div class="relative h-full w-full overflow-hidden rounded-3xl">
 				<ProgressiveImage
 					src={profile_cover_source.src}
@@ -580,8 +629,11 @@
 				{/if}
 
 				{#each post_tiles as post (post.id)}
-					<div
-						class="aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+					<a
+						href={post.href}
+						class="block aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+						aria-label="Open post"
 					>
 						<ProgressiveImage
 							src={post.image.src}
@@ -594,7 +646,7 @@
 							loading="lazy"
 							decoding="async"
 						/>
-					</div>
+					</a>
 				{/each}
 			</div>
 		{/if}

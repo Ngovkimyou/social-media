@@ -8,7 +8,8 @@
 
 <PostFeedView
 	posts={data.posts}
-	title="Feed"
-	hasLoadMore={data.has_more}
-	load_more_href={resolve(`/home?page=${data.page + 1}`)}
+	title={data.profile.name ?? data.profile.username}
+	back_href={resolve(`/profile/${encodeURIComponent(data.profile.username)}`)}
+	get_post_href={(post) =>
+		resolve(`/profile/${encodeURIComponent(data.profile.username)}/posts/${post.id}`)}
 />

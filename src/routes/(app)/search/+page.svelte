@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { onDestroy, onMount } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { PageData } from './$types';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
@@ -269,6 +269,51 @@
 		persist_recent_users([]);
 	};
 
+	const refresh_recent_users = async (stored_recent_users: RecentUser[]): Promise<void> => {
+		const usernames = stored_recent_users
+			.map((recent_user) => recent_user.username.trim())
+			.filter(Boolean)
+			.slice(0, max_recent_users);
+
+		if (usernames.length === 0) {
+			return;
+		}
+
+		const params = new SvelteURLSearchParams();
+
+		for (const username of usernames) {
+			params.append('username', username);
+		}
+
+		try {
+			const response = await fetch(`/api/search/recent-users?${params.toString()}`);
+
+			if (!response.ok) {
+				return;
+			}
+
+			const payload = (await response.json()) as { users: SearchUser[] };
+
+			if (!Array.isArray(payload.users) || payload.users.length === 0) {
+				return;
+			}
+
+			const refreshed_recent_users = payload.users
+				.map((listed_user) => ({
+					id: listed_user.id,
+					name: listed_user.name,
+					image: listed_user.image,
+					username: listed_user.username
+				}))
+				.slice(0, max_recent_users);
+
+			recent_users = refreshed_recent_users;
+			persist_recent_users(refreshed_recent_users);
+		} catch {
+			// Keep the locally cached recent users if refresh fails.
+		}
+	};
+
 	onMount(() => {
 		try {
 			const raw_recent_users = localStorage.getItem(get_recent_storage_key());
@@ -283,7 +328,7 @@
 				return;
 			}
 
-			recent_users = parsed
+			const parsed_recent_users = parsed
 				.filter(
 					(recent_user): recent_user is RecentUser =>
 						typeof recent_user === 'object' &&
@@ -299,6 +344,9 @@
 							: true)
 				)
 				.slice(0, max_recent_users);
+
+			recent_users = parsed_recent_users;
+			void refresh_recent_users(parsed_recent_users);
 		} catch {
 			recent_users = [];
 		}

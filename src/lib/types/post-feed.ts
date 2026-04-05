@@ -1,4 +1,4 @@
-export type Post = {
+export type PostFeedPost = {
 	id: string;
 	content: string;
 	created_at: Date;
