@@ -9,9 +9,16 @@
 	--font-sans: var(--font-madimi), ui-sans-serif, system-ui, sans-serif;
 }
 
+html,
+body {
+	min-height: 100%;
+	background-color: #09051c;
+}
+
 body {
 	font-family: var(--font-sans);
 	letter-spacing: 0.02em;
+	color: #ffffff;
 }
 
 .skeleton-shimmer {
