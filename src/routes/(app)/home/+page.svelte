@@ -62,7 +62,11 @@
 						<span class="text-xl font-semibold text-white">{post.author_name}</span>
 						<span class="text-xs text-white/50">{time_ago(post.created_at)}</span>
 						<button class="ml-auto text-white/50 transition-colors hover:text-white">
-							<img src="/images/three-dots-icon.avif" alt="more options" class="h-3 w-auto" />
+							<img
+								src="/images/home-screen/three-dots-icon.avif"
+								alt="more options"
+								class="h-3 w-auto"
+							/>
 						</button>
 					</div>
 					<!-- Post image with caption overlay -->
@@ -82,13 +86,13 @@
 					<!-- Reaction buttons -->
 					<div class="mx-5 flex items-center gap-5 pt-10 pb-4">
 						<button class="transition-opacity hover:opacity-70">
-							<img src="/images/unliked-state.avif" alt="like" class="h-6 w-auto" />
+							<img src="/images/home-screen/unliked-state.avif" alt="like" class="h-6 w-auto" />
 						</button>
 						<button class="transition-opacity hover:opacity-70">
-							<img src="/images/comment-icon.avif" alt="comment" class="h-6 w-auto" />
+							<img src="/images/home-screen/comment-icon.avif" alt="comment" class="h-6 w-auto" />
 						</button>
 						<button class="transition-opacity hover:opacity-70">
-							<img src="/images/share-post-icon.avif" alt="share" class="h-6 w-auto" />
+							<img src="/images/home-screen/share-post-icon.avif" alt="share" class="h-6 w-auto" />
 						</button>
 					</div>
 				</div>
@@ -119,7 +123,11 @@
 						<span class="text-xl font-semibold text-white">{post.author_name}</span>
 						<span class="text-xs text-white/50">{time_ago(post.created_at)}</span>
 						<button class="ml-auto text-white/50 transition-colors hover:text-white">
-							<img src="/images/three-dots-icon.avif" alt="more options" class="h-3 w-auto" />
+							<img
+								src="/images/home-screen/three-dots-icon.avif"
+								alt="more options"
+								class="h-3 w-auto"
+							/>
 						</button>
 					</div>
 					<!-- Post image with caption overlay -->
@@ -139,13 +147,13 @@
 					<!-- Reaction buttons -->
 					<div class="flex items-center gap-5 px-5 py-3">
 						<button class="transition-opacity hover:opacity-70">
-							<img src="/images/unliked-state.avif" alt="like" class="h-6 w-auto" />
+							<img src="/images/home-screen/unliked-state.avif" alt="like" class="h-6 w-auto" />
 						</button>
 						<button class="transition-opacity hover:opacity-70">
-							<img src="/images/comment-icon.avif" alt="comment" class="h-6 w-auto" />
+							<img src="/images/home-screen/comment-icon.avif" alt="comment" class="h-6 w-auto" />
 						</button>
 						<button class="transition-opacity hover:opacity-70">
-							<img src="/images/share-post-icon.avif" alt="share" class="h-6 w-auto" />
+							<img src="/images/home-screen/share-post-icon.avif" alt="share" class="h-6 w-auto" />
 						</button>
 					</div>
 				</div>
