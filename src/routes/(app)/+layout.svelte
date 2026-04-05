@@ -21,11 +21,19 @@
 	const isnavigating_to_search = $derived(
 		Boolean(navigating.to) && navigating_path === search_href
 	);
+	const isnavigating_to_profile_post = $derived(
+		Boolean(navigating.to) && /^\/profile\/[^/]+\/posts\/[^/]+$/.test(navigating_path)
+	);
 	const isnavigating_to_profile = $derived(
-		Boolean(navigating.to) && navigating_path.startsWith(profile_prefix)
+		Boolean(navigating.to) &&
+			navigating_path.startsWith(profile_prefix) &&
+			!isnavigating_to_profile_post
 	);
 	const hasnavigation_skeleton_visible = $derived(
-		isnavigating_to_home || isnavigating_to_search || isnavigating_to_profile
+		isnavigating_to_home ||
+			isnavigating_to_search ||
+			isnavigating_to_profile ||
+			isnavigating_to_profile_post
 	);
 	const home_skeleton_cards = Array.from({ length: 4 }, (_, index) => index);
 	const search_skeleton_rows = Array.from({ length: 7 }, (_, index) => index);
@@ -69,11 +77,12 @@
 
 {#if hasnavigation_skeleton_visible}
 	<div
-		class="nav_skeleton pointer-events-none fixed right-0 left-0 z-70 {isnavigating_to_profile
+		class="nav_skeleton pointer-events-none fixed right-0 left-0 z-70 {isnavigating_to_profile ||
+		isnavigating_to_profile_post
 			? 'top-0 bottom-0'
 			: 'top-18 bottom-18'} md:top-0 md:bottom-0 md:left-72"
 	>
-		{#if isnavigating_to_home}
+		{#if isnavigating_to_home || isnavigating_to_profile_post}
 			<section
 				class="home_skeleton_screen flex h-screen min-h-0 flex-col overflow-hidden text-white"
 			>

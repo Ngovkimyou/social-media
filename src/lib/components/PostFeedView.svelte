@@ -1,31 +1,42 @@
 <script lang="ts">
 	import './post-feed-view.css';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import { fade, scale } from 'svelte/transition';
+	import {
+		get_last_home_feed_state,
+		set_last_home_feed_state,
+		type HomeFeedState
+	} from '$lib/state/home-feed-state';
 	import type { PostFeedPost } from '$lib/types/post-feed';
+
+	type BackPath = '/profile' | `/profile/${string}`;
+	type LoadMorePath = `/home?${string}` | `/home#${string}` | `/home?${string}#${string}`;
+	type PostPath = `/profile/${string}/posts/${string}`;
+	const last_home_state_storage_key = 'post-feed-last-home-state';
 
 	type Props = {
 		posts: PostFeedPost[];
 		title: string;
 		subtitle?: string;
-		back_href?: string;
-		load_more_href?: string;
+		back_path?: BackPath;
+		load_more_path?: LoadMorePath;
 		hasLoadMore?: boolean;
-		get_post_href?: ((post: PostFeedPost) => string) | undefined;
+		get_post_path?: ((post: PostFeedPost) => PostPath) | undefined;
 	};
 
 	const {
 		posts,
 		title,
 		subtitle,
-		back_href,
-		load_more_href,
+		back_path,
+		load_more_path,
 		// eslint-disable-next-line @typescript-eslint/naming-convention
 		hasLoadMore = false,
-		get_post_href
+		get_post_path
 	}: Props = $props();
 
 	const requested_view = $derived(page.url.searchParams.get('view') === 'grid' ? 'grid' : 'feed');
@@ -33,8 +44,21 @@
 	let isGridView = $derived(requested_view === 'grid');
 	let expanded_captions = $state<Record<string, boolean>>({});
 	let overflowing_captions = $state<Record<string, boolean>>({});
+	let root_container = $state<HTMLDivElement | undefined>();
 	let scroll_container = $state<HTMLDivElement | undefined>();
 	let mounted_scroll_storage_key = $state('');
+	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
+	let image_preview = $state<
+		| {
+				src: string;
+				alt: string;
+		  }
+		| undefined
+	>();
+	let liked_posts = $state<Record<string, boolean>>({});
+	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
+		{}
+	);
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
@@ -97,13 +121,87 @@
 	}
 
 	function register_post_element(node: HTMLElement, post_id: string): { destroy(): void } {
+		node.dataset['postId'] = post_id;
 		post_elements.set(post_id, node);
 
 		return {
 			destroy() {
+				delete node.dataset['postId'];
 				post_elements.delete(post_id);
 			}
 		};
+	}
+
+	function get_active_scroll_container() {
+		if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+			return scroll_container;
+		}
+
+		return root_container;
+	}
+
+	function open_image_preview(src: string, alt: string) {
+		image_preview = { src, alt };
+	}
+
+	function close_image_preview() {
+		image_preview = undefined;
+	}
+
+	function clear_pending_preview(post_id: string | number) {
+		const timer = pending_preview_timers[String(post_id)];
+
+		if (!timer) {
+			return;
+		}
+
+		clearTimeout(timer);
+		pending_preview_timers = {
+			...pending_preview_timers,
+			[String(post_id)]: undefined
+		};
+	}
+
+	function schedule_image_preview(post_id: string | number, src: string, alt: string) {
+		clear_pending_preview(post_id);
+		pending_preview_timers = {
+			...pending_preview_timers,
+			[String(post_id)]: setTimeout(() => {
+				open_image_preview(src, alt);
+				clear_pending_preview(post_id);
+			}, 220)
+		};
+	}
+
+	function toggle_like(post_id: string | number) {
+		const key = String(post_id);
+		liked_posts = {
+			...liked_posts,
+			[key]: !liked_posts[key]
+		};
+	}
+
+	function get_scroll_anchor_post_id(active_scroll_container: HTMLElement) {
+		const container_top = active_scroll_container.getBoundingClientRect().top;
+		let nearest_post_id = '';
+		let nearest_distance = Number.POSITIVE_INFINITY;
+
+		for (const [post_id, post_element] of post_elements) {
+			const { top, bottom } = post_element.getBoundingClientRect();
+
+			if (bottom <= container_top) {
+				continue;
+			}
+
+			const distance = Math.abs(top - container_top);
+
+			if (distance < nearest_distance) {
+				nearest_distance = distance;
+				nearest_post_id = post_id;
+			}
+		}
+
+		return nearest_post_id;
 	}
 
 	async function update_view_query(next_view: 'grid' | 'feed') {
@@ -126,70 +224,164 @@
 	}
 
 	function persist_scroll_position() {
-		if (!scroll_container || !mounted_scroll_storage_key) {
+		const active_scroll_container = get_active_scroll_container();
+
+		if (!active_scroll_container || !mounted_scroll_storage_key) {
 			return;
 		}
 
 		try {
-			sessionStorage.setItem(mounted_scroll_storage_key, `${scroll_container.scrollTop}`);
+			const next_state: HomeFeedState = {
+				return_href: `${page.url.pathname}${page.url.search}`,
+				scroll_top: active_scroll_container.scrollTop,
+				anchor_post_id: get_scroll_anchor_post_id(active_scroll_container)
+			};
+			const serialized_state = JSON.stringify(next_state);
+
+			sessionStorage.setItem(mounted_scroll_storage_key, serialized_state);
+
+			if (page.url.pathname === '/home') {
+				set_last_home_feed_state(next_state);
+				sessionStorage.setItem(last_home_state_storage_key, serialized_state);
+			}
 		} catch {
 			// Ignore storage failures.
 		}
+	}
+
+	function restore_scroll_position() {
+		const active_scroll_container = get_active_scroll_container();
+
+		if (!active_scroll_container || !mounted_scroll_storage_key) {
+			return;
+		}
+
+		try {
+			const saved_state =
+				(page.url.pathname === '/home' ? get_last_home_feed_state() : undefined) ??
+				(sessionStorage.getItem(mounted_scroll_storage_key)
+					? (JSON.parse(sessionStorage.getItem(mounted_scroll_storage_key)!) as HomeFeedState)
+					: undefined) ??
+				(sessionStorage.getItem(last_home_state_storage_key)
+					? (JSON.parse(sessionStorage.getItem(last_home_state_storage_key)!) as HomeFeedState)
+					: undefined);
+
+			if (!saved_state) {
+				return;
+			}
+
+			const next_scroll_top = Number(saved_state.scroll_top ?? 0);
+
+			const apply_scroll_restore = () => {
+				const anchor_post = saved_state.anchor_post_id
+					? post_elements.get(saved_state.anchor_post_id)
+					: undefined;
+
+				if (anchor_post) {
+					anchor_post.scrollIntoView({ block: 'start', behavior: 'auto' });
+				}
+
+				active_scroll_container.scrollTop = next_scroll_top;
+			};
+
+			apply_scroll_restore();
+			requestAnimationFrame(apply_scroll_restore);
+			setTimeout(apply_scroll_restore, 120);
+			setTimeout(apply_scroll_restore, 320);
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
+	function restore_focus_post() {
+		if (!focus_post_id || hasConsumedFocusPost) {
+			return false;
+		}
+
+		const target_post = post_elements.get(focus_post_id);
+
+		if (!target_post) {
+			return false;
+		}
+
+		hasConsumedFocusPost = true;
+		target_post.scrollIntoView({ block: 'start', behavior: 'auto' });
+		const cleaned_url = new URL(page.url);
+		cleaned_url.searchParams.delete('focusPost');
+		const cleaned_href = `${cleaned_url.pathname}${cleaned_url.search}${cleaned_url.hash}`;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		void goto(cleaned_href, {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
+		return true;
 	}
 
 	onMount(() => {
 		mounted_scroll_storage_key = `post-feed-scroll:${page.url.pathname}${page.url.search}`;
 
 		void tick().then(() => {
-			if (!scroll_container) {
+			const active_scroll_container = get_active_scroll_container();
+
+			if (!active_scroll_container) {
 				return;
 			}
 
-			if (focus_post_id && !hasConsumedFocusPost) {
-				const target_post = post_elements.get(focus_post_id);
-
-				if (target_post) {
-					hasConsumedFocusPost = true;
-					target_post.scrollIntoView({ block: 'start', behavior: 'auto' });
-					const cleaned_url = new URL(page.url);
-					cleaned_url.searchParams.delete('focusPost');
-					const cleaned_href = `${cleaned_url.pathname}${cleaned_url.search}${cleaned_url.hash}`;
-					// eslint-disable-next-line svelte/no-navigation-without-resolve
-					void goto(cleaned_href, {
-						replaceState: true,
-						noScroll: true,
-						keepFocus: true
-					});
-					return;
-				}
+			if (restore_focus_post()) {
+				return;
 			}
 
-			try {
-				const saved_scroll_top = sessionStorage.getItem(mounted_scroll_storage_key);
+			restore_scroll_position();
+		});
+	});
 
-				if (!saved_scroll_top) {
-					return;
-				}
-
-				scroll_container.scrollTop = Number(saved_scroll_top);
-			} catch {
-				// Ignore storage failures.
+	afterNavigate(() => {
+		void tick().then(() => {
+			if (restore_focus_post()) {
+				return;
 			}
+
+			restore_scroll_position();
+		});
+	});
+
+	beforeNavigate(() => {
+		persist_scroll_position();
+	});
+
+	$effect(() => {
+		if (!image_preview) {
+			return;
+		}
+
+		void tick().then(() => {
+			image_preview_backdrop?.focus();
 		});
 	});
 
 	onDestroy(() => {
+		for (const timer of Object.values(pending_preview_timers)) {
+			if (timer) {
+				clearTimeout(timer);
+			}
+		}
+
 		persist_scroll_position();
 	});
 </script>
 
-<div class="flex h-screen min-h-0 flex-col overflow-hidden bg-[#09051c] text-white">
-	<div class="sticky top-0 z-10 flex items-center justify-between bg-[#09051c] p-4 md:p-6 lg:p-8">
+<div
+	bind:this={root_container}
+	class="post-feed-page flex h-screen min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-[#09051c] text-white md:overflow-hidden"
+>
+	<div
+		class="z-10 flex items-center justify-between bg-[#09051c] p-4 md:sticky md:top-0 md:p-6 lg:p-8"
+	>
 		<div class="flex min-w-0 items-center gap-3 md:gap-4">
-			{#if back_href}
-				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+			{#if back_path}
 				<a
-					href={back_href}
+					href={resolve(back_path)}
 					class="group shrink-0 text-white/70 transition-colors duration-200 hover:text-white"
 					aria-label="Go back"
 				>
@@ -235,7 +427,7 @@
 
 	<div
 		bind:this={scroll_container}
-		class="post-feed-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-none px-4 pb-6 md:px-8 md:pb-8"
+		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-6 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
 		onscroll={persist_scroll_position}
 	>
 		{#if isGridView}
@@ -287,16 +479,32 @@
 						</div>
 
 						<div class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl md:mx-4">
-							{#if get_post_href}
-								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+							{#if get_post_path}
 								<a
-									href={get_post_href(post)}
+									href={resolve(get_post_path(post))}
 									class="absolute inset-0 z-10"
 									aria-label={`Open ${post.author_name}'s post`}
 								></a>
 							{/if}
 							{#if post.media_url && post.media_type === 'image'}
-								<img src={post.media_url} alt="post" class="h-full w-full object-cover" />
+								<button
+									type="button"
+									class="absolute inset-0 z-15 cursor-zoom-in"
+									onclick={() => {
+										schedule_image_preview(
+											post.id,
+											post.media_url ?? '',
+											`${post.author_name}'s post`
+										);
+									}}
+									ondblclick={() => {
+										clear_pending_preview(post.id);
+										toggle_like(post.id);
+									}}
+									aria-label={`Preview ${post.author_name}'s post image`}
+								>
+									<img src={post.media_url} alt="post" class="h-full w-full object-cover" />
+								</button>
 							{/if}
 							{#if post.content}
 								{#if expanded_captions[caption_key('grid', post.id)]}
@@ -355,14 +563,34 @@
 							{/if}
 						</div>
 
-						<div class="mx-4 flex items-center gap-4 pt-6 pb-4 md:mx-5 md:gap-5 md:pt-8">
-							<button class="transition-opacity hover:opacity-70"
-								><img
-									src="/images/home-screen/unliked-state.avif"
-									alt="like"
-									class="h-6 w-auto"
-								/></button
+						<div
+							class="2xl:pt:6 mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6"
+						>
+							<button
+								type="button"
+								class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+								onclick={() => toggle_like(post.id)}
+								aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
 							>
+								<img
+									src="/images/home-screen/unliked-state.avif"
+									alt=""
+									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+										String(post.id)
+									]
+										? 'scale-75 opacity-0'
+										: 'scale-100 opacity-100'}"
+								/>
+								<img
+									src="/images/home-screen/liked-state.avif"
+									alt="like"
+									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+										String(post.id)
+									]
+										? 'scale-100 opacity-100'
+										: 'scale-125 opacity-0'}"
+								/>
+							</button>
 							<button class="transition-opacity hover:opacity-70"
 								><img
 									src="/images/home-screen/comment-icon.avif"
@@ -429,7 +657,24 @@
 
 						<div class="relative mx-3 mt-3 overflow-hidden rounded-2xl bg-black/20 md:mx-4">
 							{#if post.media_url && post.media_type === 'image'}
-								<img src={post.media_url} alt="post" class="max-h-[70vh] w-full object-contain" />
+								<button
+									type="button"
+									class="block w-full cursor-zoom-in"
+									onclick={() => {
+										schedule_image_preview(
+											post.id,
+											post.media_url ?? '',
+											`${post.author_name}'s post`
+										);
+									}}
+									ondblclick={() => {
+										clear_pending_preview(post.id);
+										toggle_like(post.id);
+									}}
+									aria-label={`Preview ${post.author_name}'s post image`}
+								>
+									<img src={post.media_url} alt="post" class="max-h-[70vh] w-full object-contain" />
+								</button>
 							{/if}
 							{#if post.content}
 								{#if expanded_captions[caption_key('feed', post.id)]}
@@ -488,14 +733,32 @@
 							{/if}
 						</div>
 
-						<div class="flex items-center gap-4 px-4 py-3 md:gap-5 md:px-5">
-							<button class="transition-opacity hover:opacity-70"
-								><img
-									src="/images/home-screen/unliked-state.avif"
-									alt="like"
-									class="h-6 w-auto"
-								/></button
+						<div class="mx-2 flex items-center gap-5 px-4 py-5 md:gap-6 md:px-5 2xl:pt-6 2xl:pb-6">
+							<button
+								type="button"
+								class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+								onclick={() => toggle_like(post.id)}
+								aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
 							>
+								<img
+									src="/images/home-screen/unliked-state.avif"
+									alt=""
+									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+										String(post.id)
+									]
+										? 'scale-75 opacity-0'
+										: 'scale-100 opacity-100'}"
+								/>
+								<img
+									src="/images/home-screen/liked-state.avif"
+									alt="like"
+									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+										String(post.id)
+									]
+										? 'scale-100 opacity-100'
+										: 'scale-125 opacity-0'}"
+								/>
+							</button>
 							<button class="transition-opacity hover:opacity-70"
 								><img
 									src="/images/home-screen/comment-icon.avif"
@@ -516,11 +779,10 @@
 			</div>
 		{/if}
 
-		{#if hasLoadMore && load_more_href}
+		{#if hasLoadMore && load_more_path}
 			<div class="mt-4 flex justify-center pb-8">
-				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
 				<a
-					href={load_more_href}
+					href={resolve(load_more_path)}
 					class="rounded-full bg-white/10 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20"
 				>
 					Load more
@@ -529,3 +791,30 @@
 		{/if}
 	</div>
 </div>
+
+{#if image_preview}
+	<div
+		class="fixed inset-0 z-80 flex cursor-zoom-out items-center justify-center bg-black/90 px-4 py-6 backdrop-blur-md"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Post image preview"
+		tabindex="0"
+		bind:this={image_preview_backdrop}
+		onclick={close_image_preview}
+		transition:fade={{ duration: 180 }}
+		onkeydown={(event) => {
+			if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				close_image_preview();
+			}
+		}}
+	>
+		<img
+			src={image_preview.src}
+			alt={image_preview.alt}
+			class="max-h-[92vh] max-w-[96vw] rounded-3xl object-contain shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
+			decoding="async"
+			transition:scale={{ duration: 220, start: 0.92, opacity: 0.55 }}
+		/>
+	</div>
+{/if}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
 	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { PageData } from './$types';
@@ -208,6 +209,7 @@
 	};
 
 	const trimmed_query = $derived(query.trim());
+	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	const has_recent_users = $derived(recent_users.length > 0);
 
@@ -453,7 +455,9 @@
 								class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 focus-within:border-[#7DD4FF] focus-within:bg-white/10 hover:border-[#CD82FF] hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
 							>
 								<a
-									href={resolve(`/profile/${encodeURIComponent(recent_user.username)}`)}
+									href={resolve(
+										`/profile/${encodeURIComponent(recent_user.username)}?returnTo=${encodeURIComponent(current_return_to)}`
+									)}
 									onclick={() => {
 										save_recent_user(recent_user, { update_ui: false });
 									}}
@@ -510,7 +514,9 @@
 						{@const listed_avatar = get_user_avatar_source(listed_user.image)}
 						<li>
 							<a
-								href={resolve(`/profile/${encodeURIComponent(listed_user.username)}`)}
+								href={resolve(
+									`/profile/${encodeURIComponent(listed_user.username)}?returnTo=${encodeURIComponent(current_return_to)}`
+								)}
 								onclick={() => {
 									save_recent_user(listed_user, { update_ui: false });
 								}}
