@@ -343,7 +343,7 @@
 <section
 	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
 >
-	<h1 class="text-3xl font-bold tracking-wide md:text-5xl">Search</h1>
+	<h1 class="text-2xl font-bold tracking-wide md:text-4xl">Search</h1>
 
 	<label for="search-users" class="mt-4 block cursor-pointer md:mt-6">
 		<span class="sr-only">Search users</span>

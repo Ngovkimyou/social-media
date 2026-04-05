@@ -1,4 +1,5 @@
 <script lang="ts">
+	import './profile.css';
 	import { onDestroy, tick } from 'svelte';
 	import type { PageProps } from './$types';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
@@ -275,7 +276,7 @@
 </svelte:head>
 
 <div
-	class="flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white"
+	class="profile-scroll flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white"
 >
 	<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
 		<div class="relative h-56 w-full md:h-74">
