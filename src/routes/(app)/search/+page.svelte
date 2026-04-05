@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { onDestroy, onMount } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { PageData } from './$types';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
@@ -208,6 +209,7 @@
 	};
 
 	const trimmed_query = $derived(query.trim());
+	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	const has_recent_users = $derived(recent_users.length > 0);
 
@@ -269,6 +271,51 @@
 		persist_recent_users([]);
 	};
 
+	const refresh_recent_users = async (stored_recent_users: RecentUser[]): Promise<void> => {
+		const usernames = stored_recent_users
+			.map((recent_user) => recent_user.username.trim())
+			.filter(Boolean)
+			.slice(0, max_recent_users);
+
+		if (usernames.length === 0) {
+			return;
+		}
+
+		const params = new SvelteURLSearchParams();
+
+		for (const username of usernames) {
+			params.append('username', username);
+		}
+
+		try {
+			const response = await fetch(`/api/search/recent-users?${params.toString()}`);
+
+			if (!response.ok) {
+				return;
+			}
+
+			const payload = (await response.json()) as { users: SearchUser[] };
+
+			if (!Array.isArray(payload.users) || payload.users.length === 0) {
+				return;
+			}
+
+			const refreshed_recent_users = payload.users
+				.map((listed_user) => ({
+					id: listed_user.id,
+					name: listed_user.name,
+					image: listed_user.image,
+					username: listed_user.username
+				}))
+				.slice(0, max_recent_users);
+
+			recent_users = refreshed_recent_users;
+			persist_recent_users(refreshed_recent_users);
+		} catch {
+			// Keep the locally cached recent users if refresh fails.
+		}
+	};
+
 	onMount(() => {
 		try {
 			const raw_recent_users = localStorage.getItem(get_recent_storage_key());
@@ -283,7 +330,7 @@
 				return;
 			}
 
-			recent_users = parsed
+			const parsed_recent_users = parsed
 				.filter(
 					(recent_user): recent_user is RecentUser =>
 						typeof recent_user === 'object' &&
@@ -299,6 +346,9 @@
 							: true)
 				)
 				.slice(0, max_recent_users);
+
+			recent_users = parsed_recent_users;
+			void refresh_recent_users(parsed_recent_users);
 		} catch {
 			recent_users = [];
 		}
@@ -343,7 +393,7 @@
 <section
 	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
 >
-	<h1 class="text-3xl font-bold tracking-wide md:text-5xl">Search</h1>
+	<h1 class="text-2xl font-bold tracking-wide md:text-4xl">Search</h1>
 
 	<label for="search-users" class="mt-4 block cursor-pointer md:mt-6">
 		<span class="sr-only">Search users</span>
@@ -405,7 +455,9 @@
 								class="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 transition-all duration-200 focus-within:border-[#7DD4FF] focus-within:bg-white/10 hover:border-[#CD82FF] hover:bg-white/8 hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
 							>
 								<a
-									href={resolve(`/profile/${encodeURIComponent(recent_user.username)}`)}
+									href={resolve(
+										`/profile/${encodeURIComponent(recent_user.username)}?returnTo=${encodeURIComponent(current_return_to)}`
+									)}
 									onclick={() => {
 										save_recent_user(recent_user, { update_ui: false });
 									}}
@@ -462,7 +514,9 @@
 						{@const listed_avatar = get_user_avatar_source(listed_user.image)}
 						<li>
 							<a
-								href={resolve(`/profile/${encodeURIComponent(listed_user.username)}`)}
+								href={resolve(
+									`/profile/${encodeURIComponent(listed_user.username)}?returnTo=${encodeURIComponent(current_return_to)}`
+								)}
 								onclick={() => {
 									save_recent_user(listed_user, { update_ui: false });
 								}}

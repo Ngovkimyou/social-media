@@ -1,5 +1,10 @@
 <script lang="ts">
+	import './profile.css';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { onDestroy, tick } from 'svelte';
+	import { fade, scale } from 'svelte/transition';
 	import type { PageProps } from './$types';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
@@ -30,16 +35,38 @@
 			phone?: string | null;
 		}
 	);
+	const return_to = $derived.by(() => {
+		const raw_value = page.url.searchParams.get('returnTo')?.trim();
+
+		if (!raw_value || !raw_value.startsWith('/')) {
+			return;
+		}
+
+		return raw_value;
+	});
+	const return_post_id = $derived(page.url.searchParams.get('returnPostId')?.trim() ?? '');
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let upload_modal_open = $state(false);
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
+	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
+	let profile_image_input = $state<HTMLInputElement | undefined>();
+	let cover_image_input = $state<HTMLInputElement | undefined>();
+	let image_preview = $state<
+		| {
+				src: string;
+				alt: string;
+				is_avatar: boolean;
+		  }
+		| undefined
+	>();
+	let pending_image_preview_timer = $state<ReturnType<typeof setTimeout> | undefined>();
 
 	const post_tiles = $derived.by(() =>
-		data['photo_urls'].map((img: string, index: number) => ({
-			id: index + 1,
-			image: build_responsive_image_source(img, {
+		data['photo_posts'].map((post) => ({
+			id: post.id,
+			image: build_responsive_image_source(post.image_url, {
 				widths: [360, 540, 720, 960, 1200],
 				height: 'match-width',
 				fit: 'lfill',
@@ -105,6 +132,50 @@
 		upload_modal_open = false;
 	}
 
+	function clear_pending_image_preview_timer() {
+		if (!pending_image_preview_timer) {
+			return;
+		}
+
+		clearTimeout(pending_image_preview_timer);
+		pending_image_preview_timer = undefined;
+	}
+
+	function open_image_preview(src: string, alt: string, is_avatar: boolean) {
+		clear_pending_image_preview_timer();
+		image_preview = {
+			src,
+			alt,
+			is_avatar
+		};
+	}
+
+	function close_image_preview() {
+		clear_pending_image_preview_timer();
+		image_preview = undefined;
+	}
+
+	function schedule_image_preview(src: string | undefined, alt: string, is_avatar: boolean) {
+		if (!src) {
+			return;
+		}
+
+		clear_pending_image_preview_timer();
+		pending_image_preview_timer = setTimeout(() => {
+			open_image_preview(src, alt, is_avatar);
+		}, 220);
+	}
+
+	function open_cover_image_picker() {
+		clear_pending_image_preview_timer();
+		cover_image_input?.click();
+	}
+
+	function open_profile_image_picker() {
+		clear_pending_image_preview_timer();
+		profile_image_input?.click();
+	}
+
 	let selected_image = $state<File>();
 	let image_src = $state('');
 	let caption = $state('');
@@ -132,6 +203,16 @@
 
 		void tick().then(() => {
 			upload_modal_backdrop?.focus();
+		});
+	});
+
+	$effect(() => {
+		if (!image_preview) {
+			return;
+		}
+
+		void tick().then(() => {
+			image_preview_backdrop?.focus();
 		});
 	});
 
@@ -186,6 +267,25 @@
 
 	function handle_cover_image_change(event: Event) {
 		submit_selected_image(event);
+	}
+
+	async function handle_return_navigation() {
+		if (return_to) {
+			const separator = return_to.includes('?') ? '&' : '?';
+			const target_href = return_post_id
+				? `${return_to}${separator}focusPost=${encodeURIComponent(return_post_id)}`
+				: return_to;
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(target_href);
+			return;
+		}
+
+		if (window.history.length > 1) {
+			window.history.back();
+			return;
+		}
+
+		await goto(resolve('/home'));
 	}
 
 	async function handle_relationship_button_click() {
@@ -275,10 +375,26 @@
 </svelte:head>
 
 <div
-	class="flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white"
+	class="profile-scroll flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white"
 >
 	<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
 		<div class="relative h-56 w-full md:h-74">
+			{#if return_to}
+				<button
+					type="button"
+					onclick={() => {
+						void handle_return_navigation();
+					}}
+					class="absolute top-4 left-4 z-40 block transition-transform duration-200 hover:scale-105 md:top-6 md:left-6"
+					aria-label="Go back"
+				>
+					<img
+						src="/images/profile/go-back-icon.avif"
+						alt=""
+						class="h-10 w-10 object-contain md:h-12 md:w-12"
+					/>
+				</button>
+			{/if}
 			<div class="relative h-full w-full overflow-hidden rounded-3xl">
 				<ProgressiveImage
 					src={profile_cover_source.src}
@@ -300,15 +416,28 @@
 						enctype="multipart/form-data"
 						class="absolute inset-0 z-20"
 					>
-						<label
-							for="cover-image-upload"
-							class="group relative block h-full w-full cursor-pointer"
+						<div
+							role="button"
+							tabindex="0"
+							onclick={() => {
+								schedule_image_preview(profile_cover_source.src, 'Cover', false);
+							}}
+							ondblclick={open_cover_image_picker}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									open_image_preview(profile_cover_source.src, 'Cover', false);
+								}
+							}}
+							class="group relative block h-full w-full cursor-pointer transition-transform duration-200 ease-out hover:scale-[1.01] active:scale-[0.995]"
+							aria-label="Open cover image preview. Double click to upload a new cover."
 						>
 							<span
-								class="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20"
+								class="pointer-events-none absolute inset-0 bg-black/0 transition-all duration-200 ease-out group-hover:bg-black/20 group-active:bg-black/28"
 							></span>
-						</label>
+						</div>
 						<input
+							bind:this={cover_image_input}
 							id="cover-image-upload"
 							type="file"
 							name="cover"
@@ -317,6 +446,15 @@
 							onchange={handle_cover_image_change}
 						/>
 					</form>
+				{:else}
+					<button
+						type="button"
+						onclick={() => {
+							open_image_preview(profile_cover_source.src, 'Cover', false);
+						}}
+						class="absolute inset-0 z-20 block cursor-zoom-in"
+						aria-label="Open cover image preview"
+					></button>
 				{/if}
 			</div>
 
@@ -357,15 +495,40 @@
 						enctype="multipart/form-data"
 						class="absolute inset-0 z-30"
 					>
-						<label
-							for="profile-image-upload"
-							class="group relative block h-full w-full cursor-pointer rounded-full"
+						<div
+							role="button"
+							tabindex="0"
+							onclick={() => {
+								schedule_image_preview(
+									profile_avatar_source?.src ?? data['profile'].image ?? undefined,
+									data['profile'].name
+										? `${data['profile'].name} avatar`
+										: `${data['profile'].username} avatar`,
+									true
+								);
+							}}
+							ondblclick={open_profile_image_picker}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									open_image_preview(
+										profile_avatar_source?.src ?? data['profile'].image ?? '',
+										data['profile'].name
+											? `${data['profile'].name} avatar`
+											: `${data['profile'].username} avatar`,
+										true
+									);
+								}
+							}}
+							class="group relative block h-full w-full cursor-pointer rounded-full transition-transform duration-200 ease-out hover:scale-[1.02] active:scale-[0.97]"
+							aria-label="Open profile picture preview. Double click to upload a new profile picture."
 						>
 							<span
-								class="pointer-events-none absolute inset-0 rounded-full bg-black/0 transition-colors group-hover:bg-black/20"
+								class="pointer-events-none absolute inset-0 rounded-full bg-black/0 transition-all duration-200 ease-out group-hover:bg-black/20 group-active:bg-black/28"
 							></span>
-						</label>
+						</div>
 						<input
+							bind:this={profile_image_input}
 							id="profile-image-upload"
 							type="file"
 							name="avatar"
@@ -374,6 +537,21 @@
 							onchange={handle_profile_image_change}
 						/>
 					</form>
+				{:else if profile_avatar_source?.src ?? data['profile'].image}
+					<button
+						type="button"
+						onclick={() => {
+							open_image_preview(
+								profile_avatar_source?.src ?? data['profile'].image ?? '',
+								data['profile'].name
+									? `${data['profile'].name} avatar`
+									: `${data['profile'].username} avatar`,
+								true
+							);
+						}}
+						class="absolute inset-0 z-30 block cursor-zoom-in rounded-full"
+						aria-label="Open profile picture preview"
+					></button>
 				{/if}
 
 				<button
@@ -579,8 +757,12 @@
 				{/if}
 
 				{#each post_tiles as post (post.id)}
-					<div
-						class="aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+					<a
+						href={resolve(
+							`/profile/${encodeURIComponent(data['profile'].username)}/posts/${post.id}`
+						)}
+						class="block aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+						aria-label="Open post"
 					>
 						<ProgressiveImage
 							src={post.image.src}
@@ -593,7 +775,7 @@
 							loading="lazy"
 							decoding="async"
 						/>
-					</div>
+					</a>
 				{/each}
 			</div>
 		{/if}
@@ -620,6 +802,7 @@
 		aria-modal="true"
 		tabindex="0"
 		bind:this={upload_modal_backdrop}
+		transition:fade={{ duration: 180 }}
 		onclick={(event) => {
 			if (event.target === event.currentTarget) {
 				close_upload_modal();
@@ -635,6 +818,7 @@
 			class="w-full rounded-3xl bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out {image_src
 				? 'max-w-4xl'
 				: 'max-w-lg'}"
+			transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 		>
 			<div
 				class="flex max-h-[90vh] w-full overflow-hidden rounded-3xl bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)]"
@@ -760,5 +944,34 @@
 				</form>
 			</div>
 		</div>
+	</div>
+{/if}
+
+{#if image_preview}
+	<div
+		class="fixed inset-0 z-60 flex cursor-zoom-out items-center justify-center bg-black/90 px-4 py-6 backdrop-blur-md"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Image preview"
+		tabindex="0"
+		bind:this={image_preview_backdrop}
+		onclick={close_image_preview}
+		transition:fade={{ duration: 180 }}
+		onkeydown={(event) => {
+			if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				close_image_preview();
+			}
+		}}
+	>
+		<img
+			src={image_preview.src}
+			alt={image_preview.alt}
+			class="max-h-[92vh] max-w-[96vw] object-contain shadow-[0_20px_60px_rgba(0,0,0,0.55)] {image_preview.is_avatar
+				? 'rounded-full'
+				: 'rounded-3xl'}"
+			decoding="async"
+			transition:scale={{ duration: 220, start: 0.92, opacity: 0.55 }}
+		/>
 	</div>
 {/if}

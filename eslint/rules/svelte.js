@@ -9,7 +9,7 @@ const svelteRules = [
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		languageOptions: {
 			parserOptions: {
-				project: ['./tsconfig.json', './tsconfig.eslint.json'],
+				projectService: true,
 				extraFileExtensions: ['.svelte'],
 				parser: ts.parser,
 				svelteConfig

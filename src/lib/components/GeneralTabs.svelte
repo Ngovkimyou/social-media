@@ -1,6 +1,13 @@
 <script lang="ts">
+	import type { MouseEventHandler } from 'svelte/elements';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import {
+		get_last_home_feed_state,
+		set_last_home_feed_state,
+		type HomeFeedState
+	} from '$lib/state/home-feed-state';
 	const { profile_username = '' }: { profile_username: string } = $props();
 
 	const active_path = $derived(page.url.pathname);
@@ -18,11 +25,148 @@
 		'relative flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-white transition-[background,box-shadow,backdrop-filter,transform] duration-300 ease-out hover:bg-white/6';
 	const active_link =
 		'!text-[#7DD4FF] bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px]';
+	const last_home_state_storage_key = 'post-feed-last-home-state';
+
+	function persist_current_home_scroll_position() {
+		if (!ison_home) {
+			return;
+		}
+
+		const storage_key = `post-feed-scroll:${page.url.pathname}${page.url.search}`;
+		const active_scroll_container = window.matchMedia('(min-width: 768px)').matches
+			? document.querySelector('.post-feed-scroll')
+			: document.querySelector('.post-feed-page');
+
+		if (!(active_scroll_container instanceof HTMLElement)) {
+			return;
+		}
+
+		try {
+			const anchor_post_id = get_current_home_anchor_post_id(active_scroll_container);
+
+			const next_state: HomeFeedState = {
+				return_href: `${page.url.pathname}${page.url.search}`,
+				scroll_top: active_scroll_container.scrollTop,
+				anchor_post_id
+			};
+			const serialized_state = JSON.stringify(next_state);
+
+			set_last_home_feed_state(next_state);
+			sessionStorage.setItem(storage_key, serialized_state);
+			sessionStorage.setItem(last_home_state_storage_key, serialized_state);
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
+	function get_current_home_anchor_post_id(active_scroll_container: HTMLElement) {
+		const container_top = active_scroll_container.getBoundingClientRect().top;
+		const post_elements = Array.from(document.querySelectorAll<HTMLElement>('[data-post-id]'));
+		let anchor_post_id = '';
+		let nearest_distance = Number.POSITIVE_INFINITY;
+
+		for (const post_element of post_elements) {
+			const post_id = post_element.dataset['postId'];
+			const { top, bottom } = post_element.getBoundingClientRect();
+
+			if (!post_id || bottom <= container_top) {
+				continue;
+			}
+
+			const distance = Math.abs(top - container_top);
+
+			if (distance >= nearest_distance) {
+				continue;
+			}
+
+			nearest_distance = distance;
+			anchor_post_id = post_id;
+		}
+
+		return anchor_post_id;
+	}
+
+	function build_home_return_href() {
+		try {
+			const saved_state =
+				get_last_home_feed_state() ??
+				(sessionStorage.getItem(last_home_state_storage_key)
+					? (JSON.parse(sessionStorage.getItem(last_home_state_storage_key)!) as HomeFeedState)
+					: undefined);
+
+			if (!saved_state) {
+				return home_href;
+			}
+
+			const saved_return_href = saved_state.return_href?.startsWith('/home')
+				? saved_state.return_href
+				: home_href;
+
+			if (!saved_state.anchor_post_id || saved_return_href.includes('focusPost=')) {
+				return saved_return_href;
+			}
+
+			const separator = saved_return_href.includes('?') ? '&' : '?';
+			return `${saved_return_href}${separator}focusPost=${encodeURIComponent(saved_state.anchor_post_id)}`;
+		} catch {
+			return home_href;
+		}
+	}
+
+	const handle_home_navigation_click: MouseEventHandler<HTMLAnchorElement> = (event) => {
+		if (!ison_home) {
+			event.preventDefault();
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			void goto(build_home_return_href(), {
+				noScroll: true,
+				keepFocus: true
+			});
+			return;
+		}
+
+		event.preventDefault();
+
+		try {
+			sessionStorage.setItem('post-feed-scroll:/home', '0');
+		} catch {
+			// Ignore storage failures.
+		}
+
+		const home_page_container = document.querySelector('.post-feed-page');
+		const feed_scroll_container = document.querySelector('.post-feed-scroll');
+
+		if (home_page_container instanceof HTMLElement) {
+			home_page_container.scrollTo({
+				top: 0,
+				behavior: 'smooth'
+			});
+		}
+
+		if (feed_scroll_container instanceof HTMLElement) {
+			feed_scroll_container.scrollTo({
+				top: 0,
+				behavior: 'smooth'
+			});
+		}
+
+		window.scrollTo({
+			top: 0,
+			behavior: 'smooth'
+		});
+	};
+
+	const handle_navigation_away_from_home: MouseEventHandler<HTMLAnchorElement> = () => {
+		persist_current_home_scroll_position();
+	};
 </script>
 
 <!-- Top Tab (scrolls naturally) -->
 <div class="flex h-18 w-full items-center justify-between bg-[#09051C] px-6 md:hidden">
-	<a href={home_href} class="cursor-pointer transition-opacity hover:opacity-80">
+	<a
+		href={home_href}
+		onclick={handle_home_navigation_click}
+		class="cursor-pointer transition-opacity hover:opacity-80"
+	>
 		<img
 			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
 			alt="Space and Time Logo"
@@ -55,6 +199,7 @@
 
 		<a
 			href={search_href}
+			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_search ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
@@ -63,6 +208,7 @@
 
 		<a
 			href={home_href}
+			onclick={handle_home_navigation_click}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_home ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
@@ -91,6 +237,7 @@
 					? `/profile/${encodeURIComponent(profile_username)}`
 					: '/profile'
 			)}
+			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
 			aria-label="Profile"
@@ -109,7 +256,11 @@
 	class="fixed top-0 left-0 hidden h-screen w-72 flex-col gap-15 bg-[#09051C] p-6 text-white md:flex"
 	data-sveltekit-preload-code="viewport"
 >
-	<a href={home_href} class="block w-fit self-center transition-opacity hover:opacity-80">
+	<a
+		href={home_href}
+		onclick={handle_home_navigation_click}
+		class="block w-fit self-center transition-opacity hover:opacity-80"
+	>
 		<img
 			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
 			alt="Space and Time Logo"
@@ -128,6 +279,7 @@
 	<nav class="space-y-2">
 		<a
 			href={home_href}
+			onclick={handle_home_navigation_click}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${ison_home ? active_link : ''}`}
 		>
@@ -141,6 +293,7 @@
 
 		<a
 			href={search_href}
+			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${ison_search ? active_link : ''}`}
 		>
@@ -154,6 +307,7 @@
 					? `/profile/${encodeURIComponent(profile_username)}`
 					: '/profile'
 			)}
+			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${ison_profile ? active_link : ''}`}
 		>

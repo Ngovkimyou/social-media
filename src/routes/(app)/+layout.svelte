@@ -6,6 +6,7 @@
 	import GeneralTabs from '$lib/components/GeneralTabs.svelte';
 	const { children, data } = $props();
 
+	const home_href = $derived(resolve('/home'));
 	const search_href = $derived(resolve('/search'));
 	const profile_prefix = $derived(resolve('/profile'));
 	const profile_href = $derived(
@@ -16,23 +17,55 @@
 		)
 	);
 	const navigating_path = $derived(navigating.to?.url.pathname ?? '');
+	const isnavigating_to_home = $derived(Boolean(navigating.to) && navigating_path === home_href);
 	const isnavigating_to_search = $derived(
 		Boolean(navigating.to) && navigating_path === search_href
 	);
+	const isnavigating_to_profile_post = $derived(
+		Boolean(navigating.to) && /^\/profile\/[^/]+\/posts\/[^/]+$/.test(navigating_path)
+	);
 	const isnavigating_to_profile = $derived(
-		Boolean(navigating.to) && navigating_path.startsWith(profile_prefix)
+		Boolean(navigating.to) &&
+			navigating_path.startsWith(profile_prefix) &&
+			!isnavigating_to_profile_post
 	);
 	const hasnavigation_skeleton_visible = $derived(
-		isnavigating_to_search || isnavigating_to_profile
+		isnavigating_to_home ||
+			isnavigating_to_search ||
+			isnavigating_to_profile ||
+			isnavigating_to_profile_post
 	);
+	const home_skeleton_cards = Array.from({ length: 4 }, (_, index) => index);
 	const search_skeleton_rows = Array.from({ length: 7 }, (_, index) => index);
 	const profile_skeleton_tiles = Array.from({ length: 12 }, (_, index) => index);
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	let isNetworkOnline = $state(true);
 
 	onMount(() => {
+		isNetworkOnline = navigator.onLine;
+
+		const handle_online = () => {
+			isNetworkOnline = true;
+		};
+
+		const handle_offline = () => {
+			isNetworkOnline = false;
+		};
+
+		window.addEventListener('online', handle_online);
+		window.addEventListener('offline', handle_offline);
+
+		void preloadCode(home_href);
+		void preloadData(home_href);
 		void preloadCode(search_href);
 		void preloadCode(profile_href);
-		void preloadData(search_href);
 		void preloadData(profile_href);
+		void preloadData(search_href);
+
+		return () => {
+			window.removeEventListener('online', handle_online);
+			window.removeEventListener('offline', handle_offline);
+		};
 	});
 </script>
 
@@ -44,11 +77,50 @@
 
 {#if hasnavigation_skeleton_visible}
 	<div
-		class="nav_skeleton pointer-events-none fixed right-0 left-0 z-70 {isnavigating_to_profile
+		class="nav_skeleton pointer-events-none fixed right-0 left-0 z-70 {isnavigating_to_profile ||
+		isnavigating_to_profile_post
 			? 'top-0 bottom-0'
 			: 'top-18 bottom-18'} md:top-0 md:bottom-0 md:left-72"
 	>
-		{#if isnavigating_to_search}
+		{#if isnavigating_to_home || isnavigating_to_profile_post}
+			<section
+				class="home_skeleton_screen flex h-screen min-h-0 flex-col overflow-hidden text-white"
+			>
+				<div class="flex items-center justify-between p-4 md:p-6 lg:p-8">
+					<div class="skeleton h-8 w-24 rounded-lg md:h-12 md:w-40"></div>
+					<div class="skeleton h-6 w-6 rounded-md md:h-8 md:w-8"></div>
+				</div>
+
+				<div class="flex-1 overflow-hidden px-4 pb-6 md:px-8 md:pb-8">
+					<div class="mx-auto flex max-w-xl flex-col gap-5 md:gap-8">
+						{#each home_skeleton_cards as card (card)}
+							<div
+								class="overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px]"
+							>
+								<div class="flex items-center gap-3 px-5 pt-5">
+									<div class="skeleton h-10 w-10 rounded-full md:h-11 md:w-11"></div>
+									<div class="min-w-0 flex-1 space-y-2">
+										<div class="skeleton h-4 w-28 rounded-md md:h-5 md:w-36"></div>
+										<div class="skeleton h-3 w-20 rounded-sm md:h-4 md:w-24"></div>
+									</div>
+									<div class="skeleton h-3 w-5 rounded-sm"></div>
+								</div>
+
+								<div class="mx-3 mt-3 overflow-hidden rounded-2xl bg-black/20 md:mx-4">
+									<div class="skeleton skeleton_cover h-64 w-full rounded-2xl md:h-104"></div>
+								</div>
+
+								<div class="flex items-center gap-4 px-4 py-3 md:gap-5 md:px-5">
+									<div class="skeleton h-6 w-6 rounded-full"></div>
+									<div class="skeleton h-6 w-6 rounded-full"></div>
+									<div class="skeleton h-6 w-6 rounded-full"></div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			</section>
+		{:else if isnavigating_to_search}
 			<section
 				class="search_skeleton_screen search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
 			>
@@ -180,6 +252,30 @@
 	</div>
 {/if}
 
+{#if !isNetworkOnline}
+	<div
+		class="offline_overlay fixed inset-0 z-80 flex items-center justify-center px-6 py-10 text-white"
+	>
+		<div
+			class="offline_card relative w-full max-w-xl overflow-hidden rounded-[2.25rem] px-8 py-12 text-center shadow-[0_24px_80px_rgba(7,3,25,0.45)] backdrop-blur-xl md:px-12"
+		>
+			<div class="offline_glow offline_glow_one"></div>
+			<div class="offline_glow offline_glow_two"></div>
+
+			<div class="offline_stars" aria-hidden="true">
+				<span class="offline_star offline_star_one"></span>
+				<span class="offline_star offline_star_two"></span>
+				<span class="offline_star offline_star_three"></span>
+			</div>
+
+			<h2 class="mt-4 text-4xl font-bold tracking-[0.08em] md:text-5xl">Lost connection</h2>
+			<p class="mx-auto mt-4 max-w-md text-sm leading-7 text-white/72 md:text-base">
+				Reconnect to continue exploring your feed.
+			</p>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.nav_skeleton {
 		background:
@@ -192,6 +288,12 @@
 		background:
 			radial-gradient(700px 260px at 8% -5%, rgba(125, 212, 255, 0.12), transparent 70%),
 			radial-gradient(650px 240px at 90% -10%, rgba(205, 130, 255, 0.14), transparent 70%);
+	}
+
+	.home_skeleton_screen {
+		background:
+			radial-gradient(780px 320px at 12% -8%, rgba(125, 212, 255, 0.12), transparent 70%),
+			radial-gradient(760px 320px at 90% -12%, rgba(205, 130, 255, 0.14), transparent 70%);
 	}
 
 	.profile_skeleton_screen {
@@ -243,6 +345,91 @@
 			0 12px 28px rgba(5, 2, 22, 0.3);
 	}
 
+	.offline_overlay {
+		background:
+			radial-gradient(900px 340px at 18% -8%, rgba(125, 212, 255, 0.14), transparent 72%),
+			radial-gradient(850px 340px at 86% -12%, rgba(205, 130, 255, 0.16), transparent 70%),
+			linear-gradient(180deg, rgba(9, 5, 28, 0.9) 0%, rgba(8, 4, 24, 0.96) 100%);
+	}
+
+	.offline_card {
+		background:
+			linear-gradient(180deg, rgba(18, 12, 43, 0.92), rgba(10, 7, 31, 0.96)),
+			linear-gradient(120deg, rgba(125, 212, 255, 0.08), rgba(205, 130, 255, 0.08));
+		border: 2px solid white;
+		box-shadow:
+			2px -2px 0 0 purple,
+			6px -6px 12px 0 rgba(222, 5, 222, 0.55),
+			0 0 0 1px white,
+			-2px 2px 0 0 rgb(0, 149, 255),
+			-6px 6px 12px 0 rgba(91, 192, 255, 0.55);
+	}
+
+	.offline_glow {
+		position: absolute;
+		border-radius: 9999px;
+		filter: blur(22px);
+		opacity: 0.7;
+	}
+
+	.offline_glow_one {
+		top: -1.5rem;
+		left: -1rem;
+		height: 7rem;
+		width: 7rem;
+		background: rgba(125, 212, 255, 0.24);
+	}
+
+	.offline_glow_two {
+		right: -1rem;
+		bottom: -1.5rem;
+		height: 8rem;
+		width: 8rem;
+		background: rgba(205, 130, 255, 0.22);
+	}
+
+	.offline_stars {
+		position: relative;
+		margin: 0 auto 1.5rem;
+		height: 2rem;
+		width: 8rem;
+	}
+
+	.offline_star {
+		position: absolute;
+		top: 50%;
+		height: 0.45rem;
+		width: 0.45rem;
+		border-radius: 9999px;
+		--offline-star-x: 0;
+		transform: translate(var(--offline-star-x), -50%);
+		background: white;
+		box-shadow:
+			0 0 12px rgba(255, 255, 255, 0.45),
+			0 0 24px currentColor;
+	}
+
+	.offline_star_one {
+		left: 0.6rem;
+		color: #7dd4ff;
+		animation: offline_bounce 1.4s ease-in-out infinite;
+	}
+
+	.offline_star_two {
+		left: 50%;
+		height: 0.65rem;
+		width: 0.65rem;
+		color: #e9a0f8;
+		--offline-star-x: -50%;
+		animation: offline_bounce 1.4s ease-in-out 0.18s infinite;
+	}
+
+	.offline_star_three {
+		right: 0.6rem;
+		color: #cd82ff;
+		animation: offline_bounce 1.4s ease-in-out 0.36s infinite;
+	}
+
 	@keyframes skeleton_slide {
 		from {
 			background-position:
@@ -253,6 +440,24 @@
 			background-position:
 				-35% 0,
 				0 0;
+		}
+	}
+
+	@keyframes offline_bounce {
+		0%,
+		100% {
+			transform: translate(var(--offline-star-x), -50%) scale(1);
+			opacity: 0.72;
+		}
+
+		30% {
+			transform: translate(var(--offline-star-x), -90%) scale(1.08);
+			opacity: 1;
+		}
+
+		55% {
+			transform: translate(var(--offline-star-x), -38%) scale(0.96);
+			opacity: 0.9;
 		}
 	}
 </style>

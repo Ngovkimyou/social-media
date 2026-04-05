@@ -7,6 +7,7 @@ import {
 	invalidate_short_ttl_cache_key,
 	invalidate_short_ttl_cache_prefix
 } from '$lib/server/utilities/short-ttl-cache';
+import type { PostFeedPost } from '$lib/types/post-feed';
 
 const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
 const PROFILE_PAGE_CACHE_TTL_MS = 15_000;
@@ -211,6 +212,7 @@ type ProfilePageData = {
 		is_own_profile: boolean;
 		is_following: boolean;
 	};
+	photo_posts: Array<{ id: string; image_url: string }>;
 	photo_urls: string[];
 };
 
@@ -262,7 +264,7 @@ const load_profile_page_data = async (
 			db.select({ value: count() }).from(follows).where(eq(follows.follower_id, profile.user_id))
 		]),
 		db
-			.select({ url: media.url })
+			.select({ id: posts.id, url: media.url })
 			.from(posts)
 			.innerJoin(post_media, eq(post_media.post_id, posts.id))
 			.innerJoin(media, eq(media.id, post_media.media_id))
@@ -275,7 +277,8 @@ const load_profile_page_data = async (
 	]);
 
 	const [post_count_row, followers_count_row, following_count_row] = counts;
-	const photo_urls = photo_rows.map((row) => row.url);
+	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
+	const photo_urls = photo_posts.map((row) => row.image_url);
 
 	return {
 		profile,
@@ -285,6 +288,7 @@ const load_profile_page_data = async (
 			following_count: following_count_row[0]?.value ?? 0
 		},
 		relationship,
+		photo_posts,
 		photo_urls
 	};
 };
@@ -312,4 +316,67 @@ export const invalidate_profile_cache = (params: {
 	if (params.username) {
 		invalidate_short_ttl_cache_prefix(`profile:page:${params.username}:`);
 	}
+};
+
+export const get_profile_posts_by_username = async (
+	username: string,
+	selected_post_id?: string
+): Promise<PostFeedPost[] | undefined> => {
+	const profile = await get_profile_by_username(username);
+
+	if (!profile) {
+		return undefined;
+	}
+
+	const db = get_db();
+	const rows = await db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			created_at: posts.created_at,
+			media_url: media.url,
+			media_type: media.type
+		})
+		.from(posts)
+		.leftJoin(post_media, eq(posts.id, post_media.post_id))
+		.leftJoin(media, eq(post_media.media_id, media.id))
+		.where(and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at)))
+		.orderBy(desc(posts.created_at), post_media.sort_order)
+		.limit(60);
+
+	const seen = new Set<string>();
+	const unique_posts = rows.filter((row) => {
+		if (seen.has(row.id)) return false;
+		seen.add(row.id);
+		return true;
+	});
+
+	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
+		id: row.id,
+		content: row.content,
+		created_at: row.created_at,
+		author_name: profile.name ?? profile.username,
+		author_username: profile.username,
+		author_avatar: profile.image,
+		media_url: row.media_url,
+		media_type: row.media_type
+	}));
+
+	if (!selected_post_id) {
+		return mapped_posts;
+	}
+
+	const selected_index = mapped_posts.findIndex((post) => post.id === selected_post_id);
+
+	if (selected_index === -1) {
+		return undefined;
+	}
+
+	const selected_post = mapped_posts[selected_index];
+
+	if (!selected_post) {
+		return undefined;
+	}
+
+	return [selected_post, ...mapped_posts.filter((post) => post.id !== selected_post_id)];
 };
