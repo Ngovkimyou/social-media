@@ -20,6 +20,7 @@ words:
   - authschema
   - autodocs
   - canrun
+  - Bento
   - dbname
   - drizzle
   - esbuild
@@ -42,9 +43,12 @@ words:
   - Kysely
   - lfill
   - mdsvex
+  - MOUYHEANG
   - neondatabase
   - OneDrive
+  - opsz
   - paraglide
+  - PHEARITH
   - playwright
   - plpgsql
   - pooler
@@ -60,3 +64,4 @@ words:
   - tsvector
   - upserted
   - vitest
+  - wght
