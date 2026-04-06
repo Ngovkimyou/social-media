@@ -50,8 +50,14 @@
 	let upload_modal_open = $state(false);
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
+	let image_editor_backdrop = $state<HTMLDivElement | undefined>();
+	let image_actions_backdrop = $state<HTMLDivElement | undefined>();
+	let post_image_input = $state<HTMLInputElement | undefined>();
 	let profile_image_input = $state<HTMLInputElement | undefined>();
 	let cover_image_input = $state<HTMLInputElement | undefined>();
+	let profile_image_form = $state<HTMLFormElement | undefined>();
+	let cover_image_form = $state<HTMLFormElement | undefined>();
+	let image_editor_stage = $state<HTMLDivElement | undefined>();
 	let image_preview = $state<
 		| {
 				src: string;
@@ -60,7 +66,43 @@
 		  }
 		| undefined
 	>();
-	let pending_image_preview_timer = $state<ReturnType<typeof setTimeout> | undefined>();
+	let image_actions = $state<
+		| {
+				mode: 'avatar' | 'cover';
+				preview_src: string;
+				preview_alt: string;
+				is_avatar: boolean;
+		  }
+		| undefined
+	>();
+	let image_editor = $state<
+		| {
+				mode: 'avatar' | 'cover' | 'post';
+				src: string;
+				file_name: string;
+				mime_type: string;
+				natural_width: number;
+				natural_height: number;
+		  }
+		| undefined
+	>();
+	let image_editor_zoom = $state(1);
+	let image_editor_offset_x = $state(0);
+	let image_editor_offset_y = $state(0);
+	let image_editor_drag_state = $state<
+		| {
+				pointer_id: number;
+				start_x: number;
+				start_y: number;
+				origin_offset_x: number;
+				origin_offset_y: number;
+		  }
+		| undefined
+	>();
+	let image_editor_error = $state('');
+	let is_applying_image_editor = $state(false);
+	let image_editor_object_url = $state('');
+	let post_editor_source_file = $state<File | undefined>();
 
 	const post_tiles = $derived.by(() =>
 		data['photo_posts'].map((post) => ({
@@ -97,6 +139,17 @@
 				})
 			: undefined
 	);
+	const image_editor_frame_ratio = $derived.by(() => {
+		if (image_editor?.mode === 'cover') {
+			return 16 / 6;
+		}
+
+		if (image_editor?.mode === 'post') {
+			return image_editor.natural_width / image_editor.natural_height;
+		}
+
+		return 1;
+	});
 	let isrelationship_following = $state(false);
 	let profile_followers_count = $state(0);
 	let relationship_profile_sync_key = $state('');
@@ -130,17 +183,7 @@
 		upload_modal_open = false;
 	}
 
-	function clear_pending_image_preview_timer() {
-		if (!pending_image_preview_timer) {
-			return;
-		}
-
-		clearTimeout(pending_image_preview_timer);
-		pending_image_preview_timer = undefined;
-	}
-
 	function open_image_preview(src: string, alt: string, is_avatar: boolean) {
-		clear_pending_image_preview_timer();
 		image_preview = {
 			src,
 			alt,
@@ -149,29 +192,66 @@
 	}
 
 	function close_image_preview() {
-		clear_pending_image_preview_timer();
 		image_preview = undefined;
 	}
 
-	function schedule_image_preview(src: string | undefined, alt: string, is_avatar: boolean) {
-		if (!src) {
-			return;
-		}
-
-		clear_pending_image_preview_timer();
-		pending_image_preview_timer = setTimeout(() => {
-			open_image_preview(src, alt, is_avatar);
-		}, 220);
-	}
-
 	function open_cover_image_picker() {
-		clear_pending_image_preview_timer();
 		cover_image_input?.click();
 	}
 
 	function open_profile_image_picker() {
-		clear_pending_image_preview_timer();
 		profile_image_input?.click();
+	}
+
+	function open_image_actions_menu(
+		mode: 'avatar' | 'cover',
+		preview_src: string | undefined,
+		preview_alt: string,
+		is_avatar: boolean
+	) {
+		if (!preview_src) {
+			return;
+		}
+
+		image_actions = {
+			mode,
+			preview_src,
+			preview_alt,
+			is_avatar
+		};
+	}
+
+	function close_image_actions_menu() {
+		image_actions = undefined;
+	}
+
+	function preview_from_image_actions() {
+		if (!image_actions) {
+			return;
+		}
+
+		open_image_preview(
+			image_actions.preview_src,
+			image_actions.preview_alt,
+			image_actions.is_avatar
+		);
+		close_image_actions_menu();
+	}
+
+	function change_from_image_actions() {
+		if (!image_actions) {
+			return;
+		}
+
+		const next_mode = image_actions.mode;
+		close_image_actions_menu();
+
+		if (next_mode === 'cover') {
+			open_cover_image_picker();
+			return;
+		}
+
+		open_profile_image_picker();
 	}
 
 	let selected_image = $state<File>();
@@ -213,57 +293,417 @@
 		});
 	});
 
-	function handle_file_change(event: Event) {
-		const target = event.currentTarget as HTMLInputElement | null;
-		const file = target?.files?.[0];
-
-		if (image_src) {
-			URL.revokeObjectURL(image_src);
-		}
-
-		if (file) {
-			selected_image = file;
-			image_src = URL.createObjectURL(file);
+	$effect(() => {
+		if (!image_actions) {
 			return;
 		}
 
-		selected_image = undefined;
-		image_src = '';
-	}
+		void tick().then(() => {
+			image_actions_backdrop?.focus();
+		});
+	});
 
-	function remove_image() {
+	$effect(() => {
+		if (!image_editor) {
+			return;
+		}
+
+		void tick().then(() => {
+			image_editor_backdrop?.focus();
+		});
+	});
+
+	function clear_post_preview() {
 		if (image_src) {
 			URL.revokeObjectURL(image_src);
 		}
 
 		selected_image = undefined;
 		image_src = '';
+		post_editor_source_file = undefined;
+	}
+
+	async function handle_file_change(event: Event) {
+		const target = event.currentTarget as HTMLInputElement | null;
+		const file = target?.files?.[0];
+
+		if (!file) {
+			return;
+		}
+
+		post_editor_source_file = file;
+		await open_image_editor(file, 'post');
+	}
+
+	function remove_image() {
+		clear_post_preview();
 
 		// Reset the file input so it can be reused
-		const file_input = document.getElementById('file-upload') as HTMLInputElement | null;
-		if (file_input) {
-			file_input.value = '';
+		if (post_image_input) {
+			post_image_input.value = '';
 		}
+	}
+
+	function reopen_post_image_editor() {
+		if (!post_editor_source_file) {
+			return;
+		}
+
+		void open_image_editor(post_editor_source_file, 'post');
 	}
 
 	function handle_post_submit() {
 		submitting_post = true;
 	}
 
-	function submit_selected_image(event: Event) {
-		const target = event.currentTarget as HTMLInputElement | null;
+	function reset_image_editor_view() {
+		image_editor_zoom = 1;
+		image_editor_offset_x = 0;
+		image_editor_offset_y = 0;
+		image_editor_error = '';
+		image_editor_drag_state = undefined;
+	}
 
-		if (target?.files?.[0]) {
-			target.form?.requestSubmit();
+	function clear_profile_cover_inputs() {
+		image_editor = undefined;
+
+		if (profile_image_input) {
+			profile_image_input.value = '';
+		}
+
+		if (cover_image_input) {
+			cover_image_input.value = '';
+		}
+
+		if (image_editor_object_url) {
+			URL.revokeObjectURL(image_editor_object_url);
+			image_editor_object_url = '';
 		}
 	}
 
+	function close_image_editor(options?: { reset_inputs?: boolean }) {
+		const active_mode = image_editor?.mode;
+		image_editor = undefined;
+		reset_image_editor_view();
+		is_applying_image_editor = false;
+
+		if (active_mode === 'post') {
+			if (image_editor_object_url) {
+				URL.revokeObjectURL(image_editor_object_url);
+				image_editor_object_url = '';
+			}
+
+			return;
+		}
+
+		if (options?.reset_inputs !== false) {
+			clear_profile_cover_inputs();
+			return;
+		}
+
+		if (image_editor_object_url) {
+			URL.revokeObjectURL(image_editor_object_url);
+			image_editor_object_url = '';
+		}
+	}
+
+	function get_image_editor_frame_size() {
+		if (!image_editor_stage || !image_editor) {
+			return;
+		}
+
+		const frame_width = image_editor_stage.clientWidth;
+		const frame_height = frame_width / image_editor_frame_ratio;
+
+		if (frame_width === 0 || frame_height === 0) {
+			return;
+		}
+
+		return { frame_width, frame_height };
+	}
+
+	function get_image_editor_scale() {
+		if (!image_editor) {
+			return;
+		}
+
+		const frame = get_image_editor_frame_size();
+
+		if (!frame) {
+			return;
+		}
+
+		const cover_scale = Math.max(
+			frame.frame_width / image_editor.natural_width,
+			frame.frame_height / image_editor.natural_height
+		);
+
+		return cover_scale * image_editor_zoom;
+	}
+
+	function clamp_image_editor_offsets(next_x: number, next_y: number) {
+		if (!image_editor) {
+			return { x: 0, y: 0 };
+		}
+
+		const frame = get_image_editor_frame_size();
+		const scale = get_image_editor_scale();
+
+		if (!frame || !scale) {
+			return { x: next_x, y: next_y };
+		}
+
+		const rendered_width = image_editor.natural_width * scale;
+		const rendered_height = image_editor.natural_height * scale;
+		const max_x = Math.max(0, (rendered_width - frame.frame_width) / 2);
+		const max_y = Math.max(0, (rendered_height - frame.frame_height) / 2);
+
+		return {
+			x: Math.min(max_x, Math.max(-max_x, next_x)),
+			y: Math.min(max_y, Math.max(-max_y, next_y))
+		};
+	}
+
+	function sync_image_editor_offsets() {
+		const next_offsets = clamp_image_editor_offsets(image_editor_offset_x, image_editor_offset_y);
+		image_editor_offset_x = next_offsets.x;
+		image_editor_offset_y = next_offsets.y;
+	}
+
+	function update_image_editor_zoom(next_zoom: number) {
+		image_editor_zoom = Math.min(3, Math.max(1, next_zoom));
+		sync_image_editor_offsets();
+	}
+
+	async function open_image_editor(file: File, mode: 'avatar' | 'cover' | 'post') {
+		reset_image_editor_view();
+
+		if (image_editor_object_url) {
+			URL.revokeObjectURL(image_editor_object_url);
+		}
+
+		const next_src = URL.createObjectURL(file);
+		image_editor_object_url = next_src;
+
+		const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+			const probe = new Image();
+			probe.onload = () => {
+				resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
+			};
+			probe.onerror = () => {
+				reject(new Error('Image failed to load.'));
+			};
+			probe.src = next_src;
+		});
+
+		image_editor = {
+			mode,
+			src: next_src,
+			file_name: file.name,
+			mime_type: file.type || 'image/jpeg',
+			natural_width: dimensions.width,
+			natural_height: dimensions.height
+		};
+	}
+
+	async function handle_selected_profile_or_cover_image(event: Event, mode: 'avatar' | 'cover') {
+		const target = event.currentTarget as HTMLInputElement | null;
+		const file = target?.files?.[0];
+
+		if (!file) {
+			return;
+		}
+
+		await open_image_editor(file, mode);
+	}
+
 	function handle_profile_image_change(event: Event) {
-		submit_selected_image(event);
+		void handle_selected_profile_or_cover_image(event, 'avatar');
 	}
 
 	function handle_cover_image_change(event: Event) {
-		submit_selected_image(event);
+		void handle_selected_profile_or_cover_image(event, 'cover');
+	}
+
+	function begin_image_editor_drag(event: PointerEvent) {
+		if (!image_editor) {
+			return;
+		}
+
+		event.preventDefault();
+		image_editor_drag_state = {
+			pointer_id: event.pointerId,
+			start_x: event.clientX,
+			start_y: event.clientY,
+			origin_offset_x: image_editor_offset_x,
+			origin_offset_y: image_editor_offset_y
+		};
+
+		(event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId);
+	}
+
+	function move_image_editor_drag(event: PointerEvent) {
+		if (!image_editor_drag_state || image_editor_drag_state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		const delta_x = event.clientX - image_editor_drag_state.start_x;
+		const delta_y = event.clientY - image_editor_drag_state.start_y;
+		const next_offsets = clamp_image_editor_offsets(
+			image_editor_drag_state.origin_offset_x + delta_x,
+			image_editor_drag_state.origin_offset_y + delta_y
+		);
+		image_editor_offset_x = next_offsets.x;
+		image_editor_offset_y = next_offsets.y;
+	}
+
+	function end_image_editor_drag(event: PointerEvent) {
+		if (!image_editor_drag_state || image_editor_drag_state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		image_editor_drag_state = undefined;
+		(event.currentTarget as HTMLElement | null)?.releasePointerCapture(event.pointerId);
+	}
+
+	async function load_image_for_editor(src: string) {
+		return new Promise<HTMLImageElement>((resolve, reject) => {
+			const next_image = new Image();
+			next_image.onload = () => resolve(next_image);
+			next_image.onerror = () => reject(new Error('Preview image could not be loaded.'));
+			next_image.src = src;
+		});
+	}
+
+	async function create_editor_blob(
+		editor: NonNullable<typeof image_editor>,
+		frame: NonNullable<ReturnType<typeof get_image_editor_frame_size>>,
+		scale: number
+	) {
+		const output_width =
+			editor.mode === 'cover' ? 1600 : editor.mode === 'post' ? editor.natural_width : 900;
+		const output_height =
+			editor.mode === 'cover' ? 600 : editor.mode === 'post' ? editor.natural_height : 900;
+		const canvas = document.createElement('canvas');
+		canvas.width = output_width;
+		canvas.height = output_height;
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			throw new Error('Canvas not available.');
+		}
+
+		const source_image = await load_image_for_editor(editor.src);
+		const crop_width_in_source = frame.frame_width / scale;
+		const crop_height_in_source = frame.frame_height / scale;
+		const source_center_x = editor.natural_width / 2 - image_editor_offset_x / scale;
+		const source_center_y = editor.natural_height / 2 - image_editor_offset_y / scale;
+		const source_x = Math.max(
+			0,
+			Math.min(
+				editor.natural_width - crop_width_in_source,
+				source_center_x - crop_width_in_source / 2
+			)
+		);
+		const source_y = Math.max(
+			0,
+			Math.min(
+				editor.natural_height - crop_height_in_source,
+				source_center_y - crop_height_in_source / 2
+			)
+		);
+
+		context.drawImage(
+			source_image,
+			source_x,
+			source_y,
+			crop_width_in_source,
+			crop_height_in_source,
+			0,
+			0,
+			output_width,
+			output_height
+		);
+
+		return new Promise<Blob>((resolve, reject) => {
+			canvas.toBlob(
+				(result) => {
+					if (result) {
+						resolve(result);
+						return;
+					}
+
+					reject(new Error('Could not create cropped image.'));
+				},
+				editor.mime_type || 'image/jpeg',
+				0.95
+			);
+		});
+	}
+
+	function submit_cropped_editor_file(editor: NonNullable<typeof image_editor>, blob: Blob) {
+		const cropped_file = new File([blob], editor.file_name, {
+			type: blob.type || editor.mime_type || 'image/jpeg'
+		});
+		const transfer = new DataTransfer();
+		transfer.items.add(cropped_file);
+
+		if (editor.mode === 'post' && post_image_input) {
+			if (image_src) {
+				URL.revokeObjectURL(image_src);
+			}
+
+			post_image_input.files = transfer.files;
+			post_editor_source_file = cropped_file;
+			selected_image = cropped_file;
+			image_src = URL.createObjectURL(cropped_file);
+			close_image_editor({ reset_inputs: false });
+			return;
+		}
+
+		if (editor.mode === 'avatar' && profile_image_input && profile_image_form) {
+			profile_image_input.files = transfer.files;
+			close_image_editor({ reset_inputs: false });
+			profile_image_form.requestSubmit();
+			return;
+		}
+
+		if (editor.mode === 'cover' && cover_image_input && cover_image_form) {
+			cover_image_input.files = transfer.files;
+			close_image_editor({ reset_inputs: false });
+			cover_image_form.requestSubmit();
+			return;
+		}
+
+		throw new Error('Upload form is unavailable.');
+	}
+
+	async function apply_image_editor() {
+		const editor = image_editor;
+
+		if (!editor) {
+			return;
+		}
+
+		const frame = get_image_editor_frame_size();
+		const scale = get_image_editor_scale();
+
+		if (!frame || !scale) {
+			image_editor_error = 'Preview is still loading. Please try again.';
+			return;
+		}
+
+		image_editor_error = '';
+		is_applying_image_editor = true;
+
+		try {
+			const blob = await create_editor_blob(editor, frame, scale);
+			submit_cropped_editor_file(editor, blob);
+		} catch (error) {
+			image_editor_error =
+				error instanceof Error ? error.message : 'Unable to prepare that image right now.';
+			is_applying_image_editor = false;
+		}
 	}
 
 	async function handle_return_navigation() {
@@ -352,8 +792,10 @@
 	}
 
 	onDestroy(() => {
-		if (image_src) {
-			URL.revokeObjectURL(image_src);
+		clear_post_preview();
+
+		if (image_editor_object_url) {
+			URL.revokeObjectURL(image_editor_object_url);
 		}
 	});
 </script>
@@ -410,6 +852,7 @@
 
 				{#if data['relationship'].is_own_profile}
 					<form
+						bind:this={cover_image_form}
 						method="post"
 						action="?/update_cover_image"
 						enctype="multipart/form-data"
@@ -419,17 +862,16 @@
 							role="button"
 							tabindex="0"
 							onclick={() => {
-								schedule_image_preview(profile_cover_source.src, 'Cover', false);
+								open_image_actions_menu('cover', profile_cover_source.src, 'Cover', false);
 							}}
-							ondblclick={open_cover_image_picker}
 							onkeydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
 									event.preventDefault();
-									open_image_preview(profile_cover_source.src, 'Cover', false);
+									open_image_actions_menu('cover', profile_cover_source.src, 'Cover', false);
 								}
 							}}
 							class="group relative block h-full w-full cursor-pointer transition-transform duration-200 ease-out hover:scale-[1.01] active:scale-[0.995]"
-							aria-label="Open cover image preview. Double click to upload a new cover."
+							aria-label="Open cover image actions"
 						>
 							<span
 								class="pointer-events-none absolute inset-0 bg-black/0 transition-all duration-200 ease-out group-hover:bg-black/20 group-active:bg-black/28"
@@ -489,6 +931,7 @@
 
 				{#if data['relationship'].is_own_profile}
 					<form
+						bind:this={profile_image_form}
 						method="post"
 						action="?/update_profile_image"
 						enctype="multipart/form-data"
@@ -498,7 +941,8 @@
 							role="button"
 							tabindex="0"
 							onclick={() => {
-								schedule_image_preview(
+								open_image_actions_menu(
+									'avatar',
 									profile_avatar_source?.src ?? data['profile'].image ?? undefined,
 									data['profile'].name
 										? `${data['profile'].name} avatar`
@@ -510,7 +954,8 @@
 							onkeydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
 									event.preventDefault();
-									open_image_preview(
+									open_image_actions_menu(
+										'avatar',
 										profile_avatar_source?.src ?? data['profile'].image ?? '',
 										data['profile'].name
 											? `${data['profile'].name} avatar`
@@ -520,7 +965,7 @@
 								}
 							}}
 							class="group relative block h-full w-full cursor-pointer rounded-full transition-transform duration-200 ease-out hover:scale-[1.02] active:scale-[0.97]"
-							aria-label="Open profile picture preview. Double click to upload a new profile picture."
+							aria-label="Open profile picture actions"
 						>
 							<span
 								class="pointer-events-none absolute inset-0 rounded-full bg-black/0 transition-all duration-200 ease-out group-hover:bg-black/20 group-active:bg-black/28"
@@ -816,13 +1261,13 @@
 		}}
 	>
 		<div
-			class="w-full rounded-[2rem] bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src
+			class="w-full rounded-4xl bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src
 				? 'max-w-4xl'
 				: 'max-w-lg'}"
 			transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 		>
 			<div
-				class="flex max-h-[calc(100dvh-1.5rem)] w-full overflow-hidden rounded-[2rem] bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)] md:max-h-[90vh] md:rounded-3xl"
+				class="flex max-h-[calc(100dvh-1.5rem)] w-full overflow-hidden rounded-4xl bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)] md:max-h-[90vh] md:rounded-3xl"
 			>
 				<form
 					method="post"
@@ -853,7 +1298,7 @@
 								<img
 									src={image_src}
 									alt="Preview"
-									class="max-h-full w-auto max-w-full rounded-2xl object-contain"
+									class="max-h-full w-auto max-w-full rounded-[1.6rem] object-contain"
 									decoding="async"
 								/>
 
@@ -920,7 +1365,17 @@
 
 								<span class="rounded-full p-1 text-xl">🖼️</span>
 							</label>
+							{#if image_src}
+								<button
+									type="button"
+									onclick={reopen_post_image_editor}
+									class="mt-3 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-3 text-sm font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99]"
+								>
+									Edit photo
+								</button>
+							{/if}
 							<input
+								bind:this={post_image_input}
 								id="file-upload"
 								type="file"
 								name="image"
@@ -931,7 +1386,7 @@
 
 							<button
 								type="submit"
-								class="text-md mt-4 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-3 font-semibold text-white shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] {!selected_image ||
+								class="text-md mt-4 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-3 font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] {!selected_image ||
 								caption.length > 1000 ||
 								submitting_post
 									? 'cursor-not-allowed opacity-50'
@@ -943,6 +1398,280 @@
 						</div>
 					</div>
 				</form>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if image_actions}
+	<div
+		class="fixed inset-0 z-65 flex items-end justify-center bg-black/55 px-4 py-4 backdrop-blur-sm md:items-center"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Image actions"
+		tabindex="0"
+		bind:this={image_actions_backdrop}
+		transition:fade={{ duration: 160 }}
+		onclick={(event) => {
+			if (event.target === event.currentTarget) {
+				close_image_actions_menu();
+			}
+		}}
+		onkeydown={(event) => {
+			if (event.key === 'Escape') {
+				close_image_actions_menu();
+			}
+		}}
+	>
+		<div
+			class="w-full max-w-sm rounded-[1.75rem] border border-white/12 bg-[linear-gradient(145deg,rgba(16,12,35,0.98),rgba(8,7,24,0.98))] p-3 shadow-[0_24px_80px_rgba(0,0,0,0.42)] md:rounded-[1.6rem]"
+			transition:scale={{ duration: 180, start: 0.96, opacity: 0.55 }}
+		>
+			<div class="mb-2 px-2 pt-1 pb-2 text-center">
+				<p class="text-[11px] font-semibold tracking-[0.26em] text-sky-200/70 uppercase">
+					{image_actions.mode === 'cover' ? 'Cover photo' : 'Profile photo'}
+				</p>
+			</div>
+
+			<div class="grid gap-2">
+				<button
+					type="button"
+					onclick={preview_from_image_actions}
+					class="rounded-[1.25rem] bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-3.5 text-sm font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99]"
+				>
+					Preview
+				</button>
+				<button
+					type="button"
+					onclick={change_from_image_actions}
+					class="rounded-[1.25rem] bg-[linear-gradient(90deg,#7DD4FF30_0%,#AAAAAA20_50%,#CD82FF38_100%)] px-4 py-3.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_18px_0px_#CD82FF,inset_0.5px_-0.5px_8px_0px_#7DD4FF,0_0_18px_rgba(205,130,255,0.22),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99]"
+				>
+					Change photo
+				</button>
+				<button
+					type="button"
+					onclick={close_image_actions_menu}
+					class="rounded-[1.25rem] border border-white/10 bg-white/6 px-4 py-3 text-sm font-semibold text-white/72 transition-colors hover:bg-white/12 hover:text-white"
+				>
+					Cancel
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if image_editor}
+	<div
+		class="fixed inset-0 z-70 flex items-center justify-center overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.18),transparent_32%),rgba(4,3,13,0.9)] px-3 py-4 backdrop-blur-md md:px-6 md:py-6"
+		role="dialog"
+		aria-modal="true"
+		aria-label={image_editor.mode === 'cover'
+			? 'Edit cover image'
+			: image_editor.mode === 'post'
+				? 'Edit post image'
+				: 'Edit profile image'}
+		tabindex="0"
+		bind:this={image_editor_backdrop}
+		transition:fade={{ duration: 180 }}
+		onclick={(event) => {
+			if (event.target === event.currentTarget && !is_applying_image_editor) {
+				close_image_editor();
+			}
+		}}
+		onkeydown={(event) => {
+			if (event.key === 'Escape' && !is_applying_image_editor) {
+				close_image_editor();
+			}
+		}}
+	>
+		<div
+			class="editor-shell w-full max-w-5xl overflow-hidden rounded-[1.75rem] border border-white/12"
+			transition:scale={{ duration: 220, start: 0.96, opacity: 0.55 }}
+		>
+			<div class="grid gap-0 lg:grid-cols-[minmax(260px,320px)_1fr]">
+				<div
+					class="order-2 border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5 lg:order-1 lg:border-t-0 lg:border-r lg:p-6"
+				>
+					<div class="flex items-start justify-between gap-4">
+						<div>
+							<p class="text-[11px] font-semibold tracking-[0.26em] text-sky-200/70 uppercase">
+								Adjust
+							</p>
+							<h2 class="mt-1 text-xl font-semibold text-white md:text-2xl">
+								{image_editor.mode === 'cover'
+									? 'Cover'
+									: image_editor.mode === 'post'
+										? 'Post'
+										: 'Profile'}
+							</h2>
+						</div>
+						<button
+							type="button"
+							onclick={() => {
+								close_image_editor();
+							}}
+							class="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/6 text-lg text-white transition-colors hover:bg-white/12"
+							disabled={is_applying_image_editor}
+							aria-label="Close image editor"
+						>
+							×
+						</button>
+					</div>
+
+					<div class="mt-4 rounded-[1.35rem] border border-white/8 bg-white/[0.035] p-4">
+						<div class="flex items-center justify-between gap-3">
+							<span class="text-sm font-medium text-white/84">Zoom</span>
+							<button
+								type="button"
+								onclick={reset_image_editor_view}
+								class="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-white/78 uppercase transition-colors hover:bg-white/12"
+							>
+								Reset
+							</button>
+						</div>
+
+						<input
+							type="range"
+							min="1"
+							max="3"
+							step="0.01"
+							value={image_editor_zoom}
+							oninput={(event) => {
+								const next_value = Number((event.currentTarget as HTMLInputElement).value);
+								update_image_editor_zoom(next_value);
+							}}
+							class="editor-slider mt-4 w-full"
+							aria-label="Zoom image"
+						/>
+
+						<div
+							class="mt-2 flex items-center justify-between text-[11px] font-medium tracking-[0.16em] text-white/42 uppercase"
+						>
+							<span>Wide</span>
+							<span>Close</span>
+						</div>
+					</div>
+
+					{#if image_editor_error}
+						<p
+							class="mt-4 rounded-[1.2rem] border border-rose-300/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100"
+						>
+							{image_editor_error}
+						</p>
+					{/if}
+
+					<div class="mt-4 grid grid-cols-2 gap-3 lg:mt-6 lg:grid-cols-1">
+						<button
+							type="button"
+							onclick={() => {
+								close_image_editor();
+							}}
+							class="editor-action-secondary rounded-[1.15rem] px-4 py-3 text-sm font-semibold text-white/82 transition-colors disabled:cursor-not-allowed disabled:opacity-55"
+							disabled={is_applying_image_editor}
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							onclick={apply_image_editor}
+							class="editor-action-primary rounded-[1.15rem] px-4 py-3 text-sm font-semibold text-[#CD82FF] transition-transform hover:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+							disabled={is_applying_image_editor}
+						>
+							{is_applying_image_editor ? 'Applying...' : 'Save'}
+						</button>
+					</div>
+				</div>
+
+				<div class="order-1 p-3 md:p-5 lg:order-2 lg:p-7">
+					<div
+						class="rounded-[1.55rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.018))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-4 lg:p-5"
+					>
+						<div class="mb-3 flex items-center justify-between gap-3">
+							<p class="text-[11px] font-semibold tracking-[0.24em] text-white/42 uppercase">
+								Preview
+							</p>
+							<div
+								class="editor-preview-chip rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-white/72 uppercase"
+							>
+								Drag
+							</div>
+						</div>
+
+						<div class="editor-preview-shell mx-auto w-full max-w-4xl rounded-[1.7rem] p-3 md:p-4">
+							{#if image_editor.mode === 'cover'}
+								<div
+									bind:this={image_editor_stage}
+									class="editor-stage relative mx-auto aspect-16/6 w-full max-w-4xl overflow-hidden rounded-[1.45rem] border border-white/10"
+									role="presentation"
+									style="touch-action:none;"
+									onpointerdown={begin_image_editor_drag}
+									onpointermove={move_image_editor_drag}
+									onpointerup={end_image_editor_drag}
+									onpointercancel={end_image_editor_drag}
+								>
+									<img
+										src={image_editor.src}
+										alt="Selected cover preview"
+										class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
+										style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
+										draggable="false"
+									/>
+									<div
+										class="editor-stage-frame pointer-events-none absolute inset-0 border-10 md:border-12"
+									></div>
+								</div>
+							{:else if image_editor.mode === 'post'}
+								<div class="flex min-h-85 items-center justify-center md:min-h-115">
+									<div
+										bind:this={image_editor_stage}
+										class="editor-stage relative w-full overflow-hidden rounded-[1.75rem] border border-white/10"
+										role="presentation"
+										style={`touch-action:none;aspect-ratio:${image_editor_frame_ratio};max-width:${image_editor.natural_width >= image_editor.natural_height ? '640px' : '380px'};`}
+										onpointerdown={begin_image_editor_drag}
+										onpointermove={move_image_editor_drag}
+										onpointerup={end_image_editor_drag}
+										onpointercancel={end_image_editor_drag}
+									>
+										<img
+											src={image_editor.src}
+											alt="Selected post preview"
+											class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
+											style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
+											draggable="false"
+										/>
+										<div
+											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-[1.75rem] border-10 md:border-12"
+										></div>
+									</div>
+								</div>
+							{:else}
+								<div class="flex min-h-75 items-center justify-center md:min-h-105">
+									<div
+										bind:this={image_editor_stage}
+										class="editor-stage relative aspect-square w-full max-w-[320px] overflow-hidden rounded-full border border-white/10 md:max-w-105"
+										role="presentation"
+										style="touch-action:none;"
+										onpointerdown={begin_image_editor_drag}
+										onpointermove={move_image_editor_drag}
+										onpointerup={end_image_editor_drag}
+										onpointercancel={end_image_editor_drag}
+									>
+										<img
+											src={image_editor.src}
+											alt="Selected profile preview"
+											class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
+											style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
+											draggable="false"
+										/>
+										<div
+											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-full border-10 md:border-12"
+										></div>
+									</div>
+								</div>
+							{/if}
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>

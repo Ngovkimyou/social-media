@@ -531,10 +531,14 @@
 									loading="lazy"
 									decoding="async"
 								/>
-								<span
-									class="text-lg font-semibold text-white transition-colors group-hover:text-[#BDE7FF]"
-									>{listed_user.name}</span
-								>
+								<div class="min-w-0">
+									<p
+										class="truncate text-lg font-semibold text-white transition-colors group-hover:text-[#BDE7FF]"
+									>
+										{listed_user.name}
+									</p>
+									<p class="truncate text-sm text-white/55">@{listed_user.username}</p>
+								</div>
 							</a>
 						</li>
 					{/each}

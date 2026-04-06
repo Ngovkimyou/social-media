@@ -95,7 +95,6 @@ const ensure_search_index_ready = async (): Promise<void> => {
 			create table if not exists profile_search_index (
 				user_id text primary key references "user"(id) on delete cascade,
 				username text not null,
-				name text not null,
 				search_vector tsvector not null
 			)
 		`);
@@ -112,14 +111,14 @@ const ensure_search_index_ready = async (): Promise<void> => {
 				p.user_id,
 				p.username,
 				u.name,
-				to_tsvector('simple', concat_ws(' ', coalesce(p.username, ''), coalesce(u.name, '')))
+				to_tsvector('simple', coalesce(p.username, ''))
 			from profile p
 			inner join "user" u on u.id = p.user_id
 			on conflict (user_id)
 			do update set
 				username = excluded.username,
-				name = excluded.name,
-				search_vector = excluded.search_vector
+					name = excluded.name,
+					search_vector = excluded.search_vector
 		`);
 
 		await db.execute(sql`
@@ -135,7 +134,7 @@ const ensure_search_index_ready = async (): Promise<void> => {
 					p.user_id,
 					p.username,
 					u.name,
-					to_tsvector('simple', concat_ws(' ', coalesce(p.username, ''), coalesce(u.name, '')))
+					to_tsvector('simple', coalesce(p.username, ''))
 				from profile p
 				inner join "user" u on u.id = p.user_id
 				where p.user_id = target_user_id

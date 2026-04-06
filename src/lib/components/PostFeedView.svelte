@@ -57,6 +57,8 @@
 		  }
 		| undefined
 	>();
+	let scroll_measure_frame = $state<number | undefined>();
+	let scroll_persist_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
 	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
 		{}
@@ -252,6 +254,34 @@
 		}
 	}
 
+	function clear_scroll_persist_timeout() {
+		if (!scroll_persist_timeout) {
+			return;
+		}
+
+		clearTimeout(scroll_persist_timeout);
+		scroll_persist_timeout = undefined;
+	}
+
+	function schedule_scroll_persist() {
+		clear_scroll_persist_timeout();
+		scroll_persist_timeout = setTimeout(() => {
+			scroll_persist_timeout = undefined;
+			persist_scroll_position();
+		}, 160);
+	}
+
+	function schedule_load_more_check() {
+		if (scroll_measure_frame) {
+			return;
+		}
+
+		scroll_measure_frame = requestAnimationFrame(() => {
+			scroll_measure_frame = undefined;
+			maybe_load_more();
+		});
+	}
+
 	function restore_scroll_position() {
 		const active_scroll_container = get_active_scroll_container();
 
@@ -366,8 +396,8 @@
 	}
 
 	function handle_feed_scroll() {
-		persist_scroll_position();
-		maybe_load_more();
+		schedule_load_more_check();
+		schedule_scroll_persist();
 	}
 
 	onMount(() => {
@@ -425,6 +455,12 @@
 	});
 
 	onDestroy(() => {
+		if (scroll_measure_frame) {
+			cancelAnimationFrame(scroll_measure_frame);
+		}
+
+		clear_scroll_persist_timeout();
+
 		for (const timer of Object.values(pending_preview_timers)) {
 			if (timer) {
 				clearTimeout(timer);
