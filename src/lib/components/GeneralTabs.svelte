@@ -27,7 +27,7 @@
 	const glow_base =
 		"before:content-[''] before:absolute before:inset-0 before:rounded-full before:bg-[radial-gradient(circle,rgba(210,150,255,0.95)_0%,rgba(146,95,255,0.55)_65%,rgba(146,95,255,0.2)_100%)] before:shadow-[0_0_24px_rgba(180,120,255,0.7)] before:transition-all before:duration-300 before:ease-out";
 	const glow_off = 'before:opacity-0 before:scale-90';
-	const glow_on = 'before:opacity-100 before:scale-100';
+	const glow_on = 'before:opacity-100 before:scale-80';
 	const nav_link_base =
 		'relative flex items-center rounded-2xl text-left text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding,gap] duration-300 ease-out hover:bg-white/6';
 	const nav_link_size_class = $derived(
@@ -200,7 +200,7 @@
 </script>
 
 <!-- Top Tab (scrolls naturally) -->
-<div class="flex h-18 w-full items-center justify-between bg-[#09051C] px-6 md:hidden">
+<div class="flex h-15 w-full items-center justify-between bg-[#09051C] px-6 md:hidden">
 	<a
 		href={home_href}
 		onclick={handle_home_navigation_click}
@@ -209,7 +209,7 @@
 		<img
 			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
 			alt="Space and Time Logo"
-			class="h-12"
+			class="h-12 max-[480px]:h-8"
 		/>
 	</a>
 	<div class="flex items-center gap-6">
@@ -219,30 +219,38 @@
 				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80"
 				aria-label="Sign out"
 			>
-				<img src="/images/sidebar-and-search/logout-icon.avif" alt="Sign out" class="h-8" />
+				<img
+					src="/images/sidebar-and-search/logout-icon.avif"
+					alt="Sign out"
+					class="h-8 max-[480px]:h-6"
+				/>
 			</button>
 		</form>
 		<img
 			src="/images/sidebar-and-search/dark-mode.avif"
 			alt="dark/light mode switch icon"
-			class="h-8 transition-opacity hover:opacity-80"
+			class="h-8 transition-opacity hover:opacity-80 max-[480px]:h-6"
 		/>
 		<img
 			src="/images/sidebar-and-search/more-setting.avif"
 			alt="More Settings"
-			class="h-8 transition-opacity hover:opacity-80"
+			class="h-8 transition-opacity hover:opacity-80 max-[480px]:h-6"
 		/>
 	</div>
 </div>
 
 <!-- Bottom Tab (fixed) -->
 <nav
-	class="fixed right-0 bottom-0 left-0 z-50 flex h-18 w-full items-center justify-center bg-[#09051C] md:hidden"
+	class="fixed right-0 bottom-0 left-0 z-50 flex h-15 w-full items-center justify-center bg-[#09051C] md:hidden"
 	data-sveltekit-preload-code="viewport"
 >
 	<div class="flex w-full items-center justify-around">
 		<button class="relative grid h-14 w-14 place-items-center" type="button" aria-label="Settings">
-			<img src="/images/sidebar-and-search/setting.avif" alt="Settings" class="h-8 opacity-80" />
+			<img
+				src="/images/sidebar-and-search/setting.avif"
+				alt="Settings"
+				class="h-8 opacity-80 max-[480px]:h-6"
+			/>
 		</button>
 
 		<a
@@ -251,7 +259,11 @@
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_search ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
-			<img src="/images/sidebar-and-search/search.avif" alt="Search" class="relative z-10 h-8" />
+			<img
+				src="/images/sidebar-and-search/search.avif"
+				alt="Search"
+				class="relative z-10 h-8 max-[480px]:h-6"
+			/>
 		</a>
 
 		<a
@@ -263,7 +275,7 @@
 			<img
 				src="/images/sidebar-and-search/home-page-icon.avif"
 				alt="Home Screen"
-				class="relative z-10 h-8"
+				class="relative z-10 h-8 max-[480px]:h-6"
 			/>
 		</a>
 
@@ -275,7 +287,7 @@
 			<img
 				src="/images/sidebar-and-search/open-messages.avif"
 				alt="Send Messages icon"
-				class="h-8 opacity-80"
+				class="h-8 opacity-80 max-[480px]:h-6"
 			/>
 		</button>
 
@@ -293,7 +305,7 @@
 			<img
 				src="/images/sidebar-and-search/go-to-profile.avif"
 				alt="Profile icon"
-				class="h-8 opacity-80"
+				class="h-8 opacity-80 max-[480px]:h-6"
 			/>
 		</a>
 	</div>
