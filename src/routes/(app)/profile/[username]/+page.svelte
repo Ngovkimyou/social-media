@@ -372,9 +372,11 @@
 </svelte:head>
 
 <div
-	class="profile-scroll flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white"
+	class="profile-scroll flex h-[calc(100dvh-4.5rem)] justify-center overflow-y-auto overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white md:h-screen"
 >
-	<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
+	<div
+		class="flex min-h-full w-full max-w-6xl flex-col px-2 pt-2 pb-40 shadow-2xl md:min-h-0 md:p-2"
+	>
 		<div class="relative h-56 w-full md:h-74">
 			{#if return_to}
 				<button
@@ -789,6 +791,8 @@
 				{/if}
 			</div>
 		{/if}
+
+		<div class="h-28 shrink-0 md:hidden" aria-hidden="true"></div>
 	</div>
 </div>
 

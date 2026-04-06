@@ -162,9 +162,11 @@
 				</section>
 			{:else if isnavigating_to_profile}
 				<div
-					class="profile_skeleton_screen flex h-screen justify-center overflow-y-scroll overscroll-x-none overscroll-y-none text-white"
+					class="profile_skeleton_screen flex h-[calc(100dvh-4.5rem)] justify-center overflow-y-auto overscroll-x-none overscroll-y-none text-white md:h-screen"
 				>
-					<div class="flex w-full max-w-6xl flex-col p-2 shadow-2xl">
+					<div
+						class="flex min-h-full w-full max-w-6xl flex-col px-2 pt-2 pb-40 shadow-2xl md:min-h-0 md:p-2"
+					>
 						<div class="relative h-56 w-full md:h-74">
 							<div
 								class="skeleton skeleton_cover relative h-full w-full overflow-hidden rounded-3xl"
