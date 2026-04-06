@@ -7,6 +7,39 @@
 	display: none;
 }
 
+.feed-load-more-card {
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	background:
+		radial-gradient(circle at top left, rgba(125, 212, 255, 0.22), transparent 40%),
+		radial-gradient(circle at bottom right, rgba(205, 130, 255, 0.2), transparent 42%),
+		linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+	box-shadow:
+		0 16px 40px rgba(0, 0, 0, 0.2),
+		inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.feed-load-more-pulse {
+	animation: feed-load-more-pulse 1.4s ease-in-out infinite;
+	box-shadow: 0 0 18px currentColor;
+}
+
+.feed-load-more-pulse:last-child {
+	animation-delay: 0.2s;
+}
+
+@keyframes feed-load-more-pulse {
+	0%,
+	100% {
+		transform: scale(0.82);
+		opacity: 0.45;
+	}
+
+	50% {
+		transform: scale(1.08);
+		opacity: 1;
+	}
+}
+
 .caption-preview {
 	display: -webkit-box;
 	line-clamp: 3;

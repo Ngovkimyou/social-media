@@ -14,7 +14,6 @@
 	import type { PostFeedPost } from '$lib/types/post-feed';
 
 	type BackPath = '/profile' | `/profile/${string}`;
-	type LoadMorePath = `/home?${string}` | `/home#${string}` | `/home?${string}#${string}`;
 	type PostPath = `/profile/${string}/posts/${string}`;
 	const last_home_state_storage_key = 'post-feed-last-home-state';
 
@@ -23,9 +22,11 @@
 		title: string;
 		subtitle?: string;
 		back_path?: BackPath;
-		load_more_path?: LoadMorePath;
-		hasLoadMore?: boolean;
 		get_post_path?: ((post: PostFeedPost) => PostPath) | undefined;
+		has_more?: boolean;
+		is_loading_more?: boolean;
+		load_more_error?: string;
+		on_load_more?: (() => Promise<void> | void) | undefined;
 	};
 
 	const {
@@ -33,15 +34,16 @@
 		title,
 		subtitle,
 		back_path,
-		load_more_path,
-		// eslint-disable-next-line @typescript-eslint/naming-convention
-		hasLoadMore = false,
-		get_post_path
+		get_post_path,
+		has_more = false,
+		is_loading_more = false,
+		load_more_error = '',
+		on_load_more
 	}: Props = $props();
 
 	const requested_view = $derived(page.url.searchParams.get('view') === 'grid' ? 'grid' : 'feed');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
-	let isGridView = $derived(requested_view === 'grid');
+	const isGridView = $derived(requested_view === 'grid');
 	let expanded_captions = $state<Record<string, boolean>>({});
 	let overflowing_captions = $state<Record<string, boolean>>({});
 	let root_container = $state<HTMLDivElement | undefined>();
@@ -64,6 +66,7 @@
 	const post_elements = new SvelteMap<string, HTMLElement>();
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	const focus_post_id = $derived(page.url.searchParams.get('focusPost')?.trim() ?? '');
+	const has_infinite_feed = $derived(Boolean(on_load_more));
 
 	function caption_key(view: 'grid' | 'feed', post_id: string | number) {
 		return `${view}-${String(post_id)}`;
@@ -318,6 +321,55 @@
 		return true;
 	}
 
+	function request_more_posts() {
+		if (!has_more || is_loading_more || !on_load_more) {
+			return;
+		}
+
+		void on_load_more();
+	}
+
+	function get_load_more_threshold() {
+		if (typeof window === 'undefined') {
+			return 320;
+		}
+
+		const is_desktop = window.matchMedia('(min-width: 768px)').matches;
+		const is_grid_view = page.url.searchParams.get('view') === 'grid';
+
+		if (is_grid_view) {
+			return is_desktop ? 900 : 700;
+		}
+
+		return is_desktop ? 600 : 450;
+	}
+
+	function maybe_load_more() {
+		if (!has_infinite_feed || !has_more || is_loading_more || !on_load_more) {
+			return;
+		}
+
+		const active_scroll_container = get_active_scroll_container();
+
+		if (!active_scroll_container) {
+			return;
+		}
+
+		const remaining_distance =
+			active_scroll_container.scrollHeight -
+			active_scroll_container.clientHeight -
+			active_scroll_container.scrollTop;
+
+		if (remaining_distance <= get_load_more_threshold()) {
+			request_more_posts();
+		}
+	}
+
+	function handle_feed_scroll() {
+		persist_scroll_position();
+		maybe_load_more();
+	}
+
 	onMount(() => {
 		mounted_scroll_storage_key = `post-feed-scroll:${page.url.pathname}${page.url.search}`;
 
@@ -333,6 +385,17 @@
 			}
 
 			restore_scroll_position();
+			maybe_load_more();
+		});
+	});
+
+	$effect(() => {
+		if (!has_infinite_feed || is_loading_more) {
+			return;
+		}
+
+		void tick().then(() => {
+			maybe_load_more();
 		});
 	});
 
@@ -343,6 +406,7 @@
 			}
 
 			restore_scroll_position();
+			maybe_load_more();
 		});
 	});
 
@@ -374,6 +438,7 @@
 <div
 	bind:this={root_container}
 	class="post-feed-page flex h-screen min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-[#09051c] text-white md:overflow-hidden"
+	onscroll={handle_feed_scroll}
 >
 	<div
 		class="z-10 flex items-center justify-between bg-[#09051c] p-4 md:sticky md:top-0 md:p-6 lg:p-8"
@@ -408,10 +473,7 @@
 				? 'text-white'
 				: 'text-white/70'} hover:text-white"
 			onclick={() => {
-				// eslint-disable-next-line @typescript-eslint/naming-convention
-				const nextIsGridView = !isGridView;
-				isGridView = nextIsGridView;
-				void update_view_query(nextIsGridView ? 'grid' : 'feed');
+				void update_view_query(isGridView ? 'feed' : 'grid');
 			}}
 			aria-label={isGridView ? 'Switch to feed view' : 'Switch to grid view'}
 		>
@@ -428,7 +490,7 @@
 	<div
 		bind:this={scroll_container}
 		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-6 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
-		onscroll={persist_scroll_position}
+		onscroll={handle_feed_scroll}
 	>
 		{#if isGridView}
 			<div
@@ -503,7 +565,13 @@
 									}}
 									aria-label={`Preview ${post.author_name}'s post image`}
 								>
-									<img src={post.media_url} alt="post" class="h-full w-full object-cover" />
+									<img
+										src={post.media_url}
+										alt="post"
+										class="h-full w-full object-cover"
+										loading="lazy"
+										decoding="async"
+									/>
 								</button>
 							{/if}
 							{#if post.content}
@@ -655,11 +723,13 @@
 							</button>
 						</div>
 
-						<div class="relative mx-3 mt-3 overflow-hidden rounded-2xl bg-black/20 md:mx-4">
+						<div
+							class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl bg-black/20 md:mx-4 md:max-h-[70vh]"
+						>
 							{#if post.media_url && post.media_type === 'image'}
 								<button
 									type="button"
-									class="block w-full cursor-zoom-in"
+									class="flex h-full w-full cursor-zoom-in items-center justify-center"
 									onclick={() => {
 										schedule_image_preview(
 											post.id,
@@ -673,7 +743,13 @@
 									}}
 									aria-label={`Preview ${post.author_name}'s post image`}
 								>
-									<img src={post.media_url} alt="post" class="max-h-[70vh] w-full object-contain" />
+									<img
+										src={post.media_url}
+										alt="post"
+										class="h-full w-full object-contain"
+										loading="lazy"
+										decoding="async"
+									/>
 								</button>
 							{/if}
 							{#if post.content}
@@ -779,14 +855,38 @@
 			</div>
 		{/if}
 
-		{#if hasLoadMore && load_more_path}
-			<div class="mt-4 flex justify-center pb-8">
-				<a
-					href={resolve(load_more_path)}
-					class="rounded-full bg-white/10 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20"
+		{#if has_infinite_feed && is_loading_more}
+			<div class="mx-auto w-full max-w-xl px-1 pt-2 pb-1">
+				<div
+					class="feed-load-more-card flex items-center justify-center gap-3 rounded-[1.75rem] px-4 py-3 text-sm text-white/85 backdrop-blur-md"
 				>
-					Load more
-				</a>
+					<span class="feed-load-more-pulse h-2.5 w-2.5 rounded-full bg-sky-300"></span>
+					<span class="font-medium">Loading more posts</span>
+					<span class="feed-load-more-pulse h-2.5 w-2.5 rounded-full bg-fuchsia-300"></span>
+				</div>
+			</div>
+		{:else if has_infinite_feed && load_more_error}
+			<div class="mx-auto w-full max-w-xl px-1 pt-2 pb-1">
+				<div
+					class="flex items-center justify-between gap-3 rounded-[1.75rem] border border-rose-300/20 bg-[linear-gradient(135deg,rgba(120,15,35,0.35),rgba(255,255,255,0.06))] px-4 py-3 text-sm text-rose-100 shadow-[0_14px_40px_rgba(0,0,0,0.22)] backdrop-blur-md"
+				>
+					<span>{load_more_error}</span>
+					<button
+						type="button"
+						class="rounded-full border border-white/12 bg-white/10 px-3 py-1 font-medium text-white transition-all duration-200 hover:bg-white/16"
+						onclick={request_more_posts}
+					>
+						Retry
+					</button>
+				</div>
+			</div>
+		{:else if has_infinite_feed && !has_more && posts.length > 0}
+			<div class="mx-auto w-full max-w-xl px-1 pt-2 pb-1">
+				<div
+					class="rounded-[1.75rem] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] px-4 py-3 text-center text-xs tracking-[0.22em] text-white/55 uppercase backdrop-blur-md"
+				>
+					You&apos;re all caught up
+				</div>
 			</div>
 		{/if}
 	</div>
