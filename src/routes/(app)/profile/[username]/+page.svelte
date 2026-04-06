@@ -798,7 +798,7 @@
 
 {#if upload_modal_open}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm md:px-4"
 		role="dialog"
 		aria-modal="true"
 		tabindex="0"
@@ -816,13 +816,13 @@
 		}}
 	>
 		<div
-			class="w-full rounded-3xl bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out {image_src
+			class="w-full rounded-[2rem] bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src
 				? 'max-w-4xl'
 				: 'max-w-lg'}"
 			transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 		>
 			<div
-				class="flex max-h-[90vh] w-full overflow-hidden rounded-3xl bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)]"
+				class="flex max-h-[calc(100dvh-1.5rem)] w-full overflow-hidden rounded-[2rem] bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)] md:max-h-[90vh] md:rounded-3xl"
 			>
 				<form
 					method="post"
@@ -845,15 +845,15 @@
 						</button>
 					</div>
 
-					<div class="flex flex-1 flex-col overflow-hidden md:flex-row">
+					<div class="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
 						{#if image_src}
 							<div
-								class="relative flex min-h-96 w-full items-center justify-center border-r border-white/40 bg-[#18191a] md:min-h-0 md:w-1/2"
+								class="relative flex h-72 w-full shrink-0 items-center justify-center overflow-hidden border-b border-white/40 bg-[#18191a] p-3 md:h-auto md:w-1/2 md:border-r md:border-b-0 md:p-6"
 							>
 								<img
 									src={image_src}
 									alt="Preview"
-									class="h-100 w-full object-cover"
+									class="max-h-full w-auto max-w-full rounded-2xl object-contain"
 									decoding="async"
 								/>
 
