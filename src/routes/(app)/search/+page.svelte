@@ -210,7 +210,6 @@
 
 	const trimmed_query = $derived(query.trim());
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
-	// eslint-disable-next-line @typescript-eslint/naming-convention
 	const has_recent_users = $derived(recent_users.length > 0);
 
 	const persist_recent_users = (next_recent_users: RecentUser[]) => {
@@ -225,7 +224,6 @@
 		listed_user: RecentUser,
 		options: { update_ui?: boolean } = {}
 	): void => {
-		// eslint-disable-next-line @typescript-eslint/naming-convention
 		const should_update_ui = options.update_ui ?? true;
 		const filtered_users = recent_users.filter(
 			(existing_user) => existing_user.username !== listed_user.username

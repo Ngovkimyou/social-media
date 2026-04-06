@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import type { MouseEventHandler } from 'svelte/elements';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -19,6 +20,7 @@
 	const home_href = resolve('/home');
 	const search_href = resolve('/search');
 	const profile_href = resolve('/profile');
+	const sign_out_action = `${resolve('/sign-out')}?/signOut`;
 	const ison_home = $derived(active_path === home_href);
 	const ison_search = $derived(active_path === search_href);
 	const ison_profile = $derived(active_path.startsWith(profile_href));
@@ -211,6 +213,15 @@
 		/>
 	</a>
 	<div class="flex items-center gap-6">
+		<form method="post" action={sign_out_action} use:enhance>
+			<button
+				type="submit"
+				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80"
+				aria-label="Sign out"
+			>
+				<img src="/images/sidebar-and-search/logout-icon.avif" alt="Sign out" class="h-8" />
+			</button>
+		</form>
 		<img
 			src="/images/sidebar-and-search/dark-mode.avif"
 			alt="dark/light mode switch icon"
@@ -437,6 +448,23 @@
 				>About</span
 			>
 		</button>
+
+		<form method="post" action={sign_out_action} use:enhance>
+			<button
+				type="submit"
+				class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+			>
+				<img
+					src="/images/sidebar-and-search/logout-icon.avif"
+					alt="Sign out icon"
+					class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
+				/>
+				<span
+					class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Logout</span
+				>
+			</button>
+		</form>
 	</nav>
 
 	<div
