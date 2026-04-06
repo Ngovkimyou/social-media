@@ -2,11 +2,18 @@
 	import { page } from '$app/state';
 	import PostFeedView from '$lib/components/PostFeedView.svelte';
 	import { set_last_home_feed_state, type HomeFeedState } from '$lib/state/home-feed-state';
+	import type { PostFeedPost } from '$lib/types/post-feed';
+	import { SvelteSet } from 'svelte/reactivity';
 	import type { PageData, Snapshot } from './$types';
 
 	const { data }: { data: PageData } = $props();
-	const load_more_path = $derived(`/home?page=${data.page + 1}` as `/home?${string}`);
 	const last_home_state_storage_key = 'post-feed-last-home-state';
+	let posts = $state<PostFeedPost[]>([]);
+	let has_more = $state(false);
+	let next_cursor = $state<string | undefined>();
+	let is_loading_more = $state(false);
+	let load_more_error = $state('');
+	let has_initialized_feed = $state(false);
 
 	function get_active_home_scroll_container() {
 		const selector = window.matchMedia('(min-width: 768px)').matches
@@ -72,6 +79,71 @@
 		active_scroll_container.scrollTop = next_state.scroll_top;
 	}
 
+	function merge_posts(
+		existing_posts: PostFeedPost[],
+		incoming_posts: Array<Omit<PostFeedPost, 'created_at'> & { created_at: string | Date }>
+	): PostFeedPost[] {
+		const merged_posts = [...existing_posts];
+		const seen_post_ids = new SvelteSet(existing_posts.map((post) => post.id));
+
+		for (const post of incoming_posts) {
+			if (seen_post_ids.has(post.id)) {
+				continue;
+			}
+
+			merged_posts.push({
+				...post,
+				created_at: new Date(post.created_at)
+			});
+			seen_post_ids.add(post.id);
+		}
+
+		return merged_posts;
+	}
+
+	async function load_more_posts() {
+		if (is_loading_more || !has_more || !next_cursor) {
+			return;
+		}
+
+		is_loading_more = true;
+		load_more_error = '';
+
+		try {
+			const params = new URLSearchParams({ cursor: next_cursor });
+			const response = await fetch(`/api/home-feed?${params.toString()}`);
+
+			if (!response.ok) {
+				throw new Error(`Failed to load posts: ${response.status}`);
+			}
+
+			const payload = (await response.json()) as {
+				posts: Array<Omit<PostFeedPost, 'created_at'> & { created_at: string }>;
+				has_more: boolean;
+				next_cursor?: string;
+			};
+
+			posts = merge_posts(posts, payload.posts);
+			has_more = payload.has_more;
+			next_cursor = payload.next_cursor;
+		} catch {
+			load_more_error = 'Unable to load more posts right now.';
+		} finally {
+			is_loading_more = false;
+		}
+	}
+
+	$effect(() => {
+		if (has_initialized_feed) {
+			return;
+		}
+
+		posts = data.posts;
+		has_more = data.has_more;
+		next_cursor = data.next_cursor;
+		has_initialized_feed = true;
+	});
+
 	export const snapshot: Snapshot<HomeFeedState | undefined> = {
 		capture: () => {
 			const active_scroll_container = get_active_home_scroll_container();
@@ -109,4 +181,11 @@
 	};
 </script>
 
-<PostFeedView posts={data.posts} title="Feed" hasLoadMore={data.has_more} {load_more_path} />
+<PostFeedView
+	{posts}
+	title="Feed"
+	{has_more}
+	{is_loading_more}
+	{load_more_error}
+	on_load_more={load_more_posts}
+/>

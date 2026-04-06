@@ -29,9 +29,9 @@
 	const glow_off = 'before:opacity-0 before:scale-90';
 	const glow_on = 'before:opacity-100 before:scale-80';
 	const nav_link_base =
-		'relative flex items-center rounded-2xl text-left text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding,gap] duration-300 ease-out hover:bg-white/6';
+		'relative block overflow-hidden rounded-2xl text-left text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/6';
 	const nav_link_size_class = $derived(
-		$is_desktop_sidebar_collapsed ? 'mx-auto h-12 w-12' : 'w-full gap-3 px-4 py-3'
+		$is_desktop_sidebar_collapsed ? 'w-12 gap-0 px-3 py-3' : 'w-full gap-3 px-4 py-3'
 	);
 	const active_link =
 		'!text-[#7DD4FF] bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px]';
@@ -42,28 +42,24 @@
 			: 'max-w-40 translate-x-0 opacity-100 blur-0'
 	);
 	const desktop_aside_class = $derived(
-		$is_desktop_sidebar_collapsed ? 'items-center px-3 py-6' : 'items-stretch p-6'
+		$is_desktop_sidebar_collapsed ? 'items-stretch px-3 py-6' : 'items-stretch p-6'
 	);
-	const desktop_link_alignment_class = $derived(
+	const desktop_link_alignment_class = $derived($is_desktop_sidebar_collapsed ? 'mx-auto' : '');
+	const desktop_icon_slot_class = 'flex h-6 w-6 shrink-0 items-center justify-center';
+	const desktop_item_content_class = $derived(
 		$is_desktop_sidebar_collapsed
-			? 'mx-auto h-12 w-12 justify-center gap-0 px-0'
-			: 'justify-start px-4'
-	);
-	const desktop_link_content_class = $derived(
-		$is_desktop_sidebar_collapsed ? 'mx-auto flex h-6 w-6 items-center justify-center' : ''
-	);
-	const desktop_toggle_content_class = $derived(
-		$is_desktop_sidebar_collapsed ? 'mx-auto flex h-6 w-6 items-center justify-center' : ''
+			? 'desktop-item-content desktop-item-content-collapsed'
+			: 'desktop-item-content'
 	);
 	const desktop_sidebar_button_class = $derived(
 		$is_desktop_sidebar_collapsed
-			? 'mx-auto h-12 w-12 justify-center gap-0 rounded-2xl px-0'
-			: 'w-full justify-start gap-3 rounded-2xl px-4 py-3'
+			? 'mx-auto w-12 rounded-2xl px-3 py-3'
+			: 'w-full rounded-2xl px-4 py-3'
 	);
 	const desktop_sidebar_toggle_icon_class = $derived(
 		$is_desktop_sidebar_collapsed
 			? 'block h-6 w-6 rotate-180 object-contain'
-			: `block h-6 w-6 object-contain ${desktop_toggle_content_class}`
+			: 'block h-6 w-6 object-contain'
 	);
 
 	function persist_current_home_scroll_position() {
@@ -313,36 +309,42 @@
 
 <!-- Desktop Sidebar -->
 <aside
-	class={`fixed top-0 left-0 hidden h-screen flex-col gap-15 bg-[#09051C] text-white transition-[width,padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${desktop_aside_class}`}
+	class={`fixed top-0 left-0 hidden h-screen flex-col gap-15 overflow-hidden bg-[#09051C] text-white transition-[width,padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${desktop_aside_class}`}
 	style={`width: ${$desktop_sidebar_width};`}
 	data-sveltekit-preload-code="viewport"
 >
-	<a
-		href={home_href}
-		onclick={handle_home_navigation_click}
-		class={`block transition-opacity hover:opacity-80 ${$is_desktop_sidebar_collapsed ? 'mx-auto self-center' : 'mx-auto w-fit self-center'}`}
-	>
-		<img
-			src="/images/sidebar-and-search/Space-and-Time-logo.avif"
-			alt="Space and Time Logo"
-			class={`object-contain transition-[height,transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${$is_desktop_sidebar_collapsed ? 'h-14 scale-95 opacity-90' : 'h-16 scale-100 opacity-100'}`}
-		/>
-	</a>
+	<div class="flex h-16 items-center justify-center">
+		<a
+			href={home_href}
+			onclick={handle_home_navigation_click}
+			class={`block transition-opacity hover:opacity-80 ${$is_desktop_sidebar_collapsed ? 'mx-auto self-center' : 'mx-auto w-fit self-center'}`}
+		>
+			<img
+				src="/images/sidebar-and-search/Space-and-Time-logo.avif"
+				alt="Space and Time Logo"
+				class={`object-contain transition-[height,transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${$is_desktop_sidebar_collapsed ? 'h-14 scale-95 opacity-90' : 'h-16 scale-100 opacity-100'}`}
+			/>
+		</a>
+	</div>
 
 	<button
 		type="button"
 		onclick={toggle_desktop_sidebar}
-		class={`relative flex items-center text-left text-lg font-semibold text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding,gap,border-radius] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/6 ${desktop_sidebar_button_class}`}
+		class={`relative block text-left text-lg font-semibold text-white transition-[background,box-shadow,backdrop-filter,transform,width,height,padding,border-radius] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/6 ${desktop_sidebar_button_class}`}
 	>
-		<img
-			src="/images/sidebar-and-search/expand-tab.avif"
-			alt="Close Tab icon"
-			class={`transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_sidebar_toggle_icon_class}`}
-		/>
-		<span
-			class={`whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-			>Close Tab</span
-		>
+		<span class={desktop_item_content_class}>
+			<span class={desktop_icon_slot_class}>
+				<img
+					src="/images/sidebar-and-search/expand-tab.avif"
+					alt="Close Tab icon"
+					class={`transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_sidebar_toggle_icon_class}`}
+				/>
+			</span>
+			<span
+				class={`origin-left whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+				>Close Tab</span
+			>
+		</span>
 	</button>
 
 	<nav class={`space-y-2 ${$is_desktop_sidebar_collapsed ? 'w-full' : ''}`}>
@@ -352,15 +354,19 @@
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_home ? active_link : ''}`}
 		>
-			<img
-				src="/images/sidebar-and-search/home-page-icon.avif"
-				alt="Home Page icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>Home</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/home-page-icon.avif"
+						alt="Home Page icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Home</span
+				>
+			</span>
 		</a>
 
 		<a
@@ -369,15 +375,19 @@
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_search ? active_link : ''}`}
 		>
-			<img
-				src="/images/sidebar-and-search/search.avif"
-				alt="Search icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>Search</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/search.avif"
+						alt="Search icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Search</span
+				>
+			</span>
 		</a>
 
 		<a
@@ -390,75 +400,95 @@
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_profile ? active_link : ''}`}
 		>
-			<img
-				src="/images/sidebar-and-search/go-to-profile.avif"
-				alt="Profile icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>Profile</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/go-to-profile.avif"
+						alt="Profile icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Profile</span
+				>
+			</span>
 		</a>
 
 		<button
 			type="button"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
 		>
-			<img
-				src="/images/sidebar-and-search/open-messages.avif"
-				alt="Messages icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>Message</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/open-messages.avif"
+						alt="Messages icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Message</span
+				>
+			</span>
 		</button>
 
 		<button
 			type="button"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
 		>
-			<img
-				src="/images/sidebar-and-search/setting.avif"
-				alt="Settings icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>Setting</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/setting.avif"
+						alt="Settings icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Setting</span
+				>
+			</span>
 		</button>
 
 		<button
 			type="button"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
 		>
-			<img
-				src="/images/sidebar-and-search/change-theme-icon.avif"
-				alt="Change Theme icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>Theme</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/change-theme-icon.avif"
+						alt="Change Theme icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Theme</span
+				>
+			</span>
 		</button>
 
 		<button
 			type="button"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
 		>
-			<img
-				src="/images/sidebar-and-search/about-this-account-icon.avif"
-				alt="About this Account icon"
-				class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-			/>
-			<span
-				class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-				>About</span
-			>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/about-this-account-icon.avif"
+						alt="About this Account icon"
+						class="block h-6 w-6 object-contain"
+					/>
+				</span>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>About</span
+				>
+			</span>
 		</button>
 
 		<form method="post" action={sign_out_action} use:enhance>
@@ -466,15 +496,19 @@
 				type="submit"
 				class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
 			>
-				<img
-					src="/images/sidebar-and-search/logout-icon.avif"
-					alt="Sign out icon"
-					class={`block h-6 w-6 object-contain ${desktop_link_content_class}`}
-				/>
-				<span
-					class={`text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-					>Logout</span
-				>
+				<span class={desktop_item_content_class}>
+					<span class={desktop_icon_slot_class}>
+						<img
+							src="/images/sidebar-and-search/logout-icon.avif"
+							alt="Sign out icon"
+							class="block h-6 w-6 object-contain"
+						/>
+					</span>
+					<span
+						class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+						>Logout</span
+					>
+				</span>
 			</button>
 		</form>
 	</nav>
@@ -495,3 +529,20 @@
 		</button>
 	</div>
 </aside>
+
+<style>
+	.desktop-item-content {
+		display: grid;
+		grid-template-columns: 1.5rem minmax(0, 1fr);
+		align-items: center;
+		column-gap: 0.75rem;
+		transition:
+			grid-template-columns 500ms cubic-bezier(0.22, 1, 0.36, 1),
+			column-gap 500ms cubic-bezier(0.22, 1, 0.36, 1);
+	}
+
+	.desktop-item-content-collapsed {
+		grid-template-columns: 1.5rem 0fr;
+		column-gap: 0;
+	}
+</style>

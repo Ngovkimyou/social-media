@@ -292,12 +292,12 @@
 			min-height: 100vh;
 			background-color: #09051c;
 			padding-left: var(--desktop-sidebar-width);
-			transition: padding-left 300ms ease-out;
+			transition: padding-left 500ms cubic-bezier(0.22, 1, 0.36, 1);
 		}
 
 		.nav_skeleton {
 			left: var(--desktop-sidebar-width);
-			transition: left 300ms ease-out;
+			transition: left 500ms cubic-bezier(0.22, 1, 0.36, 1);
 		}
 	}
 
