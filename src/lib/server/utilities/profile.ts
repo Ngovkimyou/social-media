@@ -220,7 +220,6 @@ const get_relationship = async (
 	viewer_user_id: string | undefined,
 	profile_user_id: string
 ): Promise<ProfilePageData['relationship']> => {
-	// eslint-disable-next-line @typescript-eslint/naming-convention
 	const is_own_profile = viewer_user_id === profile_user_id;
 
 	if (!viewer_user_id || is_own_profile) {

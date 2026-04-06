@@ -2,7 +2,9 @@
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import type { ActionData } from './$types';
+
 	const { form }: { form: ActionData } = $props();
+	let is_password_visible = $state(false);
 </script>
 
 <svelte:head>
@@ -30,14 +32,33 @@
 				<div class="input-group">
 					<label class="login-label">
 						Password
-						<input
-							type="password"
-							name="password"
-							required
-							maxlength="128"
-							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-							placeholder="Enter your password"
-						/>
+						<div class="password-input-wrapper">
+							<input
+								type={is_password_visible ? 'text' : 'password'}
+								name="password"
+								required
+								maxlength="128"
+								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+								placeholder="Enter your password"
+							/>
+							<button
+								type="button"
+								class="password-toggle"
+								aria-label={is_password_visible ? 'Hide password' : 'Show password'}
+								aria-pressed={is_password_visible}
+								onclick={() => {
+									is_password_visible = !is_password_visible;
+								}}
+							>
+								<img
+									src={is_password_visible
+										? '/images/login-screen/show-password.avif'
+										: '/images/login-screen/hide-password.avif'}
+									alt=""
+									class="password-toggle-icon"
+								/>
+							</button>
+						</div>
 					</label>
 				</div>
 				<div class="login-actions">
@@ -135,11 +156,46 @@
 	}
 
 	.login-input {
+		box-sizing: border-box;
+		display: block;
+		width: 100%;
 		font-size: clamp(0.95rem, 2.4vw, 1rem);
 		padding: 0.7rem 0.9rem;
 		border: 1px solid #d1d5db;
 		border-radius: 0.6rem;
 		margin-top: 0.45rem;
+	}
+
+	.password-input-wrapper {
+		width: 100%;
+		position: relative;
+		margin-top: 0.45rem;
+	}
+
+	.password-input-wrapper .login-input {
+		margin-top: 0;
+		padding-right: 3.4rem;
+	}
+
+	.password-toggle {
+		position: absolute;
+		top: 50%;
+		right: 0.7rem;
+		display: grid;
+		height: 2rem;
+		width: 2rem;
+		place-items: center;
+		transform: translateY(-50%);
+		border-radius: 9999px;
+		transition:
+			background-color 180ms ease,
+			opacity 180ms ease;
+	}
+
+	.password-toggle-icon {
+		height: 2rem;
+		width: 2rem;
+		object-fit: contain;
 	}
 
 	.login-button {

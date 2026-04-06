@@ -37,12 +37,6 @@ const namingConventionRules = [
 					leadingUnderscore: 'require'
 				},
 				{
-					selector: 'variable',
-					types: ['boolean'],
-					format: ['snake_case'],
-					prefix: ['is', 'has', 'should', 'can', 'will']
-				},
-				{
 					selector: 'import',
 					format: ['camelCase', 'PascalCase']
 				},

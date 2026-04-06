@@ -47,7 +47,6 @@
 	const return_post_id = $derived(page.url.searchParams.get('returnPostId')?.trim() ?? '');
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
-	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let upload_modal_open = $state(false);
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
@@ -75,7 +74,6 @@
 		}))
 	);
 
-	// eslint-disable-next-line @typescript-eslint/naming-convention
 	const success_message = $derived(
 		(form as { success?: boolean } | null | undefined)?.success === true
 	);
@@ -180,7 +178,6 @@
 	let image_src = $state('');
 	let caption = $state('');
 	let share_feedback = $state('');
-	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let submitting_post = $state(false);
 
 	$effect(() => {
