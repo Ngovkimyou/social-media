@@ -1,5 +1,6 @@
 import { get_db } from '$lib/server/db';
 import { profiles, user } from '$lib/server/db/schema';
+import { consume_search_rate_limit } from '$lib/server/utilities/search-rate-limit';
 import { eq, sql } from 'drizzle-orm';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -8,6 +9,9 @@ const token_pattern = /[^\p{L}\p{N}_]+/gu;
 const default_limit = 25;
 const minimum_limit = 1;
 const maximum_limit = 50;
+const minimum_query_characters = 2;
+const broad_query_characters = 2;
+const broad_query_limit_cap = 10;
 const search_cache_ttl_ms = 10_000;
 const search_cache_max_entries = 200;
 
@@ -36,6 +40,11 @@ const clamp_limit = (raw_limit: string | null): number => {
 
 	return Math.max(minimum_limit, Math.min(maximum_limit, parsed));
 };
+
+const normalize_query = (value: string): string => value.normalize('NFKC').trim();
+
+const get_searchable_character_count = (value: string): number =>
+	Array.from(value.replaceAll(token_pattern, '')).length;
 
 const build_prefix_tsquery = (value: string): string | undefined => {
 	const tokens = value
@@ -209,7 +218,9 @@ const ensure_search_index_ready = async (): Promise<void> => {
 	await search_index_init_promise;
 };
 
-export const GET: RequestHandler = async ({ url, locals }) => {
+export const GET: RequestHandler = async (event) => {
+	const { url, locals } = event;
+
 	if (!locals.user) {
 		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
@@ -217,17 +228,43 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const query = url.searchParams.get('query')?.trim() ?? '';
 	const limit = clamp_limit(url.searchParams.get('limit'));
 
-	if (query.length < 1) {
+	const normalized_query = normalize_query(query);
+
+	if (normalized_query.length < 1) {
 		return json({ users: [] });
 	}
 
-	const ts_query = build_prefix_tsquery(query);
+	if (get_searchable_character_count(normalized_query) < minimum_query_characters) {
+		return json({ users: [] });
+	}
+
+	const searchable_character_count = get_searchable_character_count(normalized_query);
+	const is_broad_query = searchable_character_count <= broad_query_characters;
+
+	const rate_limit = await consume_search_rate_limit(event, 'search-users', {
+		query_signature: normalized_query.toLowerCase(),
+		is_broad_query
+	});
+	if (!rate_limit.is_allowed) {
+		return json(
+			{ error: 'Too many search requests. Please try again shortly.' },
+			{
+				status: 429,
+				headers: {
+					'retry-after': `${rate_limit.retry_after_seconds}`
+				}
+			}
+		);
+	}
+
+	const ts_query = build_prefix_tsquery(normalized_query);
 
 	if (!ts_query) {
 		return json({ users: [] });
 	}
 
-	const cache_key = `${query.toLowerCase()}|${limit}`;
+	const effective_limit = is_broad_query ? Math.min(limit, broad_query_limit_cap) : limit;
+	const cache_key = `${normalized_query.toLowerCase()}|${effective_limit}`;
 	const cached_users = get_cached_search_result(cache_key);
 
 	if (cached_users) {
@@ -269,7 +306,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			)`
 		)
 		.orderBy(sql`${rank_expr} DESC`, user.name)
-		.limit(limit);
+		.limit(effective_limit);
 
 	const normalized_users = users.map(({ rank: _unused_rank, ...listed_user }) => ({
 		...listed_user

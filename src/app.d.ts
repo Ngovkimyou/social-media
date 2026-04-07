@@ -5,6 +5,7 @@ import type { User, Session } from 'better-auth/minimal';
 declare global {
 	namespace App {
 		interface Locals {
+			csp_nonce?: string;
 			user?: User;
 			session?: Session;
 		}

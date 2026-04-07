@@ -3,22 +3,44 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { get_db } from '$lib/server/db';
 import { profiles, user } from '$lib/server/db/schema';
+import { consume_search_rate_limit } from '$lib/server/utilities/search-rate-limit';
 
 const max_recent_users = 15;
 
-export const GET: RequestHandler = async ({ url, locals }) => {
+const normalize_username = (value: string): string => value.normalize('NFKC').trim().toLowerCase();
+
+export const GET: RequestHandler = async (event) => {
+	const { url, locals } = event;
+
 	if (!locals.user) {
 		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
 
 	const usernames = url.searchParams
 		.getAll('username')
-		.map((username) => username.trim())
+		.map(normalize_username)
 		.filter(Boolean)
+		.filter((username, index, values) => values.indexOf(username) === index)
 		.slice(0, max_recent_users);
 
 	if (usernames.length === 0) {
 		return json({ users: [] });
+	}
+
+	const rate_limit = await consume_search_rate_limit(event, 'search-recent-users', {
+		query_signature: usernames.join(','),
+		is_broad_query: usernames.length >= 8
+	});
+	if (!rate_limit.is_allowed) {
+		return json(
+			{ error: 'Too many search requests. Please try again shortly.' },
+			{
+				status: 429,
+				headers: {
+					'retry-after': `${rate_limit.retry_after_seconds}`
+				}
+			}
+		);
 	}
 
 	const db = get_db();
