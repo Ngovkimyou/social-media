@@ -3,6 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { get_auth } from '$lib/server/auth';
 import { APIError } from 'better-auth/api';
 import { email_validator, password_validator, name_validator } from '$lib/utilities/validator';
+import { slugify_username } from '$lib/server/utilities/profile';
 import {
 	clear_auth_rate_limit,
 	consume_auth_rate_limit
@@ -10,6 +11,9 @@ import {
 
 const SIGN_UP_FAILURE_MESSAGE =
 	'Unable to create account. Please check your details and try again.';
+
+const normalize_for_comparison = (value: string): string =>
+	value.normalize('NFKC').trim().toLowerCase();
 
 const validate_sign_up_input = (params: {
 	email: string;
@@ -50,6 +54,17 @@ const validate_sign_up_input = (params: {
 	const is_name_valid = name_validator(name);
 	if (!is_name_valid.is_Valid) {
 		return { is_valid: false, message: is_name_valid.message ?? 'Invalid name' };
+	}
+
+	const normalized_password = normalize_for_comparison(password);
+	const normalized_name = normalize_for_comparison(name);
+	const generated_username = slugify_username(name);
+
+	if (normalized_password === normalized_name || normalized_password === generated_username) {
+		return {
+			is_valid: false,
+			message: 'Password must not match your name or generated username'
+		};
 	}
 
 	return { is_valid: true };

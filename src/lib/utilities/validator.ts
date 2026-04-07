@@ -6,6 +6,10 @@ export type ValidatorOutput = {
 const MAX_EMAIL_LENGTH = 254;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
+const MIN_NAME_LENGTH = 3;
+const MAX_NAME_LENGTH = 15;
+
+const normalize_name = (name: string): string => name.normalize('NFKC').trim();
 
 export const email_validator = (email: string): ValidatorOutput => {
 	const trimmed_email = email.trim();
@@ -55,26 +59,43 @@ export const password_validator = (password: string): ValidatorOutput => {
 };
 
 export const name_validator = (name: string): ValidatorOutput => {
-	// Optionally allow middle names by adjusting the logic accordingly
-	const trimmed_name = name.trim();
-	// Split the name into parts and check if it exceeds the allowed number of parts
-	const name_parts = trimmed_name.trim().split(/\s+/);
-	// Enforce first/last name only.
-	if (name_parts.length > 2) {
-		return { is_Valid: false, message: 'Name must not contain more than two parts' };
+	const trimmed_name = normalize_name(name);
+
+	if (trimmed_name.length < MIN_NAME_LENGTH || trimmed_name.length > MAX_NAME_LENGTH) {
+		return {
+			is_Valid: false,
+			message: `Name must be between ${MIN_NAME_LENGTH} and ${MAX_NAME_LENGTH} characters long`
+		};
 	}
 
-	const name_regex = /^[a-zA-Z\s]+$/;
-	// Check if the name contains special characters
-	if (!name_regex.test(trimmed_name)) {
-		return { is_Valid: false, message: 'Name cannot contain special characters. Ex. !@#$%^&*()' };
+	if (!/^[\p{L}\p{N}_ ]+$/u.test(trimmed_name)) {
+		return {
+			is_Valid: false,
+			message: 'Name can only contain letters, numbers, spaces, and underscores'
+		};
 	}
-	// Check for minimum and maximum length of the name
-	const min_length = 3;
-	const max_length = 15;
 
-	if (trimmed_name.length < min_length || trimmed_name.length > max_length) {
-		return { is_Valid: false, message: 'Name must be between 3 and 15 characters long' };
+	if (!/\p{L}/u.test(trimmed_name)) {
+		return {
+			is_Valid: false,
+			message: 'Name must include at least one letter'
+		};
+	}
+
+	const space_count = [...trimmed_name].filter((character) => character === ' ').length;
+	if (space_count > 1) {
+		return {
+			is_Valid: false,
+			message: 'Name can contain at most one space'
+		};
+	}
+
+	const underscore_count = [...trimmed_name].filter((character) => character === '_').length;
+	if (underscore_count > 1) {
+		return {
+			is_Valid: false,
+			message: 'Name can contain at most one underscore'
+		};
 	}
 
 	return { is_Valid: true };

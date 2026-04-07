@@ -27,7 +27,7 @@ const trim_surrounding_underscores = (value: string): string => {
 	return value.slice(start_index, end_index);
 };
 
-const slugify_username = (value: string): string => {
+export const slugify_username = (value: string): string => {
 	const out = value
 		.normalize('NFKC')
 		.trim()
