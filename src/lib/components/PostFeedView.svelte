@@ -631,7 +631,7 @@
 
 	<div
 		bind:this={scroll_container}
-		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-6 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
+		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-10 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
 		onscroll={handle_feed_scroll}
 	>
 		{#if isGridView}
@@ -1144,6 +1144,8 @@
 				</div>
 			</div>
 		{/if}
+
+		<div class="h-36 shrink-0 md:hidden" aria-hidden="true"></div>
 	</div>
 </div>
 
