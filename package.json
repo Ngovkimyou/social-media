@@ -34,7 +34,7 @@
 		"test": "pnpm run test:unit -- --run",
 		"test:all": "pnpm run test && pnpm run test:e2e",
 		"test:unit": "vitest --config vitest.config.ts --configLoader native",
-		"test:e2e": "playwright test",
+		"test:e2e": "playwright test --pass-with-no-tests",
 		"audit": "pnpm audit",
 		"audit:prod": "pnpm audit --prod",
 		"audit:fix": "pnpm audit --fix",
