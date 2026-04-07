@@ -14,6 +14,8 @@
 		wrapper_class?: string | undefined;
 		img_class?: string | undefined;
 		skeleton_class?: string | undefined;
+		on_load?: (() => void) | undefined;
+		on_error?: (() => void) | undefined;
 	};
 
 	const {
@@ -26,7 +28,9 @@
 		fetchpriority = 'auto',
 		wrapper_class = '',
 		img_class = '',
-		skeleton_class = ''
+		skeleton_class = '',
+		on_load,
+		on_error
 	}: Props = $props();
 
 	let isloaded_state = $state(false);
@@ -65,9 +69,11 @@
 		{fetchpriority}
 		onload={() => {
 			isloaded_state = true;
+			on_load?.();
 		}}
 		onerror={() => {
 			isloaded_state = true;
+			on_error?.();
 		}}
 		class={`${img_class} transition-opacity duration-300 ${isloaded_state ? 'opacity-100' : 'opacity-0'}`}
 	/>

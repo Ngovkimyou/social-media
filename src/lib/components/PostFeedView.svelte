@@ -3,8 +3,9 @@
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { fade, scale } from 'svelte/transition';
 	import {
 		get_last_home_feed_state,
@@ -50,6 +51,7 @@
 	let scroll_container = $state<HTMLDivElement | undefined>();
 	let mounted_scroll_storage_key = $state('');
 	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
+	let load_more_sentinel = $state<HTMLDivElement | undefined>();
 	let image_preview = $state<
 		| {
 				src: string;
@@ -59,16 +61,20 @@
 	>();
 	let scroll_measure_frame = $state<number | undefined>();
 	let scroll_persist_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
+	let load_more_observer = $state<IntersectionObserver | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
+	let loaded_images = $state<Record<string, boolean>>({});
 	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
 		{}
 	);
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
+	const prewarmed_media_urls = new SvelteSet<string>();
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	const focus_post_id = $derived(page.url.searchParams.get('focusPost')?.trim() ?? '');
 	const has_infinite_feed = $derived(Boolean(on_load_more));
+	const grid_loading_placeholders = Array.from({ length: 6 }, (_, index) => index);
 
 	function caption_key(view: 'grid' | 'feed', post_id: string | number) {
 		return `${view}-${String(post_id)}`;
@@ -184,6 +190,25 @@
 			...liked_posts,
 			[key]: !liked_posts[key]
 		};
+	}
+
+	function mark_image_loaded(post_id: string | number) {
+		const key = String(post_id);
+
+		if (loaded_images[key]) {
+			return;
+		}
+
+		loaded_images = {
+			...loaded_images,
+			[key]: true
+		};
+	}
+
+	function is_post_media_pending(post: PostFeedPost) {
+		return (
+			post.media_type === 'image' && Boolean(post.media_url) && !loaded_images[String(post.id)]
+		);
 	}
 
 	function get_scroll_anchor_post_id(active_scroll_container: HTMLElement) {
@@ -361,17 +386,84 @@
 
 	function get_load_more_threshold() {
 		if (typeof window === 'undefined') {
-			return 320;
+			return 720;
 		}
 
 		const is_desktop = window.matchMedia('(min-width: 768px)').matches;
 		const is_grid_view = page.url.searchParams.get('view') === 'grid';
 
 		if (is_grid_view) {
-			return is_desktop ? 900 : 700;
+			return is_desktop ? 2200 : 1600;
 		}
 
-		return is_desktop ? 600 : 450;
+		return is_desktop ? 900 : 700;
+	}
+
+	function prewarm_post_media(next_posts: PostFeedPost[]) {
+		if (typeof window === 'undefined') {
+			return;
+		}
+
+		const image_posts = next_posts.filter(
+			(post) =>
+				post.media_type === 'image' &&
+				typeof post.media_url === 'string' &&
+				post.media_url.length > 0
+		);
+
+		for (const post of image_posts.slice(-8)) {
+			const media_url = post.media_url!;
+
+			if (prewarmed_media_urls.has(media_url)) {
+				continue;
+			}
+
+			prewarmed_media_urls.add(media_url);
+			const image = new Image();
+			image.decoding = 'async';
+			image.loading = 'eager';
+			image.src = media_url;
+
+			if ('decode' in image) {
+				void image.decode().catch(() => {});
+			}
+		}
+	}
+
+	function refresh_load_more_observer() {
+		load_more_observer?.disconnect();
+		load_more_observer = undefined;
+
+		if (
+			typeof window === 'undefined' ||
+			!has_infinite_feed ||
+			!has_more ||
+			!load_more_sentinel ||
+			!on_load_more
+		) {
+			return;
+		}
+
+		const observer_options: IntersectionObserverInit = {
+			rootMargin: `0px 0px ${get_load_more_threshold()}px 0px`,
+			threshold: 0
+		};
+		const active_scroll_container = get_active_scroll_container();
+
+		if (active_scroll_container) {
+			observer_options.root = active_scroll_container;
+		}
+
+		load_more_observer = new IntersectionObserver((entries) => {
+			for (const entry of entries) {
+				if (entry.isIntersecting) {
+					request_more_posts();
+					break;
+				}
+			}
+		}, observer_options);
+
+		load_more_observer.observe(load_more_sentinel);
 	}
 
 	function maybe_load_more() {
@@ -404,6 +496,7 @@
 		mounted_scroll_storage_key = `post-feed-scroll:${page.url.pathname}${page.url.search}`;
 
 		void tick().then(() => {
+			refresh_load_more_observer();
 			const active_scroll_container = get_active_scroll_container();
 
 			if (!active_scroll_container) {
@@ -425,12 +518,23 @@
 		}
 
 		void tick().then(() => {
+			refresh_load_more_observer();
 			maybe_load_more();
+		});
+	});
+
+	$effect(() => {
+		const current_posts = posts;
+
+		void tick().then(() => {
+			prewarm_post_media(current_posts);
+			refresh_load_more_observer();
 		});
 	});
 
 	afterNavigate(() => {
 		void tick().then(() => {
+			refresh_load_more_observer();
 			if (restore_focus_post()) {
 				return;
 			}
@@ -455,6 +559,8 @@
 	});
 
 	onDestroy(() => {
+		load_more_observer?.disconnect();
+
 		if (scroll_measure_frame) {
 			cancelAnimationFrame(scroll_measure_frame);
 		}
@@ -532,363 +638,476 @@
 			<div
 				class="post-feed-grid grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-2.5 lg:grid-cols-3 lg:gap-4 xl:gap-6 2xl:gap-8"
 			>
-				{#each posts as post (post.id)}
+				{#each posts as post, index (post.id)}
 					<div
 						use:register_post_element={post.id}
-						class="post-feed-card overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
+						class="post-feed-card relative overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
 					>
-						<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
-							<a
-								href={resolve(
-									`/profile/${encodeURIComponent(post.author_username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
-								)}
-								class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85"
-								aria-label={`Open ${post.author_name}'s profile`}
-							>
-								{#if post.author_avatar}
-									<img
-										src={post.author_avatar}
-										alt={post.author_name}
-										class="h-10 w-10 rounded-full object-cover md:h-12 md:w-12"
-									/>
-								{:else}
-									<div
-										class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white md:h-12 md:w-12 md:text-sm"
-									>
-										{post.author_name?.[0]?.toUpperCase() ?? '?'}
-									</div>
-								{/if}
-								<div class="min-w-0 overflow-hidden md:flex md:flex-col">
-									<span class="block truncate text-base font-semibold text-white"
-										>{post.author_name}</span
-									>
-									<span class="block truncate text-sm text-white/50 md:text-sm"
-										>{time_ago(post.created_at)}</span
-									>
-								</div>
-							</a>
-							<button class="ml-auto shrink-0 text-white/50 transition-colors hover:text-white">
-								<img
-									src="/images/home-screen/three-dots-icon.avif"
-									alt="more options"
-									class="h-3 w-auto md:h-2 xl:h-3"
-								/>
-							</button>
-						</div>
-
-						<div class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl md:mx-4">
-							{#if get_post_path}
+						<div
+							class={`transition-opacity duration-200 ${is_post_media_pending(post) ? 'opacity-0' : 'opacity-100'}`}
+						>
+							<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
 								<a
-									href={resolve(get_post_path(post))}
-									class="absolute inset-0 z-10"
-									aria-label={`Open ${post.author_name}'s post`}
-								></a>
-							{/if}
-							{#if post.media_url && post.media_type === 'image'}
-								<button
-									type="button"
-									class="absolute inset-0 z-15 cursor-zoom-in"
-									onclick={() => {
-										schedule_image_preview(
-											post.id,
-											post.media_url ?? '',
-											`${post.author_name}'s post`
-										);
-									}}
-									ondblclick={() => {
-										clear_pending_preview(post.id);
-										toggle_like(post.id);
-									}}
-									aria-label={`Preview ${post.author_name}'s post image`}
+									href={resolve(
+										`/profile/${encodeURIComponent(post.author_username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
+									)}
+									class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85"
+									aria-label={`Open ${post.author_name}'s profile`}
 								>
+									{#if post.author_avatar}
+										<ProgressiveImage
+											src={post.author_avatar}
+											alt={post.author_name}
+											wrapper_class="h-10 w-10 rounded-full md:h-12 md:w-12"
+											img_class="h-full w-full rounded-full object-cover"
+											skeleton_class="rounded-full"
+											loading="lazy"
+											decoding="async"
+										/>
+									{:else}
+										<div
+											class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white md:h-12 md:w-12 md:text-sm"
+										>
+											{post.author_name?.[0]?.toUpperCase() ?? '?'}
+										</div>
+									{/if}
+									<div class="min-w-0 overflow-hidden md:flex md:flex-col">
+										<span class="block truncate text-base font-semibold text-white"
+											>{post.author_name}</span
+										>
+										<span class="block truncate text-sm text-white/50 md:text-sm"
+											>{time_ago(post.created_at)}</span
+										>
+									</div>
+								</a>
+								<button class="ml-auto shrink-0 text-white/50 transition-colors hover:text-white">
 									<img
-										src={post.media_url}
-										alt="post"
-										class="h-full w-full object-cover"
-										loading="lazy"
-										decoding="async"
+										src="/images/home-screen/three-dots-icon.avif"
+										alt="more options"
+										class="h-3 w-auto md:h-2 xl:h-3"
 									/>
 								</button>
-							{/if}
-							{#if post.content}
-								{#if expanded_captions[caption_key('grid', post.id)]}
+							</div>
+
+							<div class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl md:mx-4">
+								{#if get_post_path}
+									<a
+										href={resolve(get_post_path(post))}
+										class="absolute inset-0 z-10"
+										aria-label={`Open ${post.author_name}'s post`}
+									></a>
+								{/if}
+								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="absolute inset-0 z-20 flex cursor-pointer items-end bg-black/55 px-4 py-4 text-left backdrop-blur-[1px]"
-										aria-label="Collapse caption"
-										onclick={() => toggle_caption(caption_key('grid', post.id))}
+										class="absolute inset-0 z-15 cursor-zoom-in"
+										onclick={() => {
+											schedule_image_preview(
+												post.id,
+												post.media_url ?? '',
+												`${post.author_name}'s post`
+											);
+										}}
+										ondblclick={() => {
+											clear_pending_preview(post.id);
+											toggle_like(post.id);
+										}}
+										aria-label={`Preview ${post.author_name}'s post image`}
 									>
-										<div class="caption-overlay-scroll max-h-full w-full overflow-y-auto pr-1">
-											<p class="user-content-text text-sm leading-6 whitespace-pre-line text-white">
-												{post.content}
-											</p>
-											{#if overflowing_captions[caption_key('grid', post.id)]}
-												<span
-													class="mt-3 inline-block text-xs font-semibold tracking-wide text-sky-300"
-													>See less</span
-												>
-											{/if}
-										</div>
+										<ProgressiveImage
+											src={post.media_url}
+											alt="post"
+											wrapper_class="h-full w-full"
+											img_class="h-full w-full object-cover"
+											skeleton_class="rounded-2xl"
+											loading={index < 6 ? 'eager' : 'lazy'}
+											decoding="async"
+											fetchpriority={index < 6 ? 'high' : 'low'}
+											on_load={() => mark_image_loaded(post.id)}
+											on_error={() => mark_image_loaded(post.id)}
+										/>
 									</button>
-								{:else}
-									<div
-										class="absolute right-0 bottom-0 left-0 z-20 bg-linear-to-t from-black/85 via-black/55 to-transparent px-3 pt-10 pb-3 text-left"
-									>
+								{/if}
+								{#if post.content}
+									{#if expanded_captions[caption_key('grid', post.id)]}
 										<button
 											type="button"
-											class={`block w-full pr-28 text-left ${overflowing_captions[caption_key('grid', post.id)] ? 'cursor-pointer' : 'cursor-default'}`}
-											aria-label={overflowing_captions[caption_key('grid', post.id)]
-												? 'Expand caption'
-												: undefined}
-											onclick={() => {
-												if (overflowing_captions[caption_key('grid', post.id)])
-													toggle_caption(caption_key('grid', post.id));
-											}}
+											class="absolute inset-0 z-20 flex cursor-pointer items-end bg-black/55 px-4 py-4 text-left backdrop-blur-[1px]"
+											aria-label="Collapse caption"
+											onclick={() => toggle_caption(caption_key('grid', post.id))}
 										>
-											<p
-												use:measure_caption={caption_key('grid', post.id)}
-												class="user-content-text caption-preview text-sm leading-5 whitespace-pre-line text-white"
-											>
-												{post.content}
-											</p>
+											<div class="caption-overlay-scroll max-h-full w-full overflow-y-auto pr-1">
+												<p
+													class="user-content-text text-sm leading-6 whitespace-pre-line text-white"
+												>
+													{post.content}
+												</p>
+												{#if overflowing_captions[caption_key('grid', post.id)]}
+													<span
+														class="mt-3 inline-block text-xs font-semibold tracking-wide text-sky-300"
+														>See less</span
+													>
+												{/if}
+											</div>
 										</button>
-										{#if overflowing_captions[caption_key('grid', post.id)]}
+									{:else}
+										<div
+											class="absolute right-0 bottom-0 left-0 z-20 bg-linear-to-t from-black/85 via-black/55 to-transparent px-3 pt-10 pb-3 text-left"
+										>
 											<button
 												type="button"
-												class="absolute right-3 bottom-2.5 z-10 rounded-full bg-[#7DD4FF] px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm transition-all hover:bg-sky-200/25 hover:text-white"
-												aria-label="Expand caption"
-												onclick={() => toggle_caption(caption_key('grid', post.id))}
+												class={`block w-full pr-28 text-left ${overflowing_captions[caption_key('grid', post.id)] ? 'cursor-pointer' : 'cursor-default'}`}
+												aria-label={overflowing_captions[caption_key('grid', post.id)]
+													? 'Expand caption'
+													: undefined}
+												onclick={() => {
+													if (overflowing_captions[caption_key('grid', post.id)])
+														toggle_caption(caption_key('grid', post.id));
+												}}
 											>
-												See more
+												<p
+													use:measure_caption={caption_key('grid', post.id)}
+													class="user-content-text caption-preview text-sm leading-5 whitespace-pre-line text-white"
+												>
+													{post.content}
+												</p>
 											</button>
-										{/if}
-									</div>
+											{#if overflowing_captions[caption_key('grid', post.id)]}
+												<button
+													type="button"
+													class="absolute right-3 bottom-2.5 z-10 rounded-full bg-[#7DD4FF] px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm transition-all hover:bg-sky-200/25 hover:text-white"
+													aria-label="Expand caption"
+													onclick={() => toggle_caption(caption_key('grid', post.id))}
+												>
+													See more
+												</button>
+											{/if}
+										</div>
+									{/if}
 								{/if}
-							{/if}
+							</div>
+
+							<div
+								class="2xl:pt:6 mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6"
+							>
+								<button
+									type="button"
+									class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+									onclick={() => toggle_like(post.id)}
+									aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
+								>
+									<img
+										src="/images/home-screen/unliked-state.avif"
+										alt=""
+										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+											String(post.id)
+										]
+											? 'scale-75 opacity-0'
+											: 'scale-100 opacity-100'}"
+									/>
+									<img
+										src="/images/home-screen/liked-state.avif"
+										alt="like"
+										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+											String(post.id)
+										]
+											? 'scale-100 opacity-100'
+											: 'scale-125 opacity-0'}"
+									/>
+								</button>
+								<button class="transition-opacity hover:opacity-70"
+									><img
+										src="/images/home-screen/comment-icon.avif"
+										alt="comment"
+										class="h-6 w-auto"
+									/></button
+								>
+								<button class="transition-opacity hover:opacity-70"
+									><img
+										src="/images/home-screen/share-post-icon.avif"
+										alt="share"
+										class="h-6 w-auto"
+									/></button
+								>
+							</div>
 						</div>
 
-						<div
-							class="2xl:pt:6 mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6"
-						>
-							<button
-								type="button"
-								class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-								onclick={() => toggle_like(post.id)}
-								aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
+						{#if is_post_media_pending(post)}
+							<div
+								class="post-feed-card-skeleton absolute inset-0 z-30 px-5 pt-5 pb-5 md:px-5 md:pt-5 md:pb-4"
 							>
-								<img
-									src="/images/home-screen/unliked-state.avif"
-									alt=""
-									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-										String(post.id)
-									]
-										? 'scale-75 opacity-0'
-										: 'scale-100 opacity-100'}"
-								/>
-								<img
-									src="/images/home-screen/liked-state.avif"
-									alt="like"
-									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-										String(post.id)
-									]
-										? 'scale-100 opacity-100'
-										: 'scale-125 opacity-0'}"
-								/>
-							</button>
-							<button class="transition-opacity hover:opacity-70"
-								><img
-									src="/images/home-screen/comment-icon.avif"
-									alt="comment"
-									class="h-6 w-auto"
-								/></button
-							>
-							<button class="transition-opacity hover:opacity-70"
-								><img
-									src="/images/home-screen/share-post-icon.avif"
-									alt="share"
-									class="h-6 w-auto"
-								/></button
-							>
-						</div>
+								<div class="flex items-center gap-3">
+									<div
+										class="post-feed-skeleton-shimmer h-10 w-10 rounded-full md:h-12 md:w-12"
+									></div>
+									<div class="min-w-0 flex-1 space-y-2">
+										<div class="post-feed-skeleton-shimmer h-4 w-28 rounded-full"></div>
+										<div class="post-feed-skeleton-shimmer h-3 w-20 rounded-full"></div>
+									</div>
+									<div class="post-feed-skeleton-shimmer h-3 w-5 rounded-sm"></div>
+								</div>
+								<div class="mt-3 overflow-hidden rounded-2xl">
+									<div class="post-feed-image-placeholder aspect-4/5 w-full"></div>
+								</div>
+								<div class="mx-1 flex items-center gap-6 pt-5 md:gap-4 md:pt-4">
+									<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+									<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+									<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
 		{:else}
 			<div class="flex flex-col items-center gap-5 md:gap-8">
-				{#each posts as post (post.id)}
+				{#each posts as post, index (post.id)}
 					<div
 						use:register_post_element={post.id}
-						class="post-feed-card w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
+						class="post-feed-card relative w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
 					>
-						<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
-							<a
-								href={resolve(
-									`/profile/${encodeURIComponent(post.author_username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
-								)}
-								class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85"
-								aria-label={`Open ${post.author_name}'s profile`}
-							>
-								{#if post.author_avatar}
-									<img
-										src={post.author_avatar}
-										alt={post.author_name}
-										class="h-10 w-10 rounded-full object-cover md:h-11 md:w-11"
-									/>
-								{:else}
-									<div
-										class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white md:h-11 md:w-11 md:text-sm"
-									>
-										{post.author_name?.[0]?.toUpperCase() ?? '?'}
-									</div>
-								{/if}
-								<div class="min-w-0 overflow-hidden md:flex md:flex-col">
-									<span class="block truncate text-base font-semibold text-white md:text-xl"
-										>{post.author_name}</span
-									>
-									<span class="block truncate text-sm text-white/50 md:text-sm"
-										>{time_ago(post.created_at)}</span
-									>
-								</div>
-							</a>
-							<button class="ml-auto shrink-0 text-white/50 transition-colors hover:text-white">
-								<img
-									src="/images/home-screen/three-dots-icon.avif"
-									alt="more options"
-									class="h-3 w-auto"
-								/>
-							</button>
-						</div>
-
 						<div
-							class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl bg-black/20 md:mx-4 md:max-h-[70vh]"
+							class={`transition-opacity duration-200 ${is_post_media_pending(post) ? 'opacity-0' : 'opacity-100'}`}
 						>
-							{#if post.media_url && post.media_type === 'image'}
-								<button
-									type="button"
-									class="flex h-full w-full cursor-zoom-in items-center justify-center"
-									onclick={() => {
-										schedule_image_preview(
-											post.id,
-											post.media_url ?? '',
-											`${post.author_name}'s post`
-										);
-									}}
-									ondblclick={() => {
-										clear_pending_preview(post.id);
-										toggle_like(post.id);
-									}}
-									aria-label={`Preview ${post.author_name}'s post image`}
+							<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
+								<a
+									href={resolve(
+										`/profile/${encodeURIComponent(post.author_username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
+									)}
+									class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85"
+									aria-label={`Open ${post.author_name}'s profile`}
 								>
+									{#if post.author_avatar}
+										<ProgressiveImage
+											src={post.author_avatar}
+											alt={post.author_name}
+											wrapper_class="h-10 w-10 rounded-full md:h-11 md:w-11"
+											img_class="h-full w-full rounded-full object-cover"
+											skeleton_class="rounded-full"
+											loading="lazy"
+											decoding="async"
+										/>
+									{:else}
+										<div
+											class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white md:h-11 md:w-11 md:text-sm"
+										>
+											{post.author_name?.[0]?.toUpperCase() ?? '?'}
+										</div>
+									{/if}
+									<div class="min-w-0 overflow-hidden md:flex md:flex-col">
+										<span class="block truncate text-base font-semibold text-white md:text-xl"
+											>{post.author_name}</span
+										>
+										<span class="block truncate text-sm text-white/50 md:text-sm"
+											>{time_ago(post.created_at)}</span
+										>
+									</div>
+								</a>
+								<button class="ml-auto shrink-0 text-white/50 transition-colors hover:text-white">
 									<img
-										src={post.media_url}
-										alt="post"
-										class="h-full w-full object-contain"
-										loading="lazy"
-										decoding="async"
+										src="/images/home-screen/three-dots-icon.avif"
+										alt="more options"
+										class="h-3 w-auto"
 									/>
 								</button>
-							{/if}
-							{#if post.content}
-								{#if expanded_captions[caption_key('feed', post.id)]}
+							</div>
+
+							<div
+								class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl bg-black/20 md:mx-4 md:max-h-[70vh]"
+							>
+								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="absolute inset-0 z-20 flex cursor-pointer items-end rounded-2xl bg-black/55 px-4 py-4 text-left backdrop-blur-[1px]"
-										aria-label="Collapse caption"
-										onclick={() => toggle_caption(caption_key('feed', post.id))}
+										class="flex h-full w-full cursor-zoom-in items-center justify-center"
+										onclick={() => {
+											schedule_image_preview(
+												post.id,
+												post.media_url ?? '',
+												`${post.author_name}'s post`
+											);
+										}}
+										ondblclick={() => {
+											clear_pending_preview(post.id);
+											toggle_like(post.id);
+										}}
+										aria-label={`Preview ${post.author_name}'s post image`}
 									>
-										<div class="caption-overlay-scroll max-h-full w-full overflow-y-auto pr-1">
-											<p class="user-content-text text-sm leading-6 whitespace-pre-line text-white">
-												{post.content}
-											</p>
-											{#if overflowing_captions[caption_key('feed', post.id)]}
-												<span
-													class="mt-3 inline-block text-xs font-semibold tracking-wide text-sky-300"
-													>See less</span
-												>
-											{/if}
-										</div>
+										<ProgressiveImage
+											src={post.media_url}
+											alt="post"
+											wrapper_class="h-full w-full"
+											img_class="h-full w-full object-contain"
+											skeleton_class="rounded-2xl"
+											loading={index < 4 ? 'eager' : 'lazy'}
+											decoding="async"
+											fetchpriority={index < 4 ? 'high' : 'low'}
+											on_load={() => mark_image_loaded(post.id)}
+											on_error={() => mark_image_loaded(post.id)}
+										/>
 									</button>
-								{:else}
-									<div
-										class="absolute right-0 bottom-0 left-0 z-20 bg-linear-to-t from-black/85 via-black/55 to-transparent px-3 pt-10 pb-3 text-left"
-									>
+								{/if}
+								{#if post.content}
+									{#if expanded_captions[caption_key('feed', post.id)]}
 										<button
 											type="button"
-											class={`block w-full pr-28 text-left ${overflowing_captions[caption_key('feed', post.id)] ? 'cursor-pointer' : 'cursor-default'}`}
-											aria-label={overflowing_captions[caption_key('feed', post.id)]
-												? 'Expand caption'
-												: undefined}
-											onclick={() => {
-												if (overflowing_captions[caption_key('feed', post.id)])
-													toggle_caption(caption_key('feed', post.id));
-											}}
+											class="absolute inset-0 z-20 flex cursor-pointer items-end rounded-2xl bg-black/55 px-4 py-4 text-left backdrop-blur-[1px]"
+											aria-label="Collapse caption"
+											onclick={() => toggle_caption(caption_key('feed', post.id))}
 										>
-											<p
-												use:measure_caption={caption_key('feed', post.id)}
-												class="user-content-text caption-preview text-sm leading-5 whitespace-pre-line text-white"
-											>
-												{post.content}
-											</p>
+											<div class="caption-overlay-scroll max-h-full w-full overflow-y-auto pr-1">
+												<p
+													class="user-content-text text-sm leading-6 whitespace-pre-line text-white"
+												>
+													{post.content}
+												</p>
+												{#if overflowing_captions[caption_key('feed', post.id)]}
+													<span
+														class="mt-3 inline-block text-xs font-semibold tracking-wide text-sky-300"
+														>See less</span
+													>
+												{/if}
+											</div>
 										</button>
-										{#if overflowing_captions[caption_key('feed', post.id)]}
+									{:else}
+										<div
+											class="absolute right-0 bottom-0 left-0 z-20 bg-linear-to-t from-black/85 via-black/55 to-transparent px-3 pt-10 pb-3 text-left"
+										>
 											<button
 												type="button"
-												class="absolute right-3 bottom-2.5 z-10 rounded-full bg-[#7DD4FF] px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm transition-all hover:bg-sky-200/25 hover:text-white"
-												aria-label="Expand caption"
-												onclick={() => toggle_caption(caption_key('feed', post.id))}
+												class={`block w-full pr-28 text-left ${overflowing_captions[caption_key('feed', post.id)] ? 'cursor-pointer' : 'cursor-default'}`}
+												aria-label={overflowing_captions[caption_key('feed', post.id)]
+													? 'Expand caption'
+													: undefined}
+												onclick={() => {
+													if (overflowing_captions[caption_key('feed', post.id)])
+														toggle_caption(caption_key('feed', post.id));
+												}}
 											>
-												See more
+												<p
+													use:measure_caption={caption_key('feed', post.id)}
+													class="user-content-text caption-preview text-sm leading-5 whitespace-pre-line text-white"
+												>
+													{post.content}
+												</p>
 											</button>
-										{/if}
-									</div>
+											{#if overflowing_captions[caption_key('feed', post.id)]}
+												<button
+													type="button"
+													class="absolute right-3 bottom-2.5 z-10 rounded-full bg-[#7DD4FF] px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm transition-all hover:bg-sky-200/25 hover:text-white"
+													aria-label="Expand caption"
+													onclick={() => toggle_caption(caption_key('feed', post.id))}
+												>
+													See more
+												</button>
+											{/if}
+										</div>
+									{/if}
 								{/if}
-							{/if}
+							</div>
+
+							<div
+								class="mx-2 flex items-center gap-5 px-4 py-5 md:gap-6 md:px-5 2xl:pt-6 2xl:pb-6"
+							>
+								<button
+									type="button"
+									class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+									onclick={() => toggle_like(post.id)}
+									aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
+								>
+									<img
+										src="/images/home-screen/unliked-state.avif"
+										alt=""
+										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+											String(post.id)
+										]
+											? 'scale-75 opacity-0'
+											: 'scale-100 opacity-100'}"
+									/>
+									<img
+										src="/images/home-screen/liked-state.avif"
+										alt="like"
+										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
+											String(post.id)
+										]
+											? 'scale-100 opacity-100'
+											: 'scale-125 opacity-0'}"
+									/>
+								</button>
+								<button class="transition-opacity hover:opacity-70"
+									><img
+										src="/images/home-screen/comment-icon.avif"
+										alt="comment"
+										class="h-6 w-auto"
+									/></button
+								>
+								<button class="transition-opacity hover:opacity-70"
+									><img
+										src="/images/home-screen/share-post-icon.avif"
+										alt="share"
+										class="h-6 w-auto"
+									/></button
+								>
+							</div>
 						</div>
 
-						<div class="mx-2 flex items-center gap-5 px-4 py-5 md:gap-6 md:px-5 2xl:pt-6 2xl:pb-6">
-							<button
-								type="button"
-								class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-								onclick={() => toggle_like(post.id)}
-								aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
+						{#if is_post_media_pending(post)}
+							<div
+								class="post-feed-card-skeleton absolute inset-0 z-30 px-5 pt-5 pb-5 md:px-5 md:pt-5 md:pb-5"
 							>
-								<img
-									src="/images/home-screen/unliked-state.avif"
-									alt=""
-									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-										String(post.id)
-									]
-										? 'scale-75 opacity-0'
-										: 'scale-100 opacity-100'}"
-								/>
-								<img
-									src="/images/home-screen/liked-state.avif"
-									alt="like"
-									class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-										String(post.id)
-									]
-										? 'scale-100 opacity-100'
-										: 'scale-125 opacity-0'}"
-								/>
-							</button>
-							<button class="transition-opacity hover:opacity-70"
-								><img
-									src="/images/home-screen/comment-icon.avif"
-									alt="comment"
-									class="h-6 w-auto"
-								/></button
-							>
-							<button class="transition-opacity hover:opacity-70"
-								><img
-									src="/images/home-screen/share-post-icon.avif"
-									alt="share"
-									class="h-6 w-auto"
-								/></button
-							>
+								<div class="flex items-center gap-3">
+									<div
+										class="post-feed-skeleton-shimmer h-10 w-10 rounded-full md:h-11 md:w-11"
+									></div>
+									<div class="min-w-0 flex-1 space-y-2">
+										<div class="post-feed-skeleton-shimmer h-4 w-28 rounded-full"></div>
+										<div class="post-feed-skeleton-shimmer h-3 w-20 rounded-full"></div>
+									</div>
+									<div class="post-feed-skeleton-shimmer h-3 w-5 rounded-sm"></div>
+								</div>
+								<div class="mt-3 overflow-hidden rounded-2xl">
+									<div class="post-feed-image-placeholder aspect-4/5 w-full"></div>
+								</div>
+								<div class="mx-1 flex items-center gap-5 pt-5 md:gap-6">
+									<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+									<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+									<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		{#if isGridView && has_infinite_feed && is_loading_more}
+			<div
+				class="post-feed-loading-grid mt-5 grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-2.5 lg:grid-cols-3 lg:gap-4 xl:gap-6 2xl:gap-8"
+				aria-hidden="true"
+			>
+				{#each grid_loading_placeholders as placeholder (placeholder)}
+					<div class="post-feed-skeleton-card overflow-hidden rounded-4xl">
+						<div class="flex items-center gap-3 px-5 pt-5">
+							<div class="post-feed-skeleton-shimmer h-10 w-10 rounded-full md:h-12 md:w-12"></div>
+							<div class="min-w-0 flex-1 space-y-2">
+								<div class="post-feed-skeleton-shimmer h-4 w-28 rounded-full"></div>
+								<div class="post-feed-skeleton-shimmer h-3 w-20 rounded-full"></div>
+							</div>
+						</div>
+						<div class="mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl md:mx-4">
+							<div class="post-feed-image-placeholder h-full w-full"></div>
+						</div>
+						<div class="mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6">
+							<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+							<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
+							<div class="post-feed-skeleton-shimmer h-6 w-6 rounded-full"></div>
 						</div>
 					</div>
 				{/each}
 			</div>
+		{/if}
+
+		{#if has_infinite_feed && has_more}
+			<div bind:this={load_more_sentinel} class="h-px w-full"></div>
 		{/if}
 
 		{#if has_infinite_feed && is_loading_more}

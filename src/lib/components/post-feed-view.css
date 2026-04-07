@@ -16,17 +16,43 @@
 }
 
 .post-feed-card {
-	content-visibility: auto;
 	contain: layout paint style;
-	contain-intrinsic-size: 720px;
+	contain-intrinsic-size: 640px;
 	transform: translateZ(0);
 	backface-visibility: hidden;
 }
 
-@supports not (content-visibility: auto) {
-	.post-feed-card {
-		contain: layout paint;
-	}
+.post-feed-loading-grid {
+	pointer-events: none;
+}
+
+.post-feed-card-skeleton {
+	pointer-events: none;
+	background: transparent;
+}
+
+.post-feed-skeleton-card {
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	background:
+		radial-gradient(circle at top left, rgba(125, 212, 255, 0.16), transparent 42%),
+		radial-gradient(circle at bottom right, rgba(205, 130, 255, 0.14), transparent 45%),
+		linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+	box-shadow:
+		0 12px 32px rgba(6, 10, 26, 0.22),
+		inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.post-feed-skeleton-shimmer {
+	background:
+		linear-gradient(
+			110deg,
+			rgba(255, 255, 255, 0.04) 8%,
+			rgba(255, 255, 255, 0.14) 18%,
+			rgba(255, 255, 255, 0.05) 33%
+		),
+		rgba(255, 255, 255, 0.06);
+	background-size: 220% 100%;
+	animation: post-feed-image-shimmer 1.1s linear infinite;
 }
 
 .feed-load-more-card {
@@ -38,6 +64,25 @@
 	box-shadow:
 		0 16px 40px rgba(0, 0, 0, 0.2),
 		inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.post-feed-image-placeholder {
+	background:
+		radial-gradient(circle at top left, rgba(125, 212, 255, 0.18), transparent 42%),
+		radial-gradient(circle at bottom right, rgba(205, 130, 255, 0.16), transparent 44%),
+		linear-gradient(
+			110deg,
+			rgba(255, 255, 255, 0.04) 8%,
+			rgba(255, 255, 255, 0.18) 18%,
+			rgba(255, 255, 255, 0.05) 33%
+		),
+		linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+	background-size:
+		auto,
+		auto,
+		220% 100%,
+		auto;
+	animation: post-feed-image-shimmer 1.2s linear infinite;
 }
 
 .feed-load-more-pulse {
@@ -59,6 +104,24 @@
 	50% {
 		transform: scale(1.08);
 		opacity: 1;
+	}
+}
+
+@keyframes post-feed-image-shimmer {
+	from {
+		background-position:
+			0 0,
+			0 0,
+			200% 0,
+			0 0;
+	}
+
+	to {
+		background-position:
+			0 0,
+			0 0,
+			-20% 0,
+			0 0;
 	}
 }
 

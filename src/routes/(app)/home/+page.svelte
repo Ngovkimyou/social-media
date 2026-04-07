@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { HOME_FEED_GRID_PAGE_SIZE, HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 	import PostFeedView from '$lib/components/PostFeedView.svelte';
 	import { set_last_home_feed_state, type HomeFeedState } from '$lib/state/home-feed-state';
 	import type { PostFeedPost } from '$lib/types/post-feed';
@@ -116,7 +117,12 @@
 		load_more_error = '';
 
 		try {
-			const params = new URLSearchParams({ cursor: effective_next_cursor });
+			const is_grid_view = page.url.searchParams.get('view') === 'grid';
+			const params = new URLSearchParams({
+				cursor: effective_next_cursor,
+				view: is_grid_view ? 'grid' : 'feed',
+				limit: String(is_grid_view ? HOME_FEED_GRID_PAGE_SIZE : HOME_FEED_PAGE_SIZE)
+			});
 			const response = await fetch(`/api/home-feed?${params.toString()}`);
 
 			if (!response.ok) {
