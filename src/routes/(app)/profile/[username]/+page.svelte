@@ -1187,7 +1187,7 @@
 
 		{#if active_tab === 'posts'}
 			<div
-				class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-8 md:gap-3"
+				class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8"
 				style="content-visibility:auto; contain-intrinsic-size: 720px;"
 			>
 				{#if data['relationship'].is_own_profile}
@@ -1225,7 +1225,7 @@
 		{/if}
 
 		{#if active_tab === 'videos'}
-			<div class="mx-6 mt-6 grid grid-cols-3 gap-1 pb-8 md:gap-3">
+			<div class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8">
 				{#if data['relationship'].is_own_profile}
 					<button
 						type="button"
@@ -1237,7 +1237,7 @@
 			</div>
 		{/if}
 
-		<div class="h-28 shrink-0 md:hidden" aria-hidden="true"></div>
+		<div class="h-36 shrink-0 md:hidden" aria-hidden="true"></div>
 	</div>
 </div>
 

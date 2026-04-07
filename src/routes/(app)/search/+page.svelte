@@ -389,7 +389,7 @@
 </script>
 
 <section
-	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
+	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 pb-10 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
 >
 	<h1 class="text-2xl font-bold tracking-wide md:text-4xl">Search</h1>
 
@@ -546,6 +546,8 @@
 			{/if}
 		{/if}
 	</div>
+
+	<div class="h-36 shrink-0 md:hidden" aria-hidden="true"></div>
 </section>
 
 <style>

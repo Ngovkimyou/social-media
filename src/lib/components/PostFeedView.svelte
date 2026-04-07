@@ -579,11 +579,11 @@
 
 <div
 	bind:this={root_container}
-	class="post-feed-page flex h-screen min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-[#09051c] text-white md:overflow-hidden"
+	class="post-feed-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-[#09051c] text-white md:h-screen md:overflow-hidden"
 	onscroll={handle_feed_scroll}
 >
 	<div
-		class="z-10 flex items-center justify-between bg-[#09051c] p-4 md:sticky md:top-0 md:p-6 lg:p-8"
+		class="z-10 flex items-center justify-between bg-[#09051c] p-4 md:sticky md:top-0 md:z-20 md:p-6 lg:p-8"
 	>
 		<div class="flex min-w-0 items-center gap-3 md:gap-4">
 			{#if back_path}
@@ -631,7 +631,7 @@
 
 	<div
 		bind:this={scroll_container}
-		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-6 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
+		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-10 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
 		onscroll={handle_feed_scroll}
 	>
 		{#if isGridView}
@@ -1144,6 +1144,8 @@
 				</div>
 			</div>
 		{/if}
+
+		<div class="h-36 shrink-0 md:hidden" aria-hidden="true"></div>
 	</div>
 </div>
 
