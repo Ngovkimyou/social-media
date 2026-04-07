@@ -68,6 +68,31 @@
 			window.removeEventListener('offline', handle_offline);
 		};
 	});
+
+	$effect(() => {
+		if (typeof document === 'undefined') {
+			return;
+		}
+
+		const should_lock_navigation_background = hasnavigation_skeleton_visible;
+		const html_element = document.documentElement;
+		const body_element = document.body;
+		const previous_html_overflow = html_element.style.overflow;
+		const previous_body_overflow = body_element.style.overflow;
+		const previous_body_touch_action = body_element.style.touchAction;
+
+		if (should_lock_navigation_background) {
+			html_element.style.overflow = 'hidden';
+			body_element.style.overflow = 'hidden';
+			body_element.style.touchAction = 'none';
+		}
+
+		return () => {
+			html_element.style.overflow = previous_html_overflow;
+			body_element.style.overflow = previous_body_overflow;
+			body_element.style.touchAction = previous_body_touch_action;
+		};
+	});
 </script>
 
 <div class="app_shell" style={`--desktop-sidebar-width: ${$desktop_sidebar_width};`}>
@@ -79,7 +104,7 @@
 
 	{#if hasnavigation_skeleton_visible}
 		<div
-			class="nav_skeleton pointer-events-none fixed right-0 left-0 z-70 {isnavigating_to_profile ||
+			class="nav_skeleton fixed right-0 left-0 z-70 {isnavigating_to_profile ||
 			isnavigating_to_profile_post
 				? 'top-0 bottom-0'
 				: 'top-18 bottom-18'} md:top-0 md:bottom-0"

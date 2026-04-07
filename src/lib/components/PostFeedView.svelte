@@ -579,11 +579,11 @@
 
 <div
 	bind:this={root_container}
-	class="post-feed-page flex h-screen min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-[#09051c] text-white md:overflow-hidden"
+	class="post-feed-page flex h-[calc(100dvh-7.5rem)] min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-[#09051c] text-white md:h-screen md:overflow-hidden"
 	onscroll={handle_feed_scroll}
 >
 	<div
-		class="z-10 flex items-center justify-between bg-[#09051c] p-4 md:sticky md:top-0 md:p-6 lg:p-8"
+		class="z-10 flex items-center justify-between bg-[#09051c] p-4 md:sticky md:top-0 md:z-20 md:p-6 lg:p-8"
 	>
 		<div class="flex min-w-0 items-center gap-3 md:gap-4">
 			{#if back_path}
