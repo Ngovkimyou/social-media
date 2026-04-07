@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	type FetchPriority = 'high' | 'low' | 'auto';
 
 	type Props = {
@@ -29,12 +31,21 @@
 
 	let isloaded_state = $state(false);
 	let previous_src = '';
+	let image_element = $state<HTMLImageElement | undefined>();
 
 	$effect(() => {
 		if (src !== previous_src) {
 			previous_src = src;
 			isloaded_state = false;
 		}
+	});
+
+	$effect(() => {
+		void tick().then(() => {
+			if (image_element?.complete) {
+				isloaded_state = true;
+			}
+		});
 	});
 </script>
 
@@ -44,6 +55,7 @@
 	{/if}
 
 	<img
+		bind:this={image_element}
 		{src}
 		{alt}
 		{srcset}

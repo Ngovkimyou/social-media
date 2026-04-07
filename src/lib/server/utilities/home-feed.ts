@@ -1,7 +1,8 @@
 import { get_db } from '$lib/server/db';
 import { media, post_media, posts, profiles, user } from '$lib/server/db/schema';
+import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
-import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 
 export const HOME_FEED_PAGE_SIZE = 12;
 
@@ -54,6 +55,7 @@ export async function get_home_feed_page(
 	const page_rows = await db
 		.select({
 			id: posts.id,
+			author_id: posts.author_id,
 			content: posts.content,
 			created_at: posts.created_at,
 			author_name: user.name,
@@ -62,20 +64,42 @@ export async function get_home_feed_page(
 		})
 		.from(posts)
 		.innerJoin(user, eq(posts.author_id, user.id))
-		.innerJoin(profiles, eq(profiles.user_id, user.id))
+		.leftJoin(profiles, eq(profiles.user_id, user.id))
 		.where(
-			decoded_cursor
-				? or(
-						lt(posts.created_at, new Date(decoded_cursor.created_at)),
-						and(
-							eq(posts.created_at, new Date(decoded_cursor.created_at)),
-							lt(posts.id, decoded_cursor.id)
+			and(
+				isNull(posts.deleted_at),
+				decoded_cursor
+					? or(
+							lt(posts.created_at, new Date(decoded_cursor.created_at)),
+							and(
+								eq(posts.created_at, new Date(decoded_cursor.created_at)),
+								lt(posts.id, decoded_cursor.id)
+							)
 						)
-					)
-				: undefined
+					: undefined
+			)
 		)
 		.orderBy(desc(posts.created_at), desc(posts.id))
 		.limit(normalized_limit + 1);
+
+	const missing_profile_rows = page_rows.filter((row) => !row.author_username);
+	const ensured_usernames = new Map<string, string>();
+
+	if (missing_profile_rows.length > 0) {
+		const resolved_usernames = await Promise.all(
+			missing_profile_rows.map(async (row) => ({
+				user_id: row.author_id,
+				username: await ensure_profile_for_user({
+					user_id: row.author_id,
+					name: row.author_name
+				})
+			}))
+		);
+
+		for (const row of resolved_usernames) {
+			ensured_usernames.set(row.user_id, row.username);
+		}
+	}
 
 	const visible_rows = page_rows.slice(0, normalized_limit);
 	const post_ids = visible_rows.map((row) => row.id);
@@ -122,7 +146,7 @@ export async function get_home_feed_page(
 			content: row.content,
 			created_at: row.created_at,
 			author_name: row.author_name,
-			author_username: row.author_username,
+			author_username: row.author_username ?? ensured_usernames.get(row.author_id) ?? 'user',
 			author_avatar: row.author_avatar,
 			media_url: post_media_row?.media_url,
 			media_type: post_media_row?.media_type
