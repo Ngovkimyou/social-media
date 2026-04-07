@@ -1,10 +1,9 @@
+import { HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 import { get_db } from '$lib/server/db';
 import { media, post_media, posts, profiles, user } from '$lib/server/db/schema';
 import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
-
-export const HOME_FEED_PAGE_SIZE = 12;
 
 type HomeFeedCursor = {
 	created_at: string;
