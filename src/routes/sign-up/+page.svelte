@@ -1,10 +1,37 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
+	import {
+		get_email_validation_message,
+		get_name_validation_message,
+		get_password_validation_message,
+		get_sign_up_password_match_message
+	} from '$lib/utilities/auth-form-validation';
 	import type { ActionData } from './$types';
 
 	const { form }: { form: ActionData } = $props();
 	let is_password_visible = $state(false);
+
+	const apply_email_validation = (event: Event): void => {
+		const input = event.currentTarget as HTMLInputElement;
+		input.setCustomValidity(get_email_validation_message(input.value));
+	};
+
+	const apply_name_validation = (event: Event): void => {
+		const input = event.currentTarget as HTMLInputElement;
+		input.setCustomValidity(get_name_validation_message(input.value));
+	};
+
+	const apply_sign_up_password_validation = (event: Event): void => {
+		const input = event.currentTarget as HTMLInputElement;
+		const form = input.form;
+		const name = form?.elements.namedItem('name');
+		const name_value = name instanceof HTMLInputElement ? name.value : '';
+		const password_message =
+			get_password_validation_message(input.value) ||
+			get_sign_up_password_match_message(input.value, name_value);
+		input.setCustomValidity(password_message);
+	};
 </script>
 
 <svelte:head>
@@ -24,6 +51,8 @@
 							name="email"
 							required
 							maxlength="254"
+							oninput={apply_email_validation}
+							oninvalid={apply_email_validation}
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 							placeholder="Enter your email address"
 						/>
@@ -42,6 +71,8 @@
 								pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).*"
 								title="Password must be 8 to 128 characters and include uppercase, lowercase, and a number."
 								aria-describedby="password-requirements"
+								oninput={apply_sign_up_password_validation}
+								oninvalid={apply_sign_up_password_validation}
 								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 								placeholder="Enter your password"
 							/>
@@ -77,9 +108,16 @@
 							minlength="3"
 							maxlength="15"
 							required
+							aria-describedby="name-requirements"
+							oninput={apply_name_validation}
+							oninvalid={apply_name_validation}
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-							placeholder="Enter your username"
+							placeholder="Enter your name"
 						/>
+						<span id="name-requirements" class="sr-only">
+							Name must be 3 to 15 characters, can include letters and numbers, may have at most one
+							space and one underscore, and must include at least one letter.
+						</span>
 					</label>
 				</div>
 				<div class="login-actions">

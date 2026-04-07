@@ -7,38 +7,11 @@ import {
 	invalidate_short_ttl_cache_key,
 	invalidate_short_ttl_cache_prefix
 } from '$lib/server/utilities/short-ttl-cache';
+import { slugify_username } from '$lib/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 
 const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
 const PROFILE_PAGE_CACHE_TTL_MS = 15_000;
-
-const trim_surrounding_underscores = (value: string): string => {
-	let start_index = 0;
-	let end_index = value.length;
-
-	while (start_index < end_index && value[start_index] === '_') {
-		start_index += 1;
-	}
-
-	while (end_index > start_index && value[end_index - 1] === '_') {
-		end_index -= 1;
-	}
-
-	return value.slice(start_index, end_index);
-};
-
-const slugify_username = (value: string): string => {
-	const out = value
-		.normalize('NFKC')
-		.trim()
-		.toLowerCase()
-		.replaceAll(/[^\p{L}\p{N}_]+/gu, '_')
-		.slice(0, 64);
-
-	const normalized = trim_surrounding_underscores(out).slice(0, 24);
-
-	return normalized || 'user';
-};
 
 const is_unique_violation_error = (error: unknown): boolean =>
 	typeof error === 'object' &&

@@ -1,10 +1,24 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
+	import {
+		get_email_validation_message,
+		get_password_validation_message
+	} from '$lib/utilities/auth-form-validation';
 	import type { ActionData } from './$types';
 
 	const { form }: { form: ActionData } = $props();
 	let is_password_visible = $state(false);
+
+	const apply_email_validation = (event: Event): void => {
+		const input = event.currentTarget as HTMLInputElement;
+		input.setCustomValidity(get_email_validation_message(input.value));
+	};
+
+	const apply_password_validation = (event: Event): void => {
+		const input = event.currentTarget as HTMLInputElement;
+		input.setCustomValidity(get_password_validation_message(input.value));
+	};
 </script>
 
 <svelte:head>
@@ -24,6 +38,8 @@
 							name="email"
 							required
 							maxlength="254"
+							oninput={apply_email_validation}
+							oninvalid={apply_email_validation}
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 							placeholder="Enter your email address"
 						/>
@@ -38,6 +54,8 @@
 								name="password"
 								required
 								maxlength="128"
+								oninput={apply_password_validation}
+								oninvalid={apply_password_validation}
 								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 								placeholder="Enter your password"
 							/>
