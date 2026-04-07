@@ -9,11 +9,17 @@
 	const { data }: { data: PageData } = $props();
 	const last_home_state_storage_key = 'post-feed-last-home-state';
 	let posts = $state<PostFeedPost[]>([]);
-	let has_more = $state(false);
+	let has_more = $state<boolean | undefined>();
 	let next_cursor = $state<string | undefined>();
 	let is_loading_more = $state(false);
 	let load_more_error = $state('');
-	let has_initialized_feed = $state(false);
+	const effective_posts = $derived(posts.length > 0 ? posts : data.posts);
+	const effective_has_more = $derived(has_more ?? data.has_more);
+	const effective_next_cursor = $derived(next_cursor ?? data.next_cursor);
+
+	function get_current_feed_posts(): PostFeedPost[] {
+		return posts.length > 0 ? posts : data.posts;
+	}
 
 	function get_active_home_scroll_container() {
 		const selector = window.matchMedia('(min-width: 768px)').matches
@@ -102,7 +108,7 @@
 	}
 
 	async function load_more_posts() {
-		if (is_loading_more || !has_more || !next_cursor) {
+		if (is_loading_more || !effective_has_more || !effective_next_cursor) {
 			return;
 		}
 
@@ -110,7 +116,7 @@
 		load_more_error = '';
 
 		try {
-			const params = new URLSearchParams({ cursor: next_cursor });
+			const params = new URLSearchParams({ cursor: effective_next_cursor });
 			const response = await fetch(`/api/home-feed?${params.toString()}`);
 
 			if (!response.ok) {
@@ -123,7 +129,7 @@
 				next_cursor?: string;
 			};
 
-			posts = merge_posts(posts, payload.posts);
+			posts = merge_posts(get_current_feed_posts(), payload.posts);
 			has_more = payload.has_more;
 			next_cursor = payload.next_cursor;
 		} catch {
@@ -134,14 +140,10 @@
 	}
 
 	$effect(() => {
-		if (has_initialized_feed) {
-			return;
-		}
-
-		posts = data.posts;
-		has_more = data.has_more;
-		next_cursor = data.next_cursor;
-		has_initialized_feed = true;
+		load_more_error = '';
+		posts = [];
+		has_more = undefined;
+		next_cursor = undefined;
 	});
 
 	export const snapshot: Snapshot<HomeFeedState | undefined> = {
@@ -182,9 +184,9 @@
 </script>
 
 <PostFeedView
-	{posts}
+	posts={effective_posts}
 	title="Feed"
-	{has_more}
+	has_more={effective_has_more}
 	{is_loading_more}
 	{load_more_error}
 	on_load_more={load_more_posts}

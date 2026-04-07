@@ -1,10 +1,32 @@
 .post-feed-scroll {
 	scrollbar-width: none;
 	-ms-overflow-style: none;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior-y: contain;
+	transform: translateZ(0);
+	will-change: scroll-position;
 }
 
 .post-feed-scroll::-webkit-scrollbar {
 	display: none;
+}
+
+.post-feed-grid {
+	contain: layout paint;
+}
+
+.post-feed-card {
+	content-visibility: auto;
+	contain: layout paint style;
+	contain-intrinsic-size: 720px;
+	transform: translateZ(0);
+	backface-visibility: hidden;
+}
+
+@supports not (content-visibility: auto) {
+	.post-feed-card {
+		contain: layout paint;
+	}
 }
 
 .feed-load-more-card {

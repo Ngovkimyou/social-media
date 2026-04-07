@@ -146,6 +146,28 @@ export const get_profile_by_username = async (
 	return rows[0] ?? undefined;
 };
 
+export const get_profile_owner_by_username = async (
+	username: string
+): Promise<
+	| {
+			user_id: string;
+			username: string;
+	  }
+	| undefined
+> => {
+	const db = get_db();
+	const rows = await db
+		.select({
+			user_id: profiles.user_id,
+			username: profiles.username
+		})
+		.from(profiles)
+		.where(eq(profiles.username, username))
+		.limit(1);
+
+	return rows[0] ?? undefined;
+};
+
 export const get_profile_username_by_user_id = async (
 	user_id: string
 ): Promise<string | undefined> => {
@@ -159,7 +181,31 @@ export const get_profile_username_by_user_id = async (
 			.where(eq(profiles.user_id, user_id))
 			.limit(1);
 
-		return rows[0]?.username;
+		const username = rows[0]?.username;
+
+		if (username) {
+			return username;
+		}
+
+		const auth_rows = await db
+			.select({
+				name: auth_user.name,
+				email: auth_user.email
+			})
+			.from(auth_user)
+			.where(eq(auth_user.id, user_id))
+			.limit(1);
+
+		const auth_row = auth_rows[0];
+
+		if (!auth_row) {
+			return;
+		}
+
+		return ensure_profile_for_user({
+			user_id,
+			name: auth_row.name || auth_row.email || user_id
+		});
 	});
 };
 

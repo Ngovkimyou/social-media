@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import {
+	get_profile_owner_by_username,
 	get_profile_page_data,
 	get_profile_username_by_user_id,
 	invalidate_profile_cache
@@ -53,13 +54,13 @@ export const actions = {
 			throw redirect(302, '/demo/better-auth/login');
 		}
 
-		const profile_data = await get_profile_page_data(params.username, locals.user.id);
+		const profile_owner = await get_profile_owner_by_username(params.username);
 
-		if (!profile_data) {
+		if (!profile_owner) {
 			throw error(404, 'Profile not found');
 		}
 
-		if (!profile_data.relationship.is_own_profile) {
+		if (profile_owner.user_id !== locals.user.id) {
 			return fail(403, { message: 'You can only update your own cover photo.' });
 		}
 
@@ -109,13 +110,13 @@ export const actions = {
 			throw redirect(302, '/demo/better-auth/login');
 		}
 
-		const profile_data = await get_profile_page_data(params.username, locals.user.id);
+		const profile_owner = await get_profile_owner_by_username(params.username);
 
-		if (!profile_data) {
+		if (!profile_owner) {
 			throw error(404, 'Profile not found');
 		}
 
-		if (!profile_data.relationship.is_own_profile) {
+		if (profile_owner.user_id !== locals.user.id) {
 			return fail(403, { message: 'You can only update your own profile photo.' });
 		}
 
@@ -165,13 +166,13 @@ export const actions = {
 			throw redirect(302, '/demo/better-auth/login');
 		}
 
-		const profile_data = await get_profile_page_data(params.username, locals.user.id);
+		const profile_owner = await get_profile_owner_by_username(params.username);
 
-		if (!profile_data) {
+		if (!profile_owner) {
 			throw error(404, 'Profile not found');
 		}
 
-		if (!profile_data.relationship.is_own_profile) {
+		if (profile_owner.user_id !== locals.user.id) {
 			return fail(403, { message: 'You can only create posts on your own profile.' });
 		}
 
