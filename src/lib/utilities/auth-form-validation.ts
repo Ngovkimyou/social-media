@@ -1,4 +1,5 @@
 import { email_validator, name_validator, password_validator } from '$lib/utilities/validator';
+import { slugify_username } from '$lib/server/utilities/profile';
 
 const normalize_for_comparison = (value: string): string =>
 	value.normalize('NFKC').trim().toLowerCase();
@@ -66,17 +67,6 @@ const localize_validation_message = (message: string): string => {
 	return message;
 };
 
-const slugify_username_preview = (value: string): string => {
-	const out = value
-		.normalize('NFKC')
-		.trim()
-		.toLowerCase()
-		.replaceAll(/[^\p{L}\p{N}_]+/gu, '_')
-		.slice(0, 64);
-
-	return out.replace(/^_+|_+$/gu, '').slice(0, 24) || 'user';
-};
-
 export const get_email_validation_message = (value: string): string => {
 	if (!value.trim()) {
 		return localize_validation_message('Email is required');
@@ -113,7 +103,7 @@ export const get_sign_up_password_match_message = (password: string, name: strin
 
 	const normalized_password = normalize_for_comparison(password);
 	const normalized_name = normalize_for_comparison(name);
-	const generated_username = slugify_username_preview(name);
+	const generated_username = slugify_username(name);
 
 	return normalized_password === normalized_name || normalized_password === generated_username
 		? localize_validation_message('Password must not match your name or generated username')
