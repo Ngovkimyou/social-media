@@ -1,5 +1,5 @@
 import { email_validator, name_validator, password_validator } from '$lib/utilities/validator';
-import { slugify_username } from '$lib/server/utilities/profile';
+import { slugify_username } from '$lib/utilities/profile';
 
 const normalize_for_comparison = (value: string): string =>
 	value.normalize('NFKC').trim().toLowerCase();

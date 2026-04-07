@@ -2,8 +2,8 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { get_auth } from '$lib/server/auth';
 import { APIError } from 'better-auth/api';
+import { slugify_username } from '$lib/utilities/profile';
 import { email_validator, password_validator, name_validator } from '$lib/utilities/validator';
-import { slugify_username } from '$lib/server/utilities/profile';
 import {
 	clear_auth_rate_limit,
 	consume_auth_rate_limit
