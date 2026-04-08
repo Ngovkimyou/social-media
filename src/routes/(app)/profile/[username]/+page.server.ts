@@ -1,4 +1,4 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import {
 	get_profile_owner_by_username,
@@ -9,10 +9,99 @@ import {
 import { get_db } from '$lib/server/db';
 import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import { user as auth_user } from '$lib/server/db/auth.schema';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { delete_image_by_public_id, upload_image_from_file } from '$lib/server/cloudinary';
 import { validate_uploaded_image } from '$lib/server/image-validation';
+import { consume_create_post_rate_limit } from '$lib/server/utilities/post-rate-limit';
+import {
+	consume_follow_target_cooldown,
+	consume_social_action_rate_limit
+} from '$lib/server/utilities/social-action-rate-limit';
+import {
+	record_post_image_fingerprint,
+	reject_recent_duplicate_image
+} from '$lib/server/utilities/post-abuse-detection';
+import { record_security_event } from '$lib/server/utilities/security-monitor';
+
+const DUPLICATE_CAPTION_WINDOW_MINUTES = 10;
+
+const normalize_caption_for_abuse_check = (value: string): string =>
+	value.normalize('NFKC').trim().replaceAll(/\s+/g, ' ').toLowerCase();
+
+const has_recent_duplicate_caption = async (
+	author_id: string,
+	caption: string
+): Promise<boolean> => {
+	if (!caption) {
+		return false;
+	}
+
+	const normalized_caption = normalize_caption_for_abuse_check(caption);
+	const db = get_db();
+	const recent_posts = await db
+		.select({ content: posts.content })
+		.from(posts)
+		.where(
+			and(
+				eq(posts.author_id, author_id),
+				isNull(posts.deleted_at),
+				sql`${posts.created_at} >= now() - (${DUPLICATE_CAPTION_WINDOW_MINUTES} * interval '1 minute')`
+			)
+		)
+		.orderBy(desc(posts.created_at))
+		.limit(20);
+
+	return recent_posts.some(
+		(post) => normalize_caption_for_abuse_check(post.content) === normalized_caption
+	);
+};
+
+const get_retry_message = (seconds: number, noun: string): string =>
+	`Too many ${noun}. Please try again in ${seconds} seconds.`;
+
+const fail_rate_limited_action = async (params: {
+	category: 'rate_limit_follow' | 'rate_limit_post';
+	details: string;
+	event: RequestEvent;
+	message: string;
+}): Promise<ReturnType<typeof fail>> => {
+	await record_security_event({
+		category: params.category,
+		details: params.details,
+		event: params.event
+	});
+
+	return fail(429, { message: params.message });
+};
+
+const validate_follow_action = async (params: {
+	event: RequestEvent;
+	target_user_id: string;
+}): Promise<ReturnType<typeof fail> | undefined> => {
+	const { event, target_user_id } = params;
+	const follow_rate_limit = await consume_social_action_rate_limit(event, 'follow-action');
+	if (!follow_rate_limit.is_allowed) {
+		return fail_rate_limited_action({
+			category: 'rate_limit_follow',
+			details: `retry_after=${follow_rate_limit.retry_after_seconds}`,
+			event,
+			message: get_retry_message(follow_rate_limit.retry_after_seconds, 'follow actions')
+		});
+	}
+
+	const follow_target_cooldown = await consume_follow_target_cooldown(event, target_user_id);
+	if (!follow_target_cooldown.is_allowed) {
+		return fail_rate_limited_action({
+			category: 'rate_limit_follow',
+			details: `target_cooldown=${target_user_id}`,
+			event,
+			message: `Please wait ${follow_target_cooldown.retry_after_seconds} seconds before changing this follow again.`
+		});
+	}
+
+	return undefined;
+};
 
 const rollback_failed_post_creation = async (params: {
 	db: ReturnType<typeof get_db>;
@@ -166,7 +255,9 @@ export const actions = {
 		throw redirect(303, `/profile/${params.username}`);
 	},
 
-	create_post: async ({ locals, params, request }) => {
+	create_post: async (event) => {
+		const { locals, params, request } = event;
+
 		if (!locals.user) {
 			throw redirect(302, '/demo/better-auth/login');
 		}
@@ -179,6 +270,16 @@ export const actions = {
 
 		if (profile_owner.user_id !== locals.user.id) {
 			return fail(403, { message: 'You can only create posts on your own profile.' });
+		}
+
+		const post_rate_limit = await consume_create_post_rate_limit(event);
+		if (!post_rate_limit.is_allowed) {
+			return fail_rate_limited_action({
+				category: 'rate_limit_post',
+				details: `retry_after=${post_rate_limit.retry_after_seconds}`,
+				event,
+				message: `Too many posts created too quickly. Please try again in ${post_rate_limit.retry_after_seconds} seconds.`
+			});
 		}
 
 		const form_data = await request.formData();
@@ -203,6 +304,26 @@ export const actions = {
 
 		if (caption.length > 1000) {
 			return fail(400, { message: 'Caption must be 1000 characters or less.' });
+		}
+
+		if (await has_recent_duplicate_caption(locals.user.id, caption)) {
+			await record_security_event({
+				category: 'duplicate_caption',
+				details: 'recent-caption-match',
+				event
+			});
+			return fail(400, {
+				message: 'You already used that caption recently. Please change it before posting again.'
+			});
+		}
+
+		const image_duplicate_check = await reject_recent_duplicate_image({
+			author_id: locals.user.id,
+			event,
+			file: image_file
+		});
+		if ('error_message' in image_duplicate_check) {
+			return fail(400, { message: image_duplicate_check.error_message });
 		}
 
 		let uploaded: { secureUrl: string; publicId: string };
@@ -259,10 +380,13 @@ export const actions = {
 			profile_user_id: locals.user.id,
 			username: params.username
 		});
+		await record_post_image_fingerprint(locals.user.id, image_duplicate_check.image_hash);
 
 		throw redirect(303, `/profile/${params.username}`);
 	},
-	follow: async ({ locals, params }) => {
+	follow: async (event) => {
+		const { locals, params } = event;
+
 		if (!locals.user) {
 			throw redirect(302, '/demo/better-auth/login');
 		}
@@ -275,6 +399,14 @@ export const actions = {
 
 		if (profile_data.relationship.is_own_profile) {
 			return fail(400, { message: 'You cannot follow your own profile.' });
+		}
+
+		const follow_action_failure = await validate_follow_action({
+			event,
+			target_user_id: profile_data.profile.user_id
+		});
+		if (follow_action_failure) {
+			return follow_action_failure;
 		}
 
 		const db = get_db();
@@ -299,7 +431,9 @@ export const actions = {
 
 		throw redirect(303, `/profile/${params.username}`);
 	},
-	unfollow: async ({ locals, params }) => {
+	unfollow: async (event) => {
+		const { locals, params } = event;
+
 		if (!locals.user) {
 			throw redirect(302, '/demo/better-auth/login');
 		}
@@ -308,6 +442,14 @@ export const actions = {
 
 		if (!profile_data) {
 			throw error(404, 'Profile not found');
+		}
+
+		const follow_action_failure = await validate_follow_action({
+			event,
+			target_user_id: profile_data.profile.user_id
+		});
+		if (follow_action_failure) {
+			return follow_action_failure;
 		}
 
 		const db = get_db();

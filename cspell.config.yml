@@ -19,8 +19,11 @@ words:
   - ASUS
   - authschema
   - autodocs
+  - bigserial
   - Bento
   - canrun
+  - cooldown
+  - cooldowns
   - dbname
   - drizzle
   - esbuild

@@ -1,5 +1,6 @@
 import { get_db } from '$lib/server/db';
 import { profiles, user } from '$lib/server/db/schema';
+import { record_security_event } from '$lib/server/utilities/security-monitor';
 import { consume_search_rate_limit } from '$lib/server/utilities/search-rate-limit';
 import { eq, sql } from 'drizzle-orm';
 import { json } from '@sveltejs/kit';
@@ -246,6 +247,11 @@ export const GET: RequestHandler = async (event) => {
 		is_broad_query
 	});
 	if (!rate_limit.is_allowed) {
+		await record_security_event({
+			category: 'rate_limit_search',
+			details: `search-users-retry_after=${rate_limit.retry_after_seconds}`,
+			event
+		});
 		return json(
 			{ error: 'Too many search requests. Please try again shortly.' },
 			{

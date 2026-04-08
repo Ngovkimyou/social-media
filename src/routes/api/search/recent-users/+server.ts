@@ -4,6 +4,7 @@ import type { RequestHandler } from './$types';
 import { get_db } from '$lib/server/db';
 import { profiles, user } from '$lib/server/db/schema';
 import { consume_search_rate_limit } from '$lib/server/utilities/search-rate-limit';
+import { record_security_event } from '$lib/server/utilities/security-monitor';
 
 const max_recent_users = 15;
 
@@ -32,6 +33,11 @@ export const GET: RequestHandler = async (event) => {
 		is_broad_query: usernames.length >= 8
 	});
 	if (!rate_limit.is_allowed) {
+		await record_security_event({
+			category: 'rate_limit_search',
+			details: `search-recent-users-retry_after=${rate_limit.retry_after_seconds}`,
+			event
+		});
 		return json(
 			{ error: 'Too many search requests. Please try again shortly.' },
 			{

@@ -16,6 +16,7 @@ import {
 	require_sign_in_turnstile,
 	verify_turnstile_token
 } from '$lib/server/utilities/turnstile';
+import { record_security_event } from '$lib/server/utilities/security-monitor';
 
 const SIGN_IN_FAILURE_MESSAGE = 'Invalid email or password.';
 const SIGN_IN_CHALLENGE_THRESHOLD = 3;
@@ -154,6 +155,11 @@ export const actions: Actions = {
 		const turnstile_token = form_data.get('cf-turnstile-response')?.toString() ?? '';
 		const rate_limit = await consume_auth_rate_limit(event, 'sign-in', email);
 		if (!rate_limit.is_allowed) {
+			await record_security_event({
+				category: 'rate_limit_sign_in',
+				details: `sign-in-retry_after=${rate_limit.retry_after_seconds}`,
+				event
+			});
 			return fail_sign_in_rate_limit(email, rate_limit.retry_after_seconds);
 		}
 
