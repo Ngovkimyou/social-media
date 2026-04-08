@@ -5,10 +5,45 @@
 		get_email_validation_message,
 		get_password_validation_message
 	} from '$lib/utilities/auth-form-validation';
-	import type { ActionData } from './$types';
+	import { onMount } from 'svelte';
+	import type { ActionData, PageData } from './$types';
 
-	const { form }: { form: ActionData } = $props();
+	const { data, form }: { data: PageData; form: ActionData } = $props();
 	let is_password_visible = $state(false);
+	let turnstile_container = $state<HTMLDivElement | undefined>();
+	let turnstile_widget_id = $state<string | undefined>();
+	let turnstile_token = $state('');
+	let turnstile_scale = $state(1);
+	let turnstile_height = $state(70);
+	let turnstile_mount_key = $state(0);
+
+	type TurnstileWindow = Window & {
+		turnstile?: {
+			remove: (widget_id: string) => void;
+			render: (
+				container: HTMLElement,
+				options: {
+					callback: (token: string) => void;
+					sitekey: string;
+					size?: 'flexible';
+					theme?: 'auto';
+				}
+			) => string;
+		};
+	};
+
+	const turnstile_required = $derived(
+		form && 'turnstile_required' in form
+			? form.turnstile_required === true
+			: data.turnstile_required === true
+	);
+	const turnstile_site_key = $derived(
+		form && 'turnstile_site_key' in form
+			? (form.turnstile_site_key ?? '')
+			: (data.turnstile_site_key ?? '')
+	);
+	const submitted_email = $derived(form && 'email' in form ? (form.email ?? '') : '');
+	const form_message = $derived(form && 'message' in form ? (form.message ?? '') : '');
 
 	const apply_email_validation = (event: Event): void => {
 		const input = event.currentTarget as HTMLInputElement;
@@ -19,10 +54,101 @@
 		const input = event.currentTarget as HTMLInputElement;
 		input.setCustomValidity(get_password_validation_message(input.value));
 	};
+
+	const mount_turnstile_widget = (): void => {
+		const turnstile_api = (window as TurnstileWindow).turnstile;
+		const site_key = String(turnstile_site_key ?? '');
+		if (!turnstile_required || !site_key || !turnstile_container || !turnstile_api) {
+			return;
+		}
+
+		if (turnstile_widget_id) {
+			return;
+		}
+
+		turnstile_token = '';
+		try {
+			turnstile_widget_id = turnstile_api.render(turnstile_container, {
+				callback: (token) => {
+					turnstile_token = token;
+				},
+				size: 'flexible',
+				sitekey: site_key,
+				theme: 'auto'
+			});
+		} catch {
+			turnstile_widget_id = undefined;
+		}
+	};
+
+	const sync_turnstile_layout = (): void => {
+		if (!turnstile_container) {
+			turnstile_scale = 1;
+			turnstile_height = 70;
+			return;
+		}
+
+		const container_width = turnstile_container.clientWidth;
+		const widget_width = 300;
+		const widget_height = 65;
+		const next_scale = container_width > 0 ? Math.min(1, container_width / widget_width) : 1;
+
+		turnstile_scale = next_scale;
+		turnstile_height = Math.max(52, Math.ceil(widget_height * next_scale));
+	};
+
+	onMount(() => {
+		const resize_observer = new ResizeObserver(() => {
+			sync_turnstile_layout();
+		});
+
+		if (turnstile_container) {
+			resize_observer.observe(turnstile_container);
+		}
+
+		const interval = window.setInterval(() => {
+			if (!(window as TurnstileWindow).turnstile) {
+				return;
+			}
+
+			sync_turnstile_layout();
+			mount_turnstile_widget();
+			window.clearInterval(interval);
+		}, 250);
+
+		return () => {
+			window.clearInterval(interval);
+			resize_observer.disconnect();
+		};
+	});
+
+	$effect(() => {
+		if (typeof window === 'undefined') {
+			return;
+		}
+
+		if (!turnstile_required && turnstile_widget_id && (window as TurnstileWindow).turnstile) {
+			(window as TurnstileWindow).turnstile?.remove(turnstile_widget_id);
+			turnstile_widget_id = undefined;
+			turnstile_token = '';
+			turnstile_mount_key += 1;
+			return;
+		}
+
+		queueMicrotask(() => {
+			sync_turnstile_layout();
+			mount_turnstile_widget();
+		});
+	});
 </script>
 
 <svelte:head>
 	<link rel="preload" as="image" href="/assets/Manga Wallpaper.gif" media="(min-width: 900px)" />
+	<script
+		src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+		async
+		defer
+	></script>
 </svelte:head>
 
 <div class="body">
@@ -38,6 +164,7 @@
 							name="email"
 							required
 							maxlength="254"
+							value={submitted_email}
 							oninput={apply_email_validation}
 							oninvalid={apply_email_validation}
 							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -79,13 +206,29 @@
 						</div>
 					</label>
 				</div>
+				{#if turnstile_required}
+					<div class="challenge-panel">
+						<p class="challenge-badge">Security check</p>
+						<p class="challenge-copy">
+							Too many failed attempts were detected. Complete the verification to continue.
+						</p>
+						{#key turnstile_mount_key}
+							<div
+								bind:this={turnstile_container}
+								class="challenge-widget"
+								style={`--turnstile-scale: ${turnstile_scale}; min-height: ${turnstile_height}px;`}
+							></div>
+						{/key}
+						<input type="hidden" name="cf-turnstile-response" value={turnstile_token} />
+					</div>
+				{/if}
 				<div class="login-actions">
 					<button formaction="?/signInEmail" class="login-button">Login</button>
 					<a href={resolve('/sign-up')} class="login-button login-signup-link">Sign Up</a>
 				</div>
 			</form>
 			<p class="login-message" aria-live="polite">
-				{form?.message ?? ''}
+				{form_message}
 			</p>
 		</div>
 		<img
@@ -270,6 +413,56 @@
 		margin-top: 0.9rem;
 		font-size: clamp(0.9rem, 2vw, 1rem);
 		min-height: 1.35rem;
+	}
+
+	.challenge-panel {
+		margin-top: 1rem;
+		border: 1px solid rgba(71, 85, 105, 0.18);
+		border-radius: 1rem;
+		padding: 1rem;
+		background:
+			linear-gradient(145deg, rgba(15, 23, 42, 0.05), rgba(125, 212, 255, 0.16)),
+			rgba(255, 255, 255, 0.72);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.6),
+			0 14px 30px rgba(43, 45, 87, 0.08);
+		overflow: hidden;
+	}
+
+	.challenge-badge {
+		display: inline-flex;
+		margin: 0;
+		padding: 0.3rem 0.7rem;
+		border-radius: 9999px;
+		background: rgba(15, 23, 42, 0.88);
+		color: #e0f2fe;
+		font-size: 0.74rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.challenge-copy {
+		margin: 0.75rem 0 0;
+		color: #334155;
+		font-size: 0.95rem;
+		line-height: 1.55;
+	}
+
+	.challenge-widget {
+		margin-top: 0.85rem;
+		min-height: 70px;
+		width: 100%;
+		max-width: 100%;
+		display: flex;
+		justify-content: center;
+		align-items: flex-start;
+	}
+
+	.challenge-widget :global(iframe) {
+		display: block;
+		transform: scale(var(--turnstile-scale, 1));
+		transform-origin: top center;
 	}
 
 	.login-img {
