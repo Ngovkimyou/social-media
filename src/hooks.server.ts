@@ -18,6 +18,15 @@ const STATIC_SECURITY_HEADERS = {
 	'permissions-policy': 'camera=(), geolocation=(), microphone=()'
 } as const;
 
+const BYTES_PER_MEGABYTE = 1024 * 1024;
+const MULTIPART_OVERHEAD_BYTES = 512 * 1024;
+const DEFAULT_MULTIPART_LIMIT_BYTES = 10 * BYTES_PER_MEGABYTE + MULTIPART_OVERHEAD_BYTES;
+const ACTION_MULTIPART_LIMITS = {
+	'/create_post': DEFAULT_MULTIPART_LIMIT_BYTES,
+	'/update_cover_image': DEFAULT_MULTIPART_LIMIT_BYTES,
+	'/update_profile_image': 5 * BYTES_PER_MEGABYTE + MULTIPART_OVERHEAD_BYTES
+} as const;
+
 const create_content_security_policy = (nonce: string): string =>
 	[
 		"default-src 'self'",
@@ -52,7 +61,49 @@ const get_csp_nonce = (event: Parameters<Handle>[0]['event']): string => {
 };
 
 const add_script_nonces = (html: string, nonce: string): string =>
-	html.replace(/<script(?![^>]*\bnonce=)/g, `<script nonce="${nonce}"`);
+	html.replaceAll(/<script(?![^>]*\bnonce=)/g, `<script nonce="${nonce}"`);
+
+const get_multipart_limit_bytes = (event: Parameters<Handle>[0]['event']): number | undefined => {
+	if (event.request.method !== 'POST') {
+		return undefined;
+	}
+
+	const content_type = event.request.headers.get('content-type')?.toLowerCase() ?? '';
+	if (!content_type.startsWith('multipart/form-data')) {
+		return undefined;
+	}
+
+	if (!event.url.pathname.startsWith('/profile/')) {
+		return undefined;
+	}
+
+	for (const [action_key, limit_bytes] of Object.entries(ACTION_MULTIPART_LIMITS)) {
+		if (event.url.search.startsWith(`?${action_key}`)) {
+			return limit_bytes;
+		}
+	}
+
+	return DEFAULT_MULTIPART_LIMIT_BYTES;
+};
+
+const handle_upload_size_limits: Handle = async ({ event, resolve }) => {
+	const max_bytes = get_multipart_limit_bytes(event);
+
+	if (max_bytes === undefined) {
+		return resolve(event);
+	}
+
+	const content_length_header = event.request.headers.get('content-length');
+	const content_length = Number.parseInt(content_length_header ?? '', 10);
+
+	if (!Number.isNaN(content_length) && content_length > max_bytes) {
+		return new Response('Upload is too large.', {
+			status: 413
+		});
+	}
+
+	return resolve(event);
+};
 
 const handle_paraglide: Handle = async ({ event, resolve }) =>
 	paraglideMiddleware(event.request, async ({ request, locale }) => {
@@ -100,4 +151,8 @@ const handle_better_auth: Handle = async ({ event, resolve }) => {
 	);
 };
 
-export const handle: Handle = sequence(handle_paraglide, handle_better_auth);
+export const handle: Handle = sequence(
+	handle_upload_size_limits,
+	handle_paraglide,
+	handle_better_auth
+);

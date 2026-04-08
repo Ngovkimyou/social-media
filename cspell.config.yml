@@ -19,12 +19,13 @@ words:
   - ASUS
   - authschema
   - autodocs
-  - canrun
   - Bento
+  - canrun
   - dbname
   - drizzle
   - esbuild
   - eslint
+  - FTYP
   - haha
   - hasfollowing
   - hasnavigation
@@ -45,6 +46,7 @@ words:
   - mdsvex
   - MOUYHEANG
   - neondatabase
+  - nosniff
   - OneDrive
   - opsz
   - paraglide
@@ -65,4 +67,3 @@ words:
   - upserted
   - vitest
   - wght
-  - nosniff

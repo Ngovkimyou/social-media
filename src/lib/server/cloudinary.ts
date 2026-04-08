@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { v2 as cloudinary } from 'cloudinary';
+import { ALLOWED_IMAGE_FORMATS } from './image-validation';
 
 let iscloudinary_configured = false;
 
@@ -28,6 +29,7 @@ const ensure_cloudinary_configured = (): void => {
 };
 
 export type UploadImageOptions = {
+	allowedFormats?: string[];
 	folder: string;
 	publicId?: string;
 };
@@ -55,6 +57,7 @@ export async function upload_image_from_file(
 	return new Promise<UploadedImage>((resolve, reject) => {
 		const stream = cloudinary.uploader.upload_stream(
 			{
+				allowed_formats: options.allowedFormats ?? [...ALLOWED_IMAGE_FORMATS],
 				folder: options.folder,
 				...(options.publicId ? { public_id: options.publicId } : {}),
 				resource_type: 'image'
