@@ -119,6 +119,7 @@
 	const success_message = $derived(
 		(form as { success?: boolean } | null | undefined)?.success === true
 	);
+	const form_message = $derived((form as { message?: string } | null | undefined)?.message ?? '');
 	const profile_display_name = $derived(data['profile'].name ?? data['profile'].username);
 	const profile_avatar = $derived(data['profile'].image);
 	const profile_cover = $derived(data['profile'].cover_image ?? cover_image);
@@ -1063,13 +1064,13 @@
 			{/if}
 		</div>
 
-		{#if form?.message}
+		{#if form_message}
 			<p
 				class="mx-6 mt-4 rounded-xl border px-4 py-3 text-sm {success_message
 					? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
 					: 'border-rose-400/40 bg-rose-500/15 text-rose-100'}"
 			>
-				{form.message}
+				{form_message}
 			</p>
 		{/if}
 

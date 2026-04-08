@@ -1,4 +1,4 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import {
 	get_profile_owner_by_username,
@@ -55,6 +55,52 @@ const has_recent_duplicate_caption = async (
 	return recent_posts.some(
 		(post) => normalize_caption_for_abuse_check(post.content) === normalized_caption
 	);
+};
+
+const get_retry_message = (seconds: number, noun: string): string =>
+	`Too many ${noun}. Please try again in ${seconds} seconds.`;
+
+const fail_rate_limited_action = async (params: {
+	category: 'rate_limit_follow' | 'rate_limit_post';
+	details: string;
+	event: RequestEvent;
+	message: string;
+}): Promise<ReturnType<typeof fail>> => {
+	await record_security_event({
+		category: params.category,
+		details: params.details,
+		event: params.event
+	});
+
+	return fail(429, { message: params.message });
+};
+
+const validate_follow_action = async (params: {
+	event: RequestEvent;
+	target_user_id: string;
+}): Promise<ReturnType<typeof fail> | undefined> => {
+	const { event, target_user_id } = params;
+	const follow_rate_limit = await consume_social_action_rate_limit(event, 'follow-action');
+	if (!follow_rate_limit.is_allowed) {
+		return fail_rate_limited_action({
+			category: 'rate_limit_follow',
+			details: `retry_after=${follow_rate_limit.retry_after_seconds}`,
+			event,
+			message: get_retry_message(follow_rate_limit.retry_after_seconds, 'follow actions')
+		});
+	}
+
+	const follow_target_cooldown = await consume_follow_target_cooldown(event, target_user_id);
+	if (!follow_target_cooldown.is_allowed) {
+		return fail_rate_limited_action({
+			category: 'rate_limit_follow',
+			details: `target_cooldown=${target_user_id}`,
+			event,
+			message: `Please wait ${follow_target_cooldown.retry_after_seconds} seconds before changing this follow again.`
+		});
+	}
+
+	return undefined;
 };
 
 const rollback_failed_post_creation = async (params: {
@@ -228,12 +274,10 @@ export const actions = {
 
 		const post_rate_limit = await consume_create_post_rate_limit(event);
 		if (!post_rate_limit.is_allowed) {
-			await record_security_event({
+			return fail_rate_limited_action({
 				category: 'rate_limit_post',
 				details: `retry_after=${post_rate_limit.retry_after_seconds}`,
-				event
-			});
-			return fail(429, {
+				event,
 				message: `Too many posts created too quickly. Please try again in ${post_rate_limit.retry_after_seconds} seconds.`
 			});
 		}
@@ -357,31 +401,12 @@ export const actions = {
 			return fail(400, { message: 'You cannot follow your own profile.' });
 		}
 
-		const follow_rate_limit = await consume_social_action_rate_limit(event, 'follow-action');
-		if (!follow_rate_limit.is_allowed) {
-			await record_security_event({
-				category: 'rate_limit_follow',
-				details: `retry_after=${follow_rate_limit.retry_after_seconds}`,
-				event
-			});
-			return fail(429, {
-				message: `Too many follow actions. Please try again in ${follow_rate_limit.retry_after_seconds} seconds.`
-			});
-		}
-
-		const follow_target_cooldown = await consume_follow_target_cooldown(
+		const follow_action_failure = await validate_follow_action({
 			event,
-			profile_data.profile.user_id
-		);
-		if (!follow_target_cooldown.is_allowed) {
-			await record_security_event({
-				category: 'rate_limit_follow',
-				details: `target_cooldown=${profile_data.profile.user_id}`,
-				event
-			});
-			return fail(429, {
-				message: `Please wait ${follow_target_cooldown.retry_after_seconds} seconds before changing this follow again.`
-			});
+			target_user_id: profile_data.profile.user_id
+		});
+		if (follow_action_failure) {
+			return follow_action_failure;
 		}
 
 		const db = get_db();
@@ -419,31 +444,12 @@ export const actions = {
 			throw error(404, 'Profile not found');
 		}
 
-		const follow_rate_limit = await consume_social_action_rate_limit(event, 'follow-action');
-		if (!follow_rate_limit.is_allowed) {
-			await record_security_event({
-				category: 'rate_limit_follow',
-				details: `retry_after=${follow_rate_limit.retry_after_seconds}`,
-				event
-			});
-			return fail(429, {
-				message: `Too many follow actions. Please try again in ${follow_rate_limit.retry_after_seconds} seconds.`
-			});
-		}
-
-		const follow_target_cooldown = await consume_follow_target_cooldown(
+		const follow_action_failure = await validate_follow_action({
 			event,
-			profile_data.profile.user_id
-		);
-		if (!follow_target_cooldown.is_allowed) {
-			await record_security_event({
-				category: 'rate_limit_follow',
-				details: `target_cooldown=${profile_data.profile.user_id}`,
-				event
-			});
-			return fail(429, {
-				message: `Please wait ${follow_target_cooldown.retry_after_seconds} seconds before changing this follow again.`
-			});
+			target_user_id: profile_data.profile.user_id
+		});
+		if (follow_action_failure) {
+			return follow_action_failure;
 		}
 
 		const db = get_db();
