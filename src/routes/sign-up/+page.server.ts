@@ -9,6 +9,7 @@ import {
 	clear_auth_rate_limit,
 	consume_auth_rate_limit
 } from '$lib/server/utilities/auth-rate-limit';
+import { record_security_event } from '$lib/server/utilities/security-monitor';
 
 const SIGN_UP_FAILURE_MESSAGE =
 	'Unable to create account. Please check your details and try again.';
@@ -87,6 +88,11 @@ export const actions: Actions = {
 		const name = form_data.get('name')?.toString().trim() ?? '';
 		const rate_limit = await consume_auth_rate_limit(event, 'sign-up', email);
 		if (!rate_limit.is_allowed) {
+			await record_security_event({
+				category: 'rate_limit_sign_up',
+				details: `sign-up-retry_after=${rate_limit.retry_after_seconds}`,
+				event
+			});
 			return fail(429, {
 				message: `Too many sign-up attempts. Please try again in ${format_retry_duration(rate_limit.retry_after_seconds)}.`
 			});

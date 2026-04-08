@@ -6,6 +6,7 @@ import type { Handle } from '@sveltejs/kit';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import { randomBytes } from 'node:crypto';
+import { handle_csrf_protection } from '$lib/server/utilities/csrf';
 
 const get_safe_error_message = (error: unknown): string =>
 	error instanceof Error ? error.message : 'Unknown error';
@@ -153,6 +154,7 @@ const handle_better_auth: Handle = async ({ event, resolve }) => {
 };
 
 export const handle: Handle = sequence(
+	handle_csrf_protection,
 	handle_upload_size_limits,
 	handle_paraglide,
 	handle_better_auth

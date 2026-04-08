@@ -5,32 +5,11 @@ import { dash } from '@better-auth/infra';
 import { env } from '$env/dynamic/private';
 import { getRequestEvent } from '$app/server';
 import { get_db } from '$lib/server/db';
-
-const resolve_base_url = (): string => {
-	const origin = env['ORIGIN'];
-
-	if (origin) {
-		return origin;
-	}
-
-	const vercel_url = env['VERCEL_URL'];
-
-	if (vercel_url) {
-		return `https://${vercel_url}`;
-	}
-
-	throw new Error('ORIGIN is not configured. Set ORIGIN or provide VERCEL_URL in deployment.');
-};
-
-const resolve_trusted_origins = (): string[] => {
-	const configured = env['TRUSTED_AUTH_ORIGINS'] ?? '';
-	const configured_origins = configured
-		.split(',')
-		.map((origin) => origin.trim())
-		.filter(Boolean);
-
-	return Array.from(new Set([resolve_base_url(), ...configured_origins]));
-};
+import {
+	log_security_env_warnings,
+	resolve_base_url,
+	resolve_trusted_origins
+} from '$lib/server/utilities/security-config';
 
 // Keep inference for `betterAuth(...)` options shape to avoid broad `BetterAuthOptions` conflicts.
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
@@ -47,6 +26,7 @@ const create_auth = () =>
 let auth: ReturnType<typeof create_auth> | undefined;
 
 export const get_auth = (): ReturnType<typeof create_auth> => {
+	log_security_env_warnings();
 	auth ??= create_auth();
 	return auth;
 };
