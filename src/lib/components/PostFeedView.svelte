@@ -207,7 +207,9 @@
 
 	function is_post_media_pending(post: PostFeedPost) {
 		return (
-			post.media_type === 'image' && Boolean(post.media_url) && !loaded_images[String(post.id)]
+			post.media_type === 'image' &&
+			Boolean(post.media_display_url ?? post.media_url) &&
+			!loaded_images[String(post.id)]
 		);
 	}
 
@@ -407,12 +409,12 @@
 		const image_posts = next_posts.filter(
 			(post) =>
 				post.media_type === 'image' &&
-				typeof post.media_url === 'string' &&
-				post.media_url.length > 0
+				typeof (post.media_display_url ?? post.media_url) === 'string' &&
+				(post.media_display_url ?? post.media_url)!.length > 0
 		);
 
 		for (const post of image_posts.slice(-8)) {
-			const media_url = post.media_url!;
+			const media_url = post.media_display_url ?? post.media_url!;
 
 			if (prewarmed_media_urls.has(media_url)) {
 				continue;
@@ -631,7 +633,7 @@
 
 	<div
 		bind:this={scroll_container}
-		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-10 md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
+		class="post-feed-scroll min-h-0 flex-1 overflow-visible px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:overflow-y-auto md:overscroll-y-none md:px-8 md:pb-8"
 		onscroll={handle_feed_scroll}
 	>
 		{#if isGridView}
@@ -715,7 +717,9 @@
 										aria-label={`Preview ${post.author_name}'s post image`}
 									>
 										<ProgressiveImage
-											src={post.media_url}
+											src={post.media_display_url ?? post.media_url}
+											srcset={post.media_display_srcset}
+											sizes="(min-width: 1536px) 28vw, (min-width: 1024px) 30vw, (min-width: 768px) 45vw, 100vw"
 											alt="post"
 											wrapper_class="h-full w-full"
 											img_class="h-full w-full object-cover"
@@ -867,7 +871,7 @@
 						class="post-feed-card relative w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
 					>
 						<div
-							class={`transition-opacity duration-200 ${is_post_media_pending(post) ? 'opacity-0' : 'opacity-100'}`}
+							class={`flex flex-col justify-center transition-opacity duration-200 ${is_post_media_pending(post) ? 'opacity-0' : 'opacity-100'}`}
 						>
 							<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
 								<a
@@ -933,7 +937,9 @@
 										aria-label={`Preview ${post.author_name}'s post image`}
 									>
 										<ProgressiveImage
-											src={post.media_url}
+											src={post.media_display_url ?? post.media_url}
+											srcset={post.media_display_srcset}
+											sizes="(min-width: 1024px) 42rem, (min-width: 768px) calc(100vw - 12rem), calc(100vw - 2rem)"
 											alt="post"
 											wrapper_class="h-full w-full"
 											img_class="h-full w-full object-contain"

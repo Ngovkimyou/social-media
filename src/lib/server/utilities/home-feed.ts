@@ -3,6 +3,7 @@ import { get_db } from '$lib/server/db';
 import { media, post_media, posts, profiles, user } from '$lib/server/db/schema';
 import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
+import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 
 type HomeFeedCursor = {
@@ -139,6 +140,14 @@ export async function get_home_feed_page(
 
 	const feed_posts: PostFeedPost[] = visible_rows.map((row) => {
 		const post_media_row = first_media_by_post.get(row.id);
+		const responsive_media =
+			post_media_row?.media_type === 'image' && post_media_row.media_url
+				? build_responsive_image_source(post_media_row.media_url, {
+						widths: [480, 720, 960, 1200, 1600],
+						fit: 'limit',
+						quality: 'auto'
+					})
+				: undefined;
 
 		return {
 			id: row.id,
@@ -147,6 +156,8 @@ export async function get_home_feed_page(
 			author_name: row.author_name,
 			author_username: row.author_username ?? ensured_usernames.get(row.author_id) ?? 'user',
 			author_avatar: row.author_avatar,
+			media_display_srcset: responsive_media?.srcset,
+			media_display_url: responsive_media?.src,
 			media_url: post_media_row?.media_url,
 			media_type: post_media_row?.media_type
 		};

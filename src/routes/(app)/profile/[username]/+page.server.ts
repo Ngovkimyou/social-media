@@ -12,6 +12,7 @@ import { user as auth_user } from '$lib/server/db/auth.schema';
 import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { delete_image_by_public_id, upload_image_from_file } from '$lib/server/cloudinary';
+import { validate_uploaded_image } from '$lib/server/image-validation';
 
 const rollback_failed_post_creation = async (params: {
 	db: ReturnType<typeof get_db>;
@@ -71,12 +72,14 @@ export const actions = {
 			return fail(400, { message: 'Please choose a cover photo.' });
 		}
 
-		if (!cover_file.type.startsWith('image/')) {
-			return fail(400, { message: 'Only image files are allowed for cover photos.' });
-		}
-
-		if (cover_file.size > 10 * 1024 * 1024) {
-			return fail(400, { message: 'Cover photo must be 10MB or smaller.' });
+		const cover_validation = await validate_uploaded_image({
+			file: cover_file,
+			max_bytes: 10 * 1024 * 1024,
+			size_message: 'Cover photo must be 10MB or smaller.',
+			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed for cover photos.'
+		});
+		if (!cover_validation.is_valid) {
+			return fail(400, { message: cover_validation.message });
 		}
 
 		let uploaded: { secureUrl: string; publicId: string };
@@ -127,12 +130,14 @@ export const actions = {
 			return fail(400, { message: 'Please choose a profile photo.' });
 		}
 
-		if (!avatar_file.type.startsWith('image/')) {
-			return fail(400, { message: 'Only image files are allowed for profile photos.' });
-		}
-
-		if (avatar_file.size > 5 * 1024 * 1024) {
-			return fail(400, { message: 'Profile photo must be 5MB or smaller.' });
+		const avatar_validation = await validate_uploaded_image({
+			file: avatar_file,
+			max_bytes: 5 * 1024 * 1024,
+			size_message: 'Profile photo must be 5MB or smaller.',
+			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed for profile photos.'
+		});
+		if (!avatar_validation.is_valid) {
+			return fail(400, { message: avatar_validation.message });
 		}
 
 		let uploaded: { secureUrl: string; publicId: string };
@@ -184,12 +189,14 @@ export const actions = {
 			return fail(400, { message: 'Please choose a photo to upload.' });
 		}
 
-		if (!image_file.type.startsWith('image/')) {
-			return fail(400, { message: 'Only image files are allowed.' });
-		}
-
-		if (image_file.size > 10 * 1024 * 1024) {
-			return fail(400, { message: 'Photo must be 10MB or smaller.' });
+		const post_image_validation = await validate_uploaded_image({
+			file: image_file,
+			max_bytes: 10 * 1024 * 1024,
+			size_message: 'Photo must be 10MB or smaller.',
+			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed.'
+		});
+		if (!post_image_validation.is_valid) {
+			return fail(400, { message: post_image_validation.message });
 		}
 
 		const caption = typeof caption_raw === 'string' ? caption_raw.trim() : '';

@@ -376,6 +376,8 @@ export const get_profile_posts_by_username = async (
 		author_name: profile.name ?? profile.username,
 		author_username: profile.username,
 		author_avatar: profile.image,
+		media_display_srcset: undefined,
+		media_display_url: undefined,
 		media_url: row.media_url,
 		media_type: row.media_type
 	}));
