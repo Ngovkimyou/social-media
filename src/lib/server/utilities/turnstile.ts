@@ -9,9 +9,12 @@ const TURNSTILE_TEST_SECRET_KEY = '1x0000000000000000000000000000000AA';
 
 type TurnstileVerificationResult = { is_valid: true } | { is_valid: false; message: string };
 
-const get_turnstile_site_key = (): string => env['TURNSTILE_SITE_KEY'].trim();
+const normalize_env_string = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-const get_turnstile_secret_key = (): string => env['TURNSTILE_SECRET_KEY'].trim();
+const get_turnstile_site_key = (): string => normalize_env_string(env['TURNSTILE_SITE_KEY']).trim();
+
+const get_turnstile_secret_key = (): string =>
+	normalize_env_string(env['TURNSTILE_SECRET_KEY']).trim();
 
 const is_truthy = (value: string | undefined): boolean => value?.trim().toLowerCase() === 'true';
 
@@ -20,7 +23,7 @@ const should_use_turnstile_test_keys = (event?: RequestEvent): boolean => {
 		return false;
 	}
 
-	const configured_origin = env['ORIGIN'].trim().toLowerCase();
+	const configured_origin = normalize_env_string(env['ORIGIN']).trim().toLowerCase();
 	const configured_is_localhost =
 		configured_origin.startsWith('http://localhost') ||
 		configured_origin.startsWith('https://localhost') ||

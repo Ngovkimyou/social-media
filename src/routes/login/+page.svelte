@@ -43,6 +43,7 @@
 			: (data.turnstile_site_key ?? '')
 	);
 	const submitted_email = $derived(form && 'email' in form ? (form.email ?? '') : '');
+	const form_message = $derived(form && 'message' in form ? (form.message ?? '') : '');
 
 	const apply_email_validation = (event: Event): void => {
 		const input = event.currentTarget as HTMLInputElement;
@@ -227,7 +228,7 @@
 				</div>
 			</form>
 			<p class="login-message" aria-live="polite">
-				{form?.message ?? ''}
+				{form_message}
 			</p>
 		</div>
 		<img

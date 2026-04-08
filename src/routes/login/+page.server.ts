@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { get_auth } from '$lib/server/auth';
 import { format_retry_duration } from '$lib/utilities/duration';
@@ -21,16 +21,17 @@ const SIGN_IN_FAILURE_MESSAGE = 'Invalid email or password.';
 const SIGN_IN_CHALLENGE_THRESHOLD = 3;
 
 type SignInActionFailure = ReturnType<typeof fail>;
+type LoginActionEvent = RequestEvent;
 
 const get_turnstile_payload = (
-	event: Parameters<PageServerLoad>[0]
+	event: LoginActionEvent | Parameters<PageServerLoad>[0]
 ): { turnstile_required: true; turnstile_site_key: string | undefined } => ({
 	turnstile_required: true as const,
 	turnstile_site_key: get_turnstile_login_site_key(event)
 });
 
 const fail_turnstile_validation = (
-	event: Parameters<PageServerLoad>[0],
+	event: LoginActionEvent,
 	email: string,
 	message: string
 ): SignInActionFailure =>
@@ -51,13 +52,13 @@ const fail_sign_in_rate_limit = (
 	});
 
 const should_require_turnstile = (
-	event: Parameters<PageServerLoad>[0],
+	event: LoginActionEvent,
 	current_attempt_count: number
 ): boolean =>
 	current_attempt_count >= SIGN_IN_CHALLENGE_THRESHOLD || is_sign_in_turnstile_required(event);
 
 const validate_turnstile_gate = async (
-	event: Parameters<PageServerLoad>[0],
+	event: LoginActionEvent,
 	email: string,
 	token: string,
 	current_attempt_count: number
@@ -74,7 +75,7 @@ const validate_turnstile_gate = async (
 };
 
 const fail_api_sign_in = async (
-	event: Parameters<PageServerLoad>[0],
+	event: LoginActionEvent,
 	email: string,
 	current_attempt_count: number
 ): Promise<SignInActionFailure> => {
@@ -82,7 +83,8 @@ const fail_api_sign_in = async (
 	if (suspicious_attack_result.is_locked) {
 		require_sign_in_turnstile(event);
 		return fail(429, {
-			...fail_sign_in_rate_limit(email, suspicious_attack_result.retry_after_seconds).data,
+			email,
+			message: `Too many login attempts. Please try again in ${format_retry_duration(suspicious_attack_result.retry_after_seconds)}.`,
 			...get_turnstile_payload(event)
 		});
 	}
