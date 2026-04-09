@@ -41,7 +41,7 @@ const create_content_security_policy = (nonce: string): string =>
 		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 		"img-src 'self' data: blob: https://res.cloudinary.com https://images.unsplash.com",
 		"font-src 'self' data: https://fonts.gstatic.com",
-		"connect-src 'self' https: wss:",
+		"connect-src 'self' https://challenges.cloudflare.com wss://localhost:* ws://localhost:*",
 		"media-src 'self' blob: https:",
 		"worker-src 'self' blob:",
 		'upgrade-insecure-requests'
