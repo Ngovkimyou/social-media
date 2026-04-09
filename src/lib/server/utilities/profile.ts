@@ -213,7 +213,7 @@ type ProfilePageData = {
 	profile: {
 		user_id: string;
 		name: string | null;
-		email: string;
+		email: string | null;
 		image: string | null;
 		cover_image: string | null;
 		created_at: Date;
@@ -299,7 +299,11 @@ const load_profile_page_data = async (
 	const photo_urls = photo_posts.map((row) => row.image_url);
 
 	return {
-		profile,
+		profile: {
+			...profile,
+			// eslint-disable-next-line
+			email: relationship.is_own_profile ? profile.email : null
+		},
 		stats: {
 			post_count: post_count_row[0]?.value ?? 0,
 			followers_count: followers_count_row[0]?.value ?? 0,
