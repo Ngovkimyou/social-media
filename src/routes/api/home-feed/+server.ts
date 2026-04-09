@@ -28,7 +28,9 @@ export const GET: RequestHandler = async (event) => {
 	const cursor = url.searchParams.get('cursor') ?? undefined;
 	const requested_view = url.searchParams.get('view');
 	const default_limit = requested_view === 'grid' ? HOME_FEED_GRID_PAGE_SIZE : HOME_FEED_PAGE_SIZE;
-	const requested_limit = Number(url.searchParams.get('limit') ?? default_limit);
+	const raw_limit = url.searchParams.get('limit');
+	const parsed_limit = raw_limit !== null ? parseInt(raw_limit, 10) : default_limit;
+	const requested_limit = Number.isFinite(parsed_limit) ? parsed_limit : default_limit;
 	const page = await get_home_feed_page(requested_limit, cursor);
 
 	return json(page);
