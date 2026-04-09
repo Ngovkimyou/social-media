@@ -6,7 +6,12 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async (event) => {
-	const { url } = event;
+	const { url, locals } = event;
+
+	if (!locals.user) {
+		return json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
 	const rate_limit = await consume_social_action_rate_limit(event, 'home-feed');
 	if (!rate_limit.is_allowed) {
 		await record_security_event({
