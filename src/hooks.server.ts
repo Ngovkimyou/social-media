@@ -1,5 +1,5 @@
 import { sequence } from '@sveltejs/kit/hooks';
-import { building } from '$app/environment';
+import { building, dev } from '$app/environment';
 import { get_auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import type { Handle } from '@sveltejs/kit';
@@ -41,7 +41,9 @@ const create_content_security_policy = (nonce: string): string =>
 		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 		"img-src 'self' data: blob: https://res.cloudinary.com https://images.unsplash.com",
 		"font-src 'self' data: https://fonts.gstatic.com",
-		"connect-src 'self' https://challenges.cloudflare.com wss://localhost:* ws://localhost:*",
+		dev
+			? "connect-src 'self' https://challenges.cloudflare.com wss://localhost:* ws://localhost:*"
+			: "connect-src 'self' https://challenges.cloudflare.com",
 		"media-src 'self' blob: https:",
 		"worker-src 'self' blob:",
 		'upgrade-insecure-requests'
