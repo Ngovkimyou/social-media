@@ -181,6 +181,8 @@
 
 	function close_upload_modal() {
 		submitting_post = false;
+		caption = '';
+		clear_post_preview();
 		upload_modal_open = false;
 	}
 
@@ -260,6 +262,11 @@
 	let caption = $state('');
 	let share_feedback = $state('');
 	let submitting_post = $state(false);
+	const post_validation_message = $derived(
+		caption.trim().length > 0 && !selected_image
+			? 'Add a photo before posting. Captions need an image.'
+			: ''
+	);
 
 	$effect(() => {
 		const next_sync_key = data['profile'].user_id;
@@ -353,7 +360,13 @@
 		void open_image_editor(post_editor_source_file, 'post');
 	}
 
-	function handle_post_submit() {
+	function handle_post_submit(event: SubmitEvent) {
+		if (!selected_image) {
+			event.preventDefault();
+			submitting_post = false;
+			return;
+		}
+
 		submitting_post = true;
 	}
 
@@ -1355,6 +1368,11 @@
 									<span class="text-xs text-rose-400">Caption exceeds maximum length!</span>
 								{/if}
 							</div>
+							{#if post_validation_message}
+								<p class="mb-2 text-sm text-amber-200" aria-live="polite">
+									{post_validation_message}
+								</p>
+							{/if}
 
 							<label
 								for="file-upload"

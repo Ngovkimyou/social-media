@@ -33,10 +33,14 @@
 	const fallback_avatar = '/images/sidebar-and-search/go-to-profile.avif';
 	const fast_search_limit = 8;
 	const full_search_limit = 25;
-	const full_search_min_query_length = 2;
+	const minimum_search_query_characters = 2;
 	const max_search_cache_entries = 80;
+	const search_token_pattern = /[^\p{L}\p{N}_]+/gu;
 
 	const search_cache = new SvelteMap<string, SearchUser[]>();
+
+	const get_searchable_character_count = (value: string): number =>
+		Array.from(value.replaceAll(search_token_pattern, '')).length;
 
 	const merge_users = (
 		primary_users: SearchUser[],
@@ -199,7 +203,8 @@
 		}
 
 		const canrun_full_search =
-			search_query.length >= full_search_min_query_length && fast_users.length >= fast_search_limit;
+			get_searchable_character_count(search_query) >= minimum_search_query_characters &&
+			fast_users.length >= fast_search_limit;
 
 		if (!canrun_full_search) {
 			return;
@@ -209,6 +214,12 @@
 	};
 
 	const trimmed_query = $derived(query.trim());
+	const searchable_character_count = $derived(get_searchable_character_count(trimmed_query));
+	const search_validation_message = $derived(
+		trimmed_query.length > 0 && searchable_character_count < minimum_search_query_characters
+			? 'Type at least 2 letters, numbers, or underscores to search.'
+			: ''
+	);
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	const has_recent_users = $derived(recent_users.length > 0);
 
@@ -368,6 +379,17 @@
 			return;
 		}
 
+		if (searchable_character_count < minimum_search_query_characters) {
+			fast_controller?.abort();
+			full_controller?.abort();
+			active_request_id += 1;
+			users = [];
+			issearching = false;
+			isexpanding = false;
+			error_message = '';
+			return;
+		}
+
 		debounce_timer = setTimeout(() => {
 			void load_users(trimmed_query);
 		}, 120);
@@ -502,7 +524,9 @@
 			{#if error_message}
 				<p class="mb-2 text-sm text-rose-300">{error_message}</p>
 			{/if}
-			{#if trimmed_query.length >= 1 && users.length === 0 && !issearching}
+			{#if search_validation_message}
+				<p class="text-sm text-white/70">{search_validation_message}</p>
+			{:else if trimmed_query.length >= 1 && users.length === 0 && !issearching}
 				<p class="text-sm text-white/70">No users found.</p>
 			{/if}
 

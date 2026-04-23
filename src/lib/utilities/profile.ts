@@ -25,3 +25,25 @@ export const slugify_username = (value: string): string => {
 
 	return normalized || 'user';
 };
+
+export const RESERVED_PROFILE_USERNAMES = new Set([
+	'admin',
+	'administrator',
+	'api',
+	'auth',
+	'demo',
+	'guest',
+	'home',
+	'login',
+	'profile',
+	'search',
+	'settings',
+	'sign_in',
+	'sign_out',
+	'sign_up',
+	'support',
+	'user'
+]);
+
+export const is_reserved_profile_username = (value: string): boolean =>
+	RESERVED_PROFILE_USERNAMES.has(slugify_username(value));

@@ -7,7 +7,7 @@ import {
 	invalidate_short_ttl_cache_key,
 	invalidate_short_ttl_cache_prefix
 } from '$lib/server/utilities/short-ttl-cache';
-import { slugify_username } from '$lib/utilities/profile';
+import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 
 const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
@@ -51,7 +51,7 @@ export const build_unique_username = async (
 			.where(where)
 			.limit(1);
 
-		if (existing.length === 0) {
+		if (existing.length === 0 && !is_reserved_profile_username(candidate)) {
 			return candidate;
 		}
 
