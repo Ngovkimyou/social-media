@@ -193,7 +193,20 @@
 	const handle_navigation_away_from_home: MouseEventHandler<HTMLAnchorElement> = () => {
 		persist_current_home_scroll_position();
 	};
+	let logout_dialog: HTMLDialogElement;
+	const handle_logout = () => {
+		logout_dialog.showModal();
+	};
 </script>
+
+<dialog bind:this={logout_dialog}>
+	<h1>Would you like to logout?</h1>
+	<form method="POST" action={sign_out_action} class="actions">
+		<button type="submit">Confirm</button>
+		<!-- Using type="button" prevents form submission -->
+		<button type="button" class="cancel" onclick={() => logout_dialog.close()}> Cancel </button>
+	</form>
+</dialog>
 
 <!-- Top Tab (scrolls naturally) -->
 <div class="flex h-15 w-full items-center justify-between bg-[#09051C] px-6 md:hidden">
@@ -209,19 +222,17 @@
 		/>
 	</a>
 	<div class="flex items-center gap-6">
-		<form method="post" action={sign_out_action} use:enhance>
-			<button
-				type="submit"
-				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80"
-				aria-label="Sign out"
-			>
-				<img
-					src="/images/sidebar-and-search/logout-icon.avif"
-					alt="Sign out"
-					class="h-8 max-[480px]:h-6"
-				/>
-			</button>
-		</form>
+		<button
+			onclick={handle_logout}
+			class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80"
+			aria-label="Sign out"
+		>
+			<img
+				src="/images/sidebar-and-search/logout-icon.avif"
+				alt="Sign out"
+				class="h-8 max-[480px]:h-6"
+			/>
+		</button>
 		<img
 			src="/images/sidebar-and-search/dark-mode.avif"
 			alt="dark/light mode switch icon"
@@ -492,26 +503,24 @@
 			</span>
 		</button>
 
-		<form method="post" action={sign_out_action} use:enhance>
-			<button
-				type="submit"
-				class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
-			>
-				<span class={desktop_item_content_class}>
-					<span class={desktop_icon_slot_class}>
-						<img
-							src="/images/sidebar-and-search/logout-icon.avif"
-							alt="Sign out icon"
-							class="block h-6 w-6 object-contain"
-						/>
-					</span>
-					<span
-						class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-						>Logout</span
-					>
+		<button
+			onclick={handle_logout}
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+		>
+			<span class={desktop_item_content_class}>
+				<span class={desktop_icon_slot_class}>
+					<img
+						src="/images/sidebar-and-search/logout-icon.avif"
+						alt="Sign out icon"
+						class="block h-6 w-6 object-contain"
+					/>
 				</span>
-			</button>
-		</form>
+				<span
+					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+					>Logout</span
+				>
+			</span>
+		</button>
 	</nav>
 
 	<div
@@ -545,5 +554,68 @@
 	.desktop-item-content-collapsed {
 		grid-template-columns: 1.5rem 0fr;
 		column-gap: 0;
+	}
+
+	dialog {
+		padding: 2rem;
+		border: none;
+		border-radius: 12px;
+		background: white;
+		box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+		/* Centering Fix (for extra safety) */
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		/* Content Layout */
+		min-width: 320px;
+		text-align: center;
+	}
+
+	/* The Background Overlay (The "Dimmed" part) */
+	dialog::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+		backdrop-filter: blur(4px); /* Modern blur effect */
+	}
+
+	/* Typography and Layout inside the dialog */
+	dialog h1 {
+		font-size: 1.25rem;
+		margin-bottom: 1.5rem;
+		color: #1a1a1a;
+	}
+
+	/* Container for buttons */
+	dialog .actions {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+	}
+
+	/* Basic Button Styling */
+	dialog button {
+		padding: 0.6rem 1.2rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-weight: 600;
+		transition: background 0.2s;
+	}
+
+	/* Style for the "Confirm" button */
+	dialog button[type='submit'] {
+		background: #ff4444;
+		color: white;
+		border: none;
+	}
+
+	dialog button[type='submit']:hover {
+		background: #cc0000;
+	}
+
+	/* Style for the "Cancel" button */
+	dialog button.cancel {
+		background: #f0f0f0;
+		color: #333;
+		border: 1px solid #ccc;
 	}
 </style>
