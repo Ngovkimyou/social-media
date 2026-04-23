@@ -217,7 +217,7 @@
 	const searchable_character_count = $derived(get_searchable_character_count(trimmed_query));
 	const search_validation_message = $derived(
 		trimmed_query.length > 0 && searchable_character_count < minimum_search_query_characters
-			? 'Type at least 2 letters, numbers, or underscores to search.'
+			? `Type at least ${minimum_search_query_characters} letters, numbers, or underscores to search.`
 			: ''
 	);
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
@@ -371,7 +371,7 @@
 		if (trimmed_query.length < 1) {
 			fast_controller?.abort();
 			full_controller?.abort();
-			active_request_id = 0;
+			active_request_id += 1;
 			users = [];
 			issearching = false;
 			isexpanding = false;

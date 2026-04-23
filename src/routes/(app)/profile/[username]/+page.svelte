@@ -326,6 +326,10 @@
 			URL.revokeObjectURL(image_src);
 		}
 
+		if (post_image_input) {
+			post_image_input.value = '';
+		}
+
 		selected_image = undefined;
 		image_src = '';
 		post_editor_source_file = undefined;
@@ -345,11 +349,6 @@
 
 	function remove_image() {
 		clear_post_preview();
-
-		// Reset the file input so it can be reused
-		if (post_image_input) {
-			post_image_input.value = '';
-		}
 	}
 
 	function reopen_post_image_editor() {

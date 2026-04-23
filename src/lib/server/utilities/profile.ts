@@ -297,12 +297,15 @@ const load_profile_page_data = async (
 	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
 	const photo_urls = photo_posts.map((row) => row.image_url);
+	const visible_email: string | null = relationship.is_own_profile
+		? profile.email
+		: // eslint-disable-next-line unicorn/no-null
+			null;
 
 	return {
 		profile: {
 			...profile,
-			// eslint-disable-next-line
-			email: relationship.is_own_profile ? profile.email : null
+			email: visible_email
 		},
 		stats: {
 			post_count: post_count_row[0]?.value ?? 0,

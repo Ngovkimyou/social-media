@@ -204,7 +204,7 @@
 						</div>
 						<div class="password-strength-bar" aria-hidden="true">
 							<div
-								class={`password-strength-bar-fill bg-gradient-to-r ${password_strength_fill_class}`}
+								class={`password-strength-bar-fill bg-linear-to-r ${password_strength_fill_class}`}
 								style={`width: ${((password_strength.score + 1) / 5) * 100}%`}
 							></div>
 						</div>
