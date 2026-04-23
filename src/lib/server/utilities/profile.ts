@@ -7,7 +7,7 @@ import {
 	invalidate_short_ttl_cache_key,
 	invalidate_short_ttl_cache_prefix
 } from '$lib/server/utilities/short-ttl-cache';
-import { slugify_username } from '$lib/utilities/profile';
+import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 
 const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
@@ -51,7 +51,7 @@ export const build_unique_username = async (
 			.where(where)
 			.limit(1);
 
-		if (existing.length === 0) {
+		if (existing.length === 0 && !is_reserved_profile_username(candidate)) {
 			return candidate;
 		}
 
@@ -213,7 +213,7 @@ type ProfilePageData = {
 	profile: {
 		user_id: string;
 		name: string | null;
-		email: string;
+		email: string | null;
 		image: string | null;
 		cover_image: string | null;
 		created_at: Date;
@@ -297,9 +297,16 @@ const load_profile_page_data = async (
 	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
 	const photo_urls = photo_posts.map((row) => row.image_url);
+	const visible_email: string | null = relationship.is_own_profile
+		? profile.email
+		: // eslint-disable-next-line unicorn/no-null
+			null;
 
 	return {
-		profile,
+		profile: {
+			...profile,
+			email: visible_email
+		},
 		stats: {
 			post_count: post_count_row[0]?.value ?? 0,
 			followers_count: followers_count_row[0]?.value ?? 0,

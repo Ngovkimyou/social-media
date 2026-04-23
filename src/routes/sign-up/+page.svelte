@@ -169,7 +169,7 @@
 								bind:value={sign_up_password}
 								oninput={apply_sign_up_password_validation}
 								oninvalid={apply_sign_up_password_validation}
-								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+								class="login-input auth-password-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 								placeholder="Enter your password"
 							/>
 							<button
@@ -204,7 +204,7 @@
 						</div>
 						<div class="password-strength-bar" aria-hidden="true">
 							<div
-								class={`password-strength-bar-fill bg-gradient-to-r ${password_strength_fill_class}`}
+								class={`password-strength-bar-fill bg-linear-to-r ${password_strength_fill_class}`}
 								style={`width: ${((password_strength.score + 1) / 5) * 100}%`}
 							></div>
 						</div>

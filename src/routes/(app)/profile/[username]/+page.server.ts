@@ -60,6 +60,11 @@ const has_recent_duplicate_caption = async (
 const get_retry_message = (seconds: number, noun: string): string =>
 	`Too many ${noun}. Please try again in ${seconds} seconds.`;
 
+const get_missing_post_image_message = (caption: string): string =>
+	caption
+		? 'Add a photo before posting. Captions need an image.'
+		: 'Please choose a photo to upload.';
+
 const fail_rate_limited_action = async (params: {
 	category: 'rate_limit_follow' | 'rate_limit_post';
 	details: string;
@@ -285,9 +290,10 @@ export const actions = {
 		const form_data = await request.formData();
 		const image_file = form_data.get('image');
 		const caption_raw = form_data.get('caption');
+		const caption = typeof caption_raw === 'string' ? caption_raw.trim() : '';
 
 		if (!(image_file instanceof File) || image_file.size === 0) {
-			return fail(400, { message: 'Please choose a photo to upload.' });
+			return fail(400, { message: get_missing_post_image_message(caption) });
 		}
 
 		const post_image_validation = await validate_uploaded_image({
@@ -299,8 +305,6 @@ export const actions = {
 		if (!post_image_validation.is_valid) {
 			return fail(400, { message: post_image_validation.message });
 		}
-
-		const caption = typeof caption_raw === 'string' ? caption_raw.trim() : '';
 
 		if (caption.length > 1000) {
 			return fail(400, { message: 'Caption must be 1000 characters or less.' });

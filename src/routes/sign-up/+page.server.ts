@@ -3,7 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { get_auth } from '$lib/server/auth';
 import { format_retry_duration } from '$lib/utilities/duration';
 import { APIError } from 'better-auth/api';
-import { slugify_username } from '$lib/utilities/profile';
+import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 import { email_validator, password_validator, name_validator } from '$lib/utilities/validator';
 import {
 	clear_auth_rate_limit,
@@ -17,27 +17,42 @@ const SIGN_UP_FAILURE_MESSAGE =
 const normalize_for_comparison = (value: string): string =>
 	value.normalize('NFKC').trim().toLowerCase();
 
+const validate_required_sign_up_fields = (params: {
+	email: string;
+	password: string;
+	name: string;
+}): { message: string } | undefined => {
+	const { email, password, name } = params;
+
+	if (!email && !password && !name) {
+		return { message: 'Email, password, and name are required' };
+	}
+
+	if (!email) {
+		return { message: 'Email is required' };
+	}
+
+	if (!password) {
+		return { message: 'Password is required' };
+	}
+
+	if (!name) {
+		return { message: 'Name is required' };
+	}
+
+	return undefined;
+};
+
 const validate_sign_up_input = (params: {
 	email: string;
 	password: string;
 	name: string;
 }): { is_valid: true } | { is_valid: false; message: string } => {
 	const { email, password, name } = params;
+	const required_fields_validation = validate_required_sign_up_fields(params);
 
-	if (!email && !password && !name) {
-		return { is_valid: false, message: 'Email, password, and name are required' };
-	}
-
-	if (!email) {
-		return { is_valid: false, message: 'Email is required' };
-	}
-
-	if (!password) {
-		return { is_valid: false, message: 'Password is required' };
-	}
-
-	if (!name) {
-		return { is_valid: false, message: 'Name is required' };
+	if (required_fields_validation) {
+		return { is_valid: false, message: required_fields_validation.message };
 	}
 
 	const is_email_valid = email_validator(email);
@@ -56,6 +71,13 @@ const validate_sign_up_input = (params: {
 	const is_name_valid = name_validator(name);
 	if (!is_name_valid.is_Valid) {
 		return { is_valid: false, message: is_name_valid.message ?? 'Invalid name' };
+	}
+
+	if (is_reserved_profile_username(name)) {
+		return {
+			is_valid: false,
+			message: 'This name creates a reserved username. Please choose another name.'
+		};
 	}
 
 	const normalized_password = normalize_for_comparison(password);

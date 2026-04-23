@@ -1,5 +1,5 @@
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
     spellcheck:
       run: pnpm spellcheck
@@ -17,7 +17,7 @@ pre-commit:
       stage_fixed: true
 
 pre-push:
-  parallel: true
+  parallel: false
   commands:
     lint:
       run: pnpm lint
