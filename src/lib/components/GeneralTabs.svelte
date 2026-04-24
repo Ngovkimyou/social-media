@@ -3,6 +3,7 @@
 	import type { MouseEventHandler } from 'svelte/elements';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import type { Pathname } from '$app/types';
 	import { page } from '$app/state';
 	import {
 		desktop_sidebar_width,
@@ -15,15 +16,19 @@
 		type HomeFeedState
 	} from '$lib/state/home-feed-state';
 	const { profile_username = '' }: { profile_username: string } = $props();
+	const profile_path: Pathname = $derived(
+		profile_username.length > 0
+			? (`/profile/${encodeURIComponent(profile_username)}` as `/profile/${string}`)
+			: '/profile'
+	);
 
 	const active_path = $derived(page.url.pathname);
 	const home_href = resolve('/home');
 	const search_href = resolve('/search');
-	const profile_href = resolve('/profile');
 	const sign_out_action = `${resolve('/sign-out')}?/signOut`;
 	const ison_home = $derived(active_path === home_href);
 	const ison_search = $derived(active_path === search_href);
-	const ison_profile = $derived(active_path.startsWith(profile_href));
+	const ison_profile = $derived(active_path === profile_path);
 	const glow_base =
 		"before:content-[''] before:absolute before:inset-0 before:rounded-full before:bg-[radial-gradient(circle,rgba(210,150,255,0.95)_0%,rgba(146,95,255,0.55)_65%,rgba(146,95,255,0.2)_100%)] before:shadow-[0_0_24px_rgba(180,120,255,0.7)] before:transition-all before:duration-300 before:ease-out";
 	const glow_off = 'before:opacity-0 before:scale-90';
@@ -222,6 +227,8 @@
 				/>
 			</button>
 		</form>
+		<!-- eslint-disable -->
+		<!--
 		<img
 			src="/images/sidebar-and-search/dark-mode.avif"
 			alt="dark/light mode switch icon"
@@ -232,6 +239,8 @@
 			alt="More Settings"
 			class="h-8 transition-opacity hover:opacity-80 max-[480px]:h-6"
 		/>
+		-->
+		<!-- eslint-enable -->
 	</div>
 </div>
 
@@ -242,6 +251,8 @@
 >
 	<div class="absolute inset-0 z-0 bg-[#09051C]" aria-hidden="true"></div>
 	<div class="relative z-10 flex h-full w-full items-center justify-around bg-[#09051C]">
+		<!-- eslint-disable -->
+		<!--
 		<button class="relative grid h-14 w-14 place-items-center" type="button" aria-label="Settings">
 			<img
 				src="/images/sidebar-and-search/setting.avif"
@@ -249,6 +260,20 @@
 				class="h-8 opacity-80 max-[480px]:h-6"
 			/>
 		</button>
+
+		<button
+			class="relative grid h-14 w-14 place-items-center"
+			type="button"
+			aria-label="Send Messages"
+		>
+			<img
+				src="/images/sidebar-and-search/open-messages.avif"
+				alt="Send Messages icon"
+				class="h-8 opacity-80 max-[480px]:h-6"
+			/>
+		</button>
+		-->
+		<!-- eslint-enable -->
 
 		<a
 			href={search_href}
@@ -276,6 +301,8 @@
 			/>
 		</a>
 
+		<!-- eslint-disable -->
+		<!--
 		<button
 			class="relative grid h-14 w-14 place-items-center"
 			type="button"
@@ -287,13 +314,11 @@
 				class="h-8 opacity-80 max-[480px]:h-6"
 			/>
 		</button>
+		-->
+		<!-- eslint-enable -->
 
 		<a
-			href={resolve(
-				profile_username.length > 0
-					? `/profile/${encodeURIComponent(profile_username)}`
-					: '/profile'
-			)}
+			href={resolve(profile_path)}
 			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
@@ -392,11 +417,7 @@
 		</a>
 
 		<a
-			href={resolve(
-				profile_username.length > 0
-					? `/profile/${encodeURIComponent(profile_username)}`
-					: '/profile'
-			)}
+			href={resolve(profile_path)}
 			onclick={handle_navigation_away_from_home}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_profile ? active_link : ''}`}
@@ -416,6 +437,8 @@
 			</span>
 		</a>
 
+		<!-- eslint-disable -->
+		<!--
 		<button
 			type="button"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
@@ -472,6 +495,8 @@
 				>
 			</span>
 		</button>
+		-->
+		<!-- eslint-enable -->
 
 		<button
 			type="button"
@@ -514,6 +539,8 @@
 		</form>
 	</nav>
 
+	<!-- eslint-disable -->
+	<!--
 	<div
 		class={`mt-auto pb-2 ${$is_desktop_sidebar_collapsed ? 'mx-auto px-0 text-center' : 'px-2'}`}
 	>
@@ -529,6 +556,8 @@
 			/>
 		</button>
 	</div>
+	-->
+	<!-- eslint-enable -->
 </aside>
 
 <style>
