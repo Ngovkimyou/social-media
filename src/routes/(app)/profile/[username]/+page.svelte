@@ -1011,17 +1011,30 @@
 					></button>
 				{/if}
 
-				<button
-					class="absolute top-10 -left-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-left-25 md:-left-30 md:shadow-md lg:-left-45 lg:h-15 lg:w-15 xl:-left-70"
-				>
-					<img
-						src={data['relationship'].is_own_profile ? profile_icons.edit : profile_icons.message}
-						alt="Edit"
-						class="h-5 w-5 object-contain lg:h-9 lg:w-9 {data['relationship'].is_own_profile
-							? 'pl-1'
-							: ''}"
-					/>
-				</button>
+				{#if data['relationship'].is_own_profile}
+					<!-- <button
+						type="button"
+						onclick={handle_relationship_button_click}
+						class="absolute top-10 -left-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-left-25 md:-left-30 md:shadow-md lg:-left-45 lg:h-15 lg:w-15 xl:-left-70"
+						style={`background:${relationship_background_style};${relationship_followed_effect_style}`}
+					>
+						<img
+							src={relationship_icon_source}
+							alt="Add"
+							class="h-6 w-6 object-contain pl-1 lg:h-9 lg:w-9"
+						/>
+					</button> -->
+				{:else}
+					<!-- <button
+						class="absolute top-10 -left-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-left-25 md:-left-30 md:shadow-md lg:-left-45 lg:h-15 lg:w-15 xl:-left-70"
+					>
+						<img
+							src={profile_icons.message}
+							alt="Message"
+							class="h-5 w-5 object-contain lg:h-9 lg:w-9"
+						/>
+					</button> -->
+				{/if}
 
 				<button
 					type="button"
@@ -1037,23 +1050,32 @@
 					/>
 				</button>
 
-				<button
-					type="button"
-					onclick={handle_relationship_button_click}
-					class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-12 md:-right-15 md:shadow-md lg:-right-25 lg:h-15 lg:w-15 xl:-right-40"
-					style={`background:${relationship_background_style};${relationship_followed_effect_style}`}
-				>
-					<img
-						src={relationship_icon_source}
-						alt={data['relationship'].is_own_profile
-							? 'Add'
-							: isrelationship_following
-								? 'Unfollow'
-								: 'Follow'}
-						class="h-6 w-6 object-contain pl-1 lg:h-9 lg:w-9"
-					/>
-				</button>
+				{#if data['relationship'].is_own_profile}
+					<button
+						class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-12 md:-right-15 md:shadow-md lg:-right-25 lg:h-15 lg:w-15 xl:-right-40"
+					>
+						<img
+							src={profile_icons.edit}
+							alt="Edit"
+							class="h-5 w-5 object-contain pl-1 lg:h-9 lg:w-9"
+						/>
+					</button>
+				{:else}
+					<button
+						type="button"
+						onclick={handle_relationship_button_click}
+						class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-12 md:-right-15 md:shadow-md lg:-right-25 lg:h-15 lg:w-15 xl:-right-40"
+						style={`background:${relationship_background_style};${relationship_followed_effect_style}`}
+					>
+						<img
+							src={relationship_icon_source}
+							alt={isrelationship_following ? 'Unfollow' : 'Follow'}
+							class="h-6 w-6 object-contain pl-1 lg:h-9 lg:w-9"
+						/>
+					</button>
+				{/if}
 
+				<!-- {#if data['relationship'].is_own_profile}
 				<button
 					class="absolute top-10 -right-40 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-25 md:-right-30 md:shadow-md lg:-right-45 lg:h-15 lg:w-15 xl:-right-70"
 				>
@@ -1063,6 +1085,7 @@
 						class="h-6 w-6 object-contain lg:h-8 lg:w-8"
 					/>
 				</button>
+				{/if} -->
 			</div>
 		</div>
 
