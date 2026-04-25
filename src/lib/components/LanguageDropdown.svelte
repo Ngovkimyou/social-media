@@ -104,6 +104,8 @@
 				{#each items as item (item.country)}
 					<button
 						type="button"
+						role="option"
+						aria-selected={item.country === value}
 						class="relative w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] leading-tight text-slate-100 hover:bg-white/8"
 						onclick={() => choose(item)}
 					>

@@ -1652,30 +1652,7 @@
 										</span>
 									</label>
 								</span>
-								<div class="flex shrink-0 gap-1">
-									<button
-										type="button"
-										onclick={() => {
-											edit_profile_email = '';
-										}}
-										class="about-field-icon-button"
-										aria-label="Clear email"
-										title="Clear email"
-									>
-										×
-									</button>
-									<button
-										type="button"
-										onclick={() => {
-											reset_profile_about_field('email');
-										}}
-										class="about-field-icon-button"
-										aria-label="Reset email"
-										title="Reset email"
-									>
-										↺
-									</button>
-								</div>
+								<!-- Clear and Reset buttons removed for readonly email field -->
 							</div>
 
 							<div class="profile-phone-edit-row flex items-center gap-2 md:col-span-2">
@@ -1705,6 +1682,7 @@
 									aria-describedby="edit-profile-phone-requirements"
 									class="w-full min-w-0 rounded-xl border border-white/12 bg-white/8 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-300/70"
 								/>
+								<input type="hidden" name="phone_country" bind:value={edit_profile_phone_country} />
 								<span id="edit-profile-phone-requirements" class="sr-only">
 									Choose US, Japan, or Cambodia. Phone numbers are automatically formatted for the
 									selected country.

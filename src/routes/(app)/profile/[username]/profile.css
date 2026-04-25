@@ -573,22 +573,18 @@
 .editor-drag-hint::before {
 	top: calc(50% - 2.35rem);
 	left: 50%;
-	content: 'â†';
+	content: '↑';
 	transform: translateX(-50%) rotate(90deg);
 }
 
 .editor-drag-hint::after {
 	bottom: calc(50% - 2.35rem);
 	left: 50%;
-	content: 'â†’';
+	content: '↓';
 	transform: translateX(-50%) rotate(90deg);
 }
 
-.editor-drag-hint::before,
-.editor-drag-hint::after {
-	display: none;
-	content: none;
-}
+
 
 @keyframes editor-drag-hint-pulse {
 	0%,
