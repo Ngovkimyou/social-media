@@ -137,7 +137,7 @@
 />
 
 <div
-	class="fixed inset-0 z-80 flex items-center justify-center bg-black/85 p-3 backdrop-blur-md md:p-6"
+	class="fixed inset-0 z-80 flex items-center justify-center bg-black/85 p-3 pb-18 backdrop-blur-md md:p-6 md:pb-6"
 	role="presentation"
 	onclick={(e) => {
 		if (e.target === e.currentTarget) on_close();
@@ -361,7 +361,7 @@
 			</div>
 
 			<!-- Action bar + comment input -->
-			<div class="shrink-0 border-t border-white/10 px-4 py-3">
+			<div class="shrink-0 border-t border-white/10 px-4 py-2 md:py-3">
 				<div class="flex items-center gap-4">
 					<button
 						type="button"
@@ -399,7 +399,7 @@
 				</div>
 
 				<form
-					class="mt-3"
+					class="mt-2 md:mt-3"
 					onsubmit={(e) => {
 						e.preventDefault();
 						submit_comment();
