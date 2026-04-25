@@ -30,7 +30,7 @@ export const POST: RequestHandler = async (event) => {
 	const rate_limit = await consume_social_action_rate_limit(event, 'comment');
 	if (!rate_limit.is_allowed) {
 		await record_security_event({
-			category: 'rate_limit_comment',
+			category: 'rate_limit_post',
 			details: `retry_after=${rate_limit.retry_after_seconds}`,
 			event
 		});
@@ -50,15 +50,13 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: 'Invalid request body' }, { status: 400 });
 	}
 
-	if (
-		typeof body !== 'object' ||
-		body === null ||
-		typeof (body as Record<string, unknown>).content !== 'string'
-	) {
+	const parsed_body =
+		typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : undefined;
+	if (!parsed_body || typeof parsed_body['content'] !== 'string') {
 		return json({ error: 'Missing content' }, { status: 400 });
 	}
 
-	const content = ((body as Record<string, unknown>).content as string).trim();
+	const content = parsed_body['content'].trim();
 
 	if (content.length === 0) {
 		return json({ error: 'Comment cannot be empty' }, { status: 400 });
