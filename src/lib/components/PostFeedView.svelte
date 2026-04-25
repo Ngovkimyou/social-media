@@ -6,13 +6,13 @@
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import { fade, scale } from 'svelte/transition';
 	import {
 		get_last_home_feed_state,
 		set_last_home_feed_state,
 		type HomeFeedState
 	} from '$lib/state/home-feed-state';
 	import type { PostFeedPost } from '$lib/types/post-feed';
+	import PostDetailModal from '$lib/components/PostDetailModal.svelte';
 
 	type BackPath = '/profile' | `/profile/${string}`;
 	type PostPath = `/profile/${string}/posts/${string}`;
@@ -50,23 +50,13 @@
 	let root_container = $state<HTMLDivElement | undefined>();
 	let scroll_container = $state<HTMLDivElement | undefined>();
 	let mounted_scroll_storage_key = $state('');
-	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
 	let load_more_sentinel = $state<HTMLDivElement | undefined>();
-	let image_preview = $state<
-		| {
-				src: string;
-				alt: string;
-		  }
-		| undefined
-	>();
+	let detail_post = $state<PostFeedPost | undefined>();
 	let scroll_measure_frame = $state<number | undefined>();
 	let scroll_persist_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let load_more_observer = $state<IntersectionObserver | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
-	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
-		{}
-	);
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
@@ -151,37 +141,12 @@
 		return root_container;
 	}
 
-	function open_image_preview(src: string, alt: string) {
-		image_preview = { src, alt };
+	function open_post_detail(post: PostFeedPost) {
+		detail_post = post;
 	}
 
-	function close_image_preview() {
-		image_preview = undefined;
-	}
-
-	function clear_pending_preview(post_id: string | number) {
-		const timer = pending_preview_timers[String(post_id)];
-
-		if (!timer) {
-			return;
-		}
-
-		clearTimeout(timer);
-		pending_preview_timers = {
-			...pending_preview_timers,
-			[String(post_id)]: undefined
-		};
-	}
-
-	function schedule_image_preview(post_id: string | number, src: string, alt: string) {
-		clear_pending_preview(post_id);
-		pending_preview_timers = {
-			...pending_preview_timers,
-			[String(post_id)]: setTimeout(() => {
-				open_image_preview(src, alt);
-				clear_pending_preview(post_id);
-			}, 220)
-		};
+	function close_post_detail() {
+		detail_post = undefined;
 	}
 
 	function toggle_like(post_id: string | number) {
@@ -550,16 +515,6 @@
 		persist_scroll_position();
 	});
 
-	$effect(() => {
-		if (!image_preview) {
-			return;
-		}
-
-		void tick().then(() => {
-			image_preview_backdrop?.focus();
-		});
-	});
-
 	onDestroy(() => {
 		load_more_observer?.disconnect();
 
@@ -568,13 +523,6 @@
 		}
 
 		clear_scroll_persist_timeout();
-
-		for (const timer of Object.values(pending_preview_timers)) {
-			if (timer) {
-				clearTimeout(timer);
-			}
-		}
-
 		persist_scroll_position();
 	});
 </script>
@@ -702,19 +650,9 @@
 								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="absolute inset-0 z-15 cursor-zoom-in"
-										onclick={() => {
-											schedule_image_preview(
-												post.id,
-												post.media_url ?? '',
-												`${post.author_name}'s post`
-											);
-										}}
-										ondblclick={() => {
-											clear_pending_preview(post.id);
-											toggle_like(post.id);
-										}}
-										aria-label={`Preview ${post.author_name}'s post image`}
+										class="absolute inset-0 z-15 cursor-pointer"
+										onclick={() => open_post_detail(post)}
+										aria-label={`View ${post.author_name}'s post`}
 									>
 										<ProgressiveImage
 											src={post.media_display_url ?? post.media_url}
@@ -819,7 +757,11 @@
 											: 'scale-125 opacity-0'}"
 									/>
 								</button>
-								<button class="transition-opacity hover:opacity-70"
+								<button
+									type="button"
+									class="transition-opacity hover:opacity-70"
+									onclick={() => open_post_detail(post)}
+									aria-label="View comments"
 									><img
 										src="/images/home-screen/comment-icon.avif"
 										alt="comment"
@@ -922,19 +864,9 @@
 								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="flex h-full w-full cursor-zoom-in items-center justify-center"
-										onclick={() => {
-											schedule_image_preview(
-												post.id,
-												post.media_url ?? '',
-												`${post.author_name}'s post`
-											);
-										}}
-										ondblclick={() => {
-											clear_pending_preview(post.id);
-											toggle_like(post.id);
-										}}
-										aria-label={`Preview ${post.author_name}'s post image`}
+										class="flex h-full w-full cursor-pointer items-center justify-center"
+										onclick={() => open_post_detail(post)}
+										aria-label={`View ${post.author_name}'s post`}
 									>
 										<ProgressiveImage
 											src={post.media_display_url ?? post.media_url}
@@ -1039,7 +971,11 @@
 											: 'scale-125 opacity-0'}"
 									/>
 								</button>
-								<button class="transition-opacity hover:opacity-70"
+								<button
+									type="button"
+									class="transition-opacity hover:opacity-70"
+									onclick={() => open_post_detail(post)}
+									aria-label="View comments"
 									><img
 										src="/images/home-screen/comment-icon.avif"
 										alt="comment"
@@ -1155,29 +1091,11 @@
 	</div>
 </div>
 
-{#if image_preview}
-	<div
-		class="fixed inset-0 z-80 flex cursor-zoom-out items-center justify-center bg-black/90 px-4 py-6 backdrop-blur-md"
-		role="dialog"
-		aria-modal="true"
-		aria-label="Post image preview"
-		tabindex="0"
-		bind:this={image_preview_backdrop}
-		onclick={close_image_preview}
-		transition:fade={{ duration: 180 }}
-		onkeydown={(event) => {
-			if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				close_image_preview();
-			}
-		}}
-	>
-		<img
-			src={image_preview.src}
-			alt={image_preview.alt}
-			class="max-h-[92vh] max-w-[96vw] rounded-3xl object-contain shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
-			decoding="async"
-			transition:scale={{ duration: 220, start: 0.92, opacity: 0.55 }}
-		/>
-	</div>
+{#if detail_post}
+	<PostDetailModal
+		post={detail_post}
+		liked={liked_posts[String(detail_post.id)] ?? false}
+		on_close={close_post_detail}
+		on_like={() => toggle_like(detail_post!.id)}
+	/>
 {/if}
