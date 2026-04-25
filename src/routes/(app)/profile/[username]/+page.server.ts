@@ -87,8 +87,37 @@ const normalize_optional_profile_text = (value: string, max_length: number): str
 	return normalized ? normalized.slice(0, max_length) : null;
 };
 
-const is_valid_profile_email = (value: string): boolean =>
-	!value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const MAX_PROFILE_EMAIL_LENGTH = 254;
+
+const has_whitespace = (value: string): boolean => {
+	for (const character of value) {
+		if (character.trim() === '') {
+			return true;
+		}
+	}
+
+	return false;
+};
+
+const is_valid_profile_email = (value: string): boolean => {
+	if (!value) {
+		return true;
+	}
+
+	if (value.length > MAX_PROFILE_EMAIL_LENGTH || has_whitespace(value)) {
+		return false;
+	}
+
+	const at_index = value.indexOf('@');
+	if (at_index <= 0 || at_index !== value.lastIndexOf('@')) {
+		return false;
+	}
+
+	const domain = value.slice(at_index + 1);
+	const dot_index = domain.indexOf('.');
+
+	return dot_index > 0 && dot_index < domain.length - 1;
+};
 
 type ProfileDetailsForm = {
 	bio: string;
@@ -162,7 +191,7 @@ const validate_profile_details_form = (
 		});
 	}
 
-	if (form.email && (!is_valid_profile_email(form.email) || form.email.length > 254)) {
+	if (!is_valid_profile_email(form.email)) {
 		return fail(400, { message: 'Please enter a valid email address.' });
 	}
 

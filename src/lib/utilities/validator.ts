@@ -217,7 +217,7 @@ export const profile_location_validator = (location: string): ValidatorOutput =>
 		};
 	}
 
-	if (/[\p{C}]/u.test(trimmed_location)) {
+	if (/\p{C}/u.test(trimmed_location)) {
 		return { is_Valid: false, message: 'Address cannot contain hidden control characters' };
 	}
 
