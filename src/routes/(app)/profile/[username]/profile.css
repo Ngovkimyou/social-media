@@ -239,11 +239,13 @@
 		inset 0 10px 24px rgba(15, 23, 42, 0.14);
 }
 
-.profile-readonly-input:focus {
-	background: rgba(30, 41, 59, 0.94);
+.profile-readonly-input:focus,
+.profile-readonly-input:focus-visible {
+	background: rgba(30, 41, 59, 0.9);
 	box-shadow:
-		0 0 0 2px rgba(148, 163, 184, 0.12),
+		inset 0 0 0 1px rgba(148, 163, 184, 0.08),
 		inset 0 10px 24px rgba(15, 23, 42, 0.14);
+	outline: none;
 }
 
 .about-edit-panel {
@@ -584,7 +586,34 @@
 	transform: translateX(-50%) rotate(90deg);
 }
 
+.editor-drag-hint span::before {
+	content: '\2190';
+}
 
+.editor-drag-hint span::after {
+	content: '\2192';
+}
+
+.editor-drag-hint::before,
+.editor-drag-hint::after {
+	position: absolute;
+	color: rgba(4, 3, 13, 0.72);
+	font-size: 1rem;
+	line-height: 1;
+	text-shadow:
+		0 0 8px rgba(255, 255, 255, 0.32),
+		0 0 14px rgba(4, 3, 13, 0.32);
+}
+
+.editor-drag-hint::before {
+	content: '\2191';
+	transform: translateX(-50%);
+}
+
+.editor-drag-hint::after {
+	content: '\2193';
+	transform: translateX(-50%);
+}
 
 @keyframes editor-drag-hint-pulse {
 	0%,

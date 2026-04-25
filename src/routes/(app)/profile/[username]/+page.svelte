@@ -213,7 +213,7 @@
 		edit_profile_location = profile_about.location ?? '';
 		edit_profile_phone = profile_about.phone ?? '';
 		edit_profile_phone_country = get_profile_phone_country(profile_about.phone ?? '');
-		edit_profile_email = data['profile'].email ?? '';
+		edit_profile_email = account_email;
 		edit_profile_email_visible = data['profile'].email_visible ?? false;
 	});
 
@@ -250,7 +250,7 @@
 		edit_profile_location = profile_about.location ?? '';
 		edit_profile_phone = profile_about.phone ?? '';
 		edit_profile_phone_country = get_profile_phone_country(profile_about.phone ?? '');
-		edit_profile_email = data['profile'].email ?? '';
+		edit_profile_email = account_email;
 		edit_profile_email_visible = data['profile'].email_visible ?? false;
 	}
 
@@ -269,7 +269,7 @@
 
 		if (field === 'email') {
 			edit_profile_email = account_email;
-			edit_profile_email_visible = Boolean(edit_profile_email);
+			edit_profile_email_visible = data['profile'].email_visible ?? false;
 			return;
 		}
 
@@ -1622,8 +1622,9 @@
 										bind:value={edit_profile_email}
 										maxlength="254"
 										readonly
+										tabindex="-1"
 										placeholder="Email"
-										class="profile-readonly-input w-full min-w-0 cursor-not-allowed rounded-xl border border-white/12 py-2 pr-[6.7rem] pl-3 text-sm outline-none placeholder:text-slate-500 focus:border-sky-300/70"
+										class="profile-readonly-input pointer-events-none w-full min-w-0 cursor-not-allowed rounded-xl border border-white/12 py-2 pr-[6.7rem] pl-3 text-sm outline-none placeholder:text-slate-500"
 									/>
 									<label
 										class="email-visibility-toggle absolute top-1/2 right-1.5 flex -translate-y-1/2 cursor-pointer items-center gap-1.5 px-1 py-0.5 text-[10px] font-semibold text-slate-300 transition-colors hover:text-white"
