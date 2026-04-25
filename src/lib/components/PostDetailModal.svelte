@@ -46,7 +46,6 @@
 <div
 	class="fixed inset-0 z-80 flex items-center justify-center bg-black/85 p-3 backdrop-blur-md md:p-6"
 	role="presentation"
-	tabindex="0"
 	onclick={(e) => {
 		if (e.target === e.currentTarget) on_close();
 	}}
@@ -90,16 +89,14 @@
 
 		<!-- Left: Image -->
 		<div
-			class="relative flex min-h-0 shrink-0 items-center justify-center overflow-hidden bg-black md:flex-1 md:rounded-l-2xl"
-			style="height: clamp(220px, 45vh, 500px)"
+			class="relative flex h-[clamp(220px,45vh,500px)] min-h-0 shrink-0 items-center justify-center overflow-hidden md:h-full md:flex-1 md:rounded-l-2xl"
 		>
-			<div class="md:hidden" style="height: clamp(220px, 45vh, 500px); width: 100%;"></div>
 			{#if post.media_url && post.media_type === 'image'}
 				<ProgressiveImage
 					src={post.media_display_url ?? post.media_url}
 					srcset={post.media_display_srcset}
 					alt={`${post.author_name}'s post`}
-					wrapper_class="absolute inset-0 md:relative md:inset-auto md:h-full md:w-full"
+					wrapper_class="h-full w-full"
 					img_class="h-full w-full object-contain"
 					skeleton_class="rounded-none"
 					loading="eager"
