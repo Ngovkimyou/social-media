@@ -174,6 +174,7 @@ export const profiles = pgTable(
 		bio: text('bio'),
 		location: text('location'),
 		phone: text('phone'),
+		email_visible: boolean('email_visible').default(false).notNull(),
 		created_at: timestamp('created_at').defaultNow().notNull(),
 		updated_at: timestamp('updated_at')
 			.defaultNow()

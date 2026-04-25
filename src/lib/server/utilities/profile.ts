@@ -120,6 +120,7 @@ export const get_profile_by_username = async (
 			bio: string | null;
 			location: string | null;
 			phone: string | null;
+			email_visible: boolean;
 	  }
 	| undefined
 > => {
@@ -136,7 +137,8 @@ export const get_profile_by_username = async (
 			username: profiles.username,
 			bio: profiles.bio,
 			location: profiles.location,
-			phone: profiles.phone
+			phone: profiles.phone,
+			email_visible: profiles.email_visible
 		})
 		.from(profiles)
 		.innerJoin(auth_user, eq(auth_user.id, profiles.user_id))
@@ -212,6 +214,7 @@ export const get_profile_username_by_user_id = async (
 type ProfilePageData = {
 	profile: {
 		user_id: string;
+		account_email: string | null;
 		name: string | null;
 		email: string | null;
 		image: string | null;
@@ -221,6 +224,7 @@ type ProfilePageData = {
 		bio: string | null;
 		location: string | null;
 		phone: string | null;
+		email_visible: boolean;
 	};
 	stats: {
 		post_count: number;
@@ -297,7 +301,7 @@ const load_profile_page_data = async (
 	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
 	const photo_urls = photo_posts.map((row) => row.image_url);
-	const visible_email: string | null = relationship.is_own_profile
+	const visible_email: string | null = profile.email_visible
 		? profile.email
 		: // eslint-disable-next-line unicorn/no-null
 			null;
@@ -305,6 +309,10 @@ const load_profile_page_data = async (
 	return {
 		profile: {
 			...profile,
+			account_email: relationship.is_own_profile
+				? profile.email
+				: // eslint-disable-next-line unicorn/no-null
+					null,
 			email: visible_email
 		},
 		stats: {

@@ -6,8 +6,21 @@
 	import { onDestroy, tick } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import type { PageProps } from './$types';
+	import LanguageDropdown from '$lib/components/LanguageDropdown.svelte';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
+	import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
+	import {
+		format_profile_phone,
+		get_profile_phone_country,
+		localize_profile_validation_message,
+		name_validator,
+		PROFILE_PHONE_COUNTRIES,
+		profile_bio_validator,
+		profile_location_validator,
+		profile_phone_validator,
+		type ProfilePhoneCountry
+	} from '$lib/utilities/validator';
 
 	const { data, form }: PageProps = $props();
 
@@ -48,6 +61,7 @@
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	let upload_modal_open = $state(false);
+	let is_phone_country_dropdown_open = $state(false);
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
 	let image_editor_backdrop = $state<HTMLDivElement | undefined>();
@@ -69,7 +83,7 @@
 	let image_actions = $state<
 		| {
 				mode: 'avatar' | 'cover';
-				preview_src: string;
+				preview_src?: string;
 				preview_alt: string;
 				is_avatar: boolean;
 		  }
@@ -89,6 +103,10 @@
 	let image_editor_zoom = $state(1);
 	let image_editor_offset_x = $state(0);
 	let image_editor_offset_y = $state(0);
+	let image_editor_drag_hint_visible = $state(false);
+	let image_editor_drag_hint_timeout: ReturnType<typeof setTimeout> | undefined;
+	let image_editor_zoom_step_timeout: ReturnType<typeof setTimeout> | undefined;
+	let image_editor_zoom_step_interval: ReturnType<typeof setInterval> | undefined;
 	let image_editor_drag_state = $state<
 		| {
 				pointer_id: number;
@@ -103,6 +121,15 @@
 	let is_applying_image_editor = $state(false);
 	let image_editor_object_url = $state('');
 	let post_editor_source_file = $state<File | undefined>();
+	let is_editing_profile = $state(false);
+	let edit_profile_name = $state('');
+	let edit_profile_username = $state('');
+	let edit_profile_bio = $state('');
+	let edit_profile_location = $state('');
+	let edit_profile_phone = $state('');
+	let edit_profile_phone_country = $state<ProfilePhoneCountry>('US');
+	let edit_profile_email = $state('');
+	let edit_profile_email_visible = $state(false);
 
 	const post_tiles = $derived.by(() =>
 		data['photo_posts'].map((post) => ({
@@ -140,6 +167,7 @@
 				})
 			: undefined
 	);
+	const account_email = $derived(data['profile'].account_email ?? data['profile'].email ?? '');
 	const image_editor_frame_ratio = $derived.by(() => {
 		if (image_editor?.mode === 'cover') {
 			return 16 / 6;
@@ -173,6 +201,180 @@
 			? `box-shadow:${relationship_shadow_style};backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);`
 			: ''
 	);
+
+	$effect(() => {
+		if (is_editing_profile) {
+			return;
+		}
+
+		edit_profile_name = data['profile'].name ?? data['profile'].username;
+		edit_profile_username = data['profile'].username;
+		edit_profile_bio = data['profile'].bio ?? '';
+		edit_profile_location = profile_about.location ?? '';
+		edit_profile_phone = profile_about.phone ?? '';
+		edit_profile_phone_country = get_profile_phone_country(profile_about.phone ?? '');
+		edit_profile_email = data['profile'].email ?? '';
+		edit_profile_email_visible = data['profile'].email_visible ?? false;
+	});
+
+	$effect(() => {
+		if (edit_profile_email.trim()) {
+			return;
+		}
+
+		edit_profile_email_visible = false;
+	});
+
+	async function start_profile_editing() {
+		const scroll_container = document.querySelector('.profile-scroll');
+		const current_scroll = scroll_container?.scrollTop ?? 0;
+
+		is_editing_profile = true;
+
+		await tick();
+
+		if (scroll_container) {
+			scroll_container.scrollTop = current_scroll;
+		}
+	}
+
+	function cancel_profile_editing() {
+		is_editing_profile = false;
+		reset_profile_edit_fields();
+	}
+
+	function reset_profile_edit_fields() {
+		edit_profile_name = data['profile'].name ?? data['profile'].username;
+		edit_profile_username = data['profile'].username;
+		edit_profile_bio = data['profile'].bio ?? '';
+		edit_profile_location = profile_about.location ?? '';
+		edit_profile_phone = profile_about.phone ?? '';
+		edit_profile_phone_country = get_profile_phone_country(profile_about.phone ?? '');
+		edit_profile_email = data['profile'].email ?? '';
+		edit_profile_email_visible = data['profile'].email_visible ?? false;
+	}
+
+	function reset_profile_about_field(
+		field: 'bio' | 'location' | 'email' | 'phone' | 'email_visible'
+	) {
+		if (field === 'bio') {
+			edit_profile_bio = data['profile'].bio ?? '';
+			return;
+		}
+
+		if (field === 'location') {
+			edit_profile_location = profile_about.location ?? '';
+			return;
+		}
+
+		if (field === 'email') {
+			edit_profile_email = account_email;
+			edit_profile_email_visible = Boolean(edit_profile_email);
+			return;
+		}
+
+		if (field === 'phone') {
+			edit_profile_phone = profile_about.phone ?? '';
+			edit_profile_phone_country = get_profile_phone_country(profile_about.phone ?? '');
+			return;
+		}
+
+		edit_profile_email_visible = data['profile'].email_visible ?? false;
+	}
+
+	function get_profile_name_validation_message(value: string, label: 'Nickname' | 'Username') {
+		if (!value.trim()) {
+			return get_localized_profile_validation_message(`${label} is required`);
+		}
+
+		const result = name_validator(value);
+		if (!result.is_Valid) {
+			return get_localized_profile_validation_message(
+				(result.message ?? `Invalid ${label}`).replace('Name', label)
+			);
+		}
+
+		if (label === 'Username' && is_reserved_profile_username(slugify_username(value))) {
+			return get_localized_profile_validation_message('Please choose a different @username.');
+		}
+
+		return '';
+	}
+
+	function get_profile_validation_locale() {
+		if (typeof navigator === 'undefined') {
+			return '';
+		}
+
+		return navigator.languages.find((locale) => locale.toLowerCase().startsWith('ja')) ?? '';
+	}
+
+	function get_localized_profile_validation_message(message: string) {
+		return localize_profile_validation_message(message, get_profile_validation_locale());
+	}
+
+	function apply_profile_name_validation(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		input.setCustomValidity(get_profile_name_validation_message(input.value, 'Nickname'));
+	}
+
+	function apply_profile_username_validation(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		input.setCustomValidity(get_profile_name_validation_message(input.value, 'Username'));
+	}
+
+	function apply_profile_location_validation(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const result = profile_location_validator(input.value);
+		input.setCustomValidity(
+			result.is_Valid
+				? ''
+				: get_localized_profile_validation_message(
+						result.message ?? 'Please enter a valid address.'
+					)
+		);
+	}
+
+	function apply_profile_phone_validation(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const result = profile_phone_validator(input.value);
+		input.setCustomValidity(
+			result.is_Valid
+				? ''
+				: get_localized_profile_validation_message(
+						result.message ?? 'Please enter a valid phone number.'
+					)
+		);
+	}
+
+	function apply_profile_bio_validation(event: Event) {
+		const textarea = event.currentTarget as HTMLTextAreaElement;
+		const result = profile_bio_validator(textarea.value);
+		textarea.setCustomValidity(
+			result.is_Valid
+				? ''
+				: get_localized_profile_validation_message(
+						result.message ?? 'Bio must be 200 characters or less.'
+					)
+		);
+	}
+
+	function handle_profile_phone_input(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const formatted_phone = format_profile_phone(input.value, edit_profile_phone_country);
+		edit_profile_phone = formatted_phone;
+		input.value = formatted_phone;
+		apply_profile_phone_validation(event);
+	}
+
+	function handle_profile_phone_country_change(country: string) {
+		edit_profile_phone_country = country as ProfilePhoneCountry;
+		edit_profile_phone = format_profile_phone(edit_profile_phone, edit_profile_phone_country);
+	}
+
+	function handle_phone_country_dropdown_open_change(open: boolean) {
+		is_phone_country_dropdown_open = open;
+	}
 
 	function open_upload_modal() {
 		submitting_post = false;
@@ -212,15 +414,11 @@
 		preview_alt: string,
 		is_avatar: boolean
 	) {
-		if (!preview_src) {
-			return;
-		}
-
 		image_actions = {
 			mode,
-			preview_src,
 			preview_alt,
-			is_avatar
+			is_avatar,
+			...(preview_src ? { preview_src } : {})
 		};
 	}
 
@@ -230,6 +428,10 @@
 
 	function preview_from_image_actions() {
 		if (!image_actions) {
+			return;
+		}
+
+		if (!image_actions.preview_src) {
 			return;
 		}
 
@@ -375,6 +577,8 @@
 		image_editor_offset_y = 0;
 		image_editor_error = '';
 		image_editor_drag_state = undefined;
+		clear_image_editor_drag_hint_timeout();
+		image_editor_drag_hint_visible = is_image_editor_draggable();
 	}
 
 	function clear_profile_cover_inputs() {
@@ -454,6 +658,26 @@
 		return cover_scale * image_editor_zoom;
 	}
 
+	function is_image_editor_draggable() {
+		if (!image_editor) {
+			return false;
+		}
+
+		const frame = get_image_editor_frame_size();
+		const scale = get_image_editor_scale();
+
+		if (!frame || !scale) {
+			const image_ratio = image_editor.natural_width / image_editor.natural_height;
+
+			return image_editor_zoom > 1.01 || Math.abs(image_ratio - image_editor_frame_ratio) > 0.01;
+		}
+
+		const rendered_width = image_editor.natural_width * scale;
+		const rendered_height = image_editor.natural_height * scale;
+
+		return rendered_width > frame.frame_width + 1 || rendered_height > frame.frame_height + 1;
+	}
+
 	function clamp_image_editor_offsets(next_x: number, next_y: number) {
 		if (!image_editor) {
 			return { x: 0, y: 0 };
@@ -486,6 +710,63 @@
 	function update_image_editor_zoom(next_zoom: number) {
 		image_editor_zoom = Math.min(3, Math.max(1, next_zoom));
 		sync_image_editor_offsets();
+		show_image_editor_drag_hint();
+	}
+
+	function step_image_editor_zoom(direction: -1 | 1) {
+		update_image_editor_zoom(image_editor_zoom + direction * 0.05);
+	}
+
+	function stop_image_editor_zoom_step() {
+		if (image_editor_zoom_step_timeout) {
+			clearTimeout(image_editor_zoom_step_timeout);
+			image_editor_zoom_step_timeout = undefined;
+		}
+
+		if (image_editor_zoom_step_interval) {
+			clearInterval(image_editor_zoom_step_interval);
+			image_editor_zoom_step_interval = undefined;
+		}
+	}
+
+	function start_image_editor_zoom_step(direction: -1 | 1) {
+		stop_image_editor_zoom_step();
+		step_image_editor_zoom(direction);
+
+		image_editor_zoom_step_timeout = setTimeout(() => {
+			image_editor_zoom_step_interval = setInterval(() => {
+				step_image_editor_zoom(direction);
+			}, 55);
+			image_editor_zoom_step_timeout = undefined;
+		}, 260);
+	}
+
+	function clear_image_editor_drag_hint_timeout() {
+		if (!image_editor_drag_hint_timeout) {
+			return;
+		}
+
+		clearTimeout(image_editor_drag_hint_timeout);
+		image_editor_drag_hint_timeout = undefined;
+	}
+
+	function show_image_editor_drag_hint() {
+		clear_image_editor_drag_hint_timeout();
+		image_editor_drag_hint_visible = is_image_editor_draggable();
+	}
+
+	function schedule_image_editor_drag_hint() {
+		clear_image_editor_drag_hint_timeout();
+
+		if (!is_image_editor_draggable()) {
+			image_editor_drag_hint_visible = false;
+			return;
+		}
+
+		image_editor_drag_hint_timeout = setTimeout(() => {
+			image_editor_drag_hint_visible = true;
+			image_editor_drag_hint_timeout = undefined;
+		}, 900);
 	}
 
 	async function open_image_editor(file: File, mode: 'avatar' | 'cover' | 'post') {
@@ -517,6 +798,9 @@
 			natural_width: dimensions.width,
 			natural_height: dimensions.height
 		};
+
+		await tick();
+		show_image_editor_drag_hint();
 	}
 
 	async function handle_selected_profile_or_cover_image(event: Event, mode: 'avatar' | 'cover') {
@@ -544,6 +828,8 @@
 		}
 
 		event.preventDefault();
+		clear_image_editor_drag_hint_timeout();
+		image_editor_drag_hint_visible = false;
 		image_editor_drag_state = {
 			pointer_id: event.pointerId,
 			start_x: event.clientX,
@@ -577,6 +863,7 @@
 
 		image_editor_drag_state = undefined;
 		(event.currentTarget as HTMLElement | null)?.releasePointerCapture(event.pointerId);
+		schedule_image_editor_drag_hint();
 	}
 
 	async function load_image_for_editor(src: string) {
@@ -806,6 +1093,8 @@
 
 	onDestroy(() => {
 		clear_post_preview();
+		clear_image_editor_drag_hint_timeout();
+		stop_image_editor_zoom_step();
 
 		if (image_editor_object_url) {
 			URL.revokeObjectURL(image_editor_object_url);
@@ -830,7 +1119,7 @@
 	class="profile-scroll flex h-[calc(100dvh-4.5rem)] justify-center overflow-y-auto overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white md:h-screen"
 >
 	<div
-		class="flex min-h-full w-full max-w-6xl flex-col px-2 pt-2 pb-40 shadow-2xl md:min-h-0 md:p-2"
+		class="flex min-h-full w-full max-w-6xl flex-col px-2 pt-2 pb-40 shadow-2xl md:min-h-screen md:p-2"
 	>
 		<div class="relative h-56 w-full md:h-74">
 			{#if return_to}
@@ -887,8 +1176,16 @@
 							aria-label="Open cover image actions"
 						>
 							<span
-								class="pointer-events-none absolute inset-0 bg-black/0 transition-all duration-200 ease-out group-hover:bg-black/20 group-active:bg-black/28"
+								class="pointer-events-none absolute inset-0 transition-all duration-200 ease-out {is_editing_profile
+									? 'bg-black/35 backdrop-blur-[2px] group-hover:bg-black/45 group-active:bg-black/50'
+									: 'bg-black/0 group-hover:bg-black/12 group-active:bg-black/18'}"
 							></span>
+							{#if is_editing_profile}
+								<span
+									class="pointer-events-none absolute inset-0 grid place-items-center text-3xl text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)] md:text-4xl"
+									aria-hidden="true">✎</span
+								>
+							{/if}
 						</div>
 						<input
 							bind:this={cover_image_input}
@@ -963,13 +1260,12 @@
 									true
 								);
 							}}
-							ondblclick={open_profile_image_picker}
 							onkeydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
 									event.preventDefault();
 									open_image_actions_menu(
 										'avatar',
-										profile_avatar_source?.src ?? data['profile'].image ?? '',
+										profile_avatar_source?.src ?? data['profile'].image ?? undefined,
 										data['profile'].name
 											? `${data['profile'].name} avatar`
 											: `${data['profile'].username} avatar`,
@@ -981,8 +1277,16 @@
 							aria-label="Open profile picture actions"
 						>
 							<span
-								class="pointer-events-none absolute inset-0 rounded-full bg-black/0 transition-all duration-200 ease-out group-hover:bg-black/20 group-active:bg-black/28"
+								class="pointer-events-none absolute inset-0 rounded-full transition-all duration-200 ease-out {is_editing_profile
+									? 'bg-black/35 backdrop-blur-[2px] group-hover:bg-black/45 group-active:bg-black/50'
+									: 'bg-black/0 group-hover:bg-black/12 group-active:bg-black/18'}"
 							></span>
+							{#if is_editing_profile}
+								<span
+									class="pointer-events-none absolute inset-0 grid place-items-center text-3xl text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)] md:text-4xl"
+									aria-hidden="true">✎</span
+								>
+							{/if}
 						</div>
 						<input
 							bind:this={profile_image_input}
@@ -1036,23 +1340,28 @@
 					</button> -->
 				{/if}
 
-				<button
-					type="button"
-					onclick={() => {
-						void handle_share_profile_click();
-					}}
-					class="absolute bottom-5 -left-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-left-12 sm:z-20 md:-left-15 md:z-20 md:shadow-md lg:-left-25 lg:h-15 lg:w-15 xl:-left-40"
-				>
-					<img
-						src={profile_icons.share}
-						alt="Share"
-						class="h-5 w-5 object-contain pr-1 lg:h-8 lg:w-8"
-					/>
-				</button>
-
-				{#if data['relationship'].is_own_profile}
+				{#if !is_editing_profile}
 					<button
+						type="button"
+						onclick={() => {
+							void handle_share_profile_click();
+						}}
+						class="absolute bottom-5 -left-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-left-12 sm:z-20 md:-left-15 md:z-20 md:shadow-md lg:-left-25 lg:h-15 lg:w-15 xl:-left-40"
+					>
+						<img
+							src={profile_icons.share}
+							alt="Share"
+							class="h-5 w-5 object-contain pr-1 lg:h-8 lg:w-8"
+						/>
+					</button>
+				{/if}
+
+				{#if data['relationship'].is_own_profile && !is_editing_profile}
+					<button
+						type="button"
+						onclick={start_profile_editing}
 						class="absolute -right-20 bottom-5 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-purple-500/30 bg-[#3F2C56] shadow shadow-white backdrop-blur-sm transition-transform hover:scale-110 max-[479px]:-right-12 md:-right-15 md:shadow-md lg:-right-25 lg:h-15 lg:w-15 xl:-right-40"
+						aria-label="Edit profile"
 					>
 						<img
 							src={profile_icons.edit}
@@ -1060,7 +1369,7 @@
 							class="h-5 w-5 object-contain pl-1 lg:h-9 lg:w-9"
 						/>
 					</button>
-				{:else}
+				{:else if !is_editing_profile}
 					<button
 						type="button"
 						onclick={handle_relationship_button_click}
@@ -1089,139 +1398,454 @@
 			</div>
 		</div>
 
-		<div class="mt-16 text-center md:mt-30">
-			<h1 class="text-2xl font-bold tracking-wide md:text-3xl">
-				{data['profile'].name ?? data['profile'].username}
-			</h1>
-			<p class="md:text-md text-sm text-slate-400">@{data['profile'].username}</p>
-			{#if share_feedback}
-				<p class="mt-3 text-xs font-medium text-sky-300">{share_feedback}</p>
-			{/if}
-		</div>
-
-		{#if form_message}
-			<p
-				class="mx-6 mt-4 rounded-xl border px-4 py-3 text-sm {success_message
-					? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
-					: 'border-rose-400/40 bg-rose-500/15 text-rose-100'}"
+		<form method="post" action="?/update_profile_details" class="contents">
+			<div
+				class="profile-identity-frame mt-16 text-center md:mt-30 {is_editing_profile
+					? 'profile-identity-frame-edit'
+					: ''}"
 			>
-				{form_message}
-			</p>
+				{#if is_editing_profile}
+					<div class="profile-identity-state profile-identity-edit">
+						<label class="profile-inline-edit-label mx-auto block">
+							<span class="profile-edit-pencil text-lg text-sky-300" aria-hidden="true">✎</span>
+							<input
+								name="name"
+								bind:value={edit_profile_name}
+								minlength="3"
+								maxlength="15"
+								required
+								aria-describedby="edit-profile-name-requirements"
+								oninput={apply_profile_name_validation}
+								oninvalid={apply_profile_name_validation}
+								class="profile-inline-edit-name"
+								aria-label="Profile nickname"
+							/>
+							<span id="edit-profile-name-requirements" class="sr-only">
+								Nickname must be 3 to 15 characters, can include letters and numbers, may have at
+								most one space and one underscore, and must include at least one letter.
+							</span>
+						</label>
+						<label class="profile-inline-edit-label mx-auto mt-0.5 block">
+							<span class="profile-edit-pencil text-base text-sky-300" aria-hidden="true">✎</span>
+							<span
+								class="pointer-events-none absolute top-1/2 left-9 z-10 -translate-y-1/2 text-sm text-slate-400"
+								aria-hidden="true">@</span
+							>
+							<input
+								name="username"
+								bind:value={edit_profile_username}
+								minlength="3"
+								maxlength="15"
+								required
+								aria-describedby="edit-profile-username-requirements"
+								oninput={apply_profile_username_validation}
+								oninvalid={apply_profile_username_validation}
+								class="profile-inline-edit-username"
+								aria-label="Profile username"
+							/>
+							<span id="edit-profile-username-requirements" class="sr-only">
+								Username must be 3 to 15 characters, can include letters and numbers, may have at
+								most one space and one underscore, and must include at least one letter.
+							</span>
+						</label>
+					</div>
+				{:else}
+					<div class="profile-identity-state profile-identity-display">
+						<h1 class="text-2xl font-bold tracking-wide md:text-3xl">
+							{data['profile'].name ?? data['profile'].username}
+						</h1>
+						<p class="md:text-md text-sm text-slate-400">@{data['profile'].username}</p>
+					</div>
+				{/if}
+			</div>
+			{#if share_feedback}
+				<p class="mt-3 text-center text-xs font-medium text-sky-300">{share_feedback}</p>
+			{/if}
+
+			{#if form_message}
+				<p
+					class="mx-6 mt-4 rounded-xl border px-4 py-3 text-sm {success_message
+						? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100'
+						: 'border-rose-400/40 bg-rose-500/15 text-rose-100'}"
+				>
+					{form_message}
+				</p>
+			{/if}
+
+			{#if !is_editing_profile}
+				<div
+					class="mx-auto mt-6 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-6 md:gap-10"
+				>
+					<div class="text-center">
+						<div class="text-2xl font-bold text-sky-400">{data['stats'].post_count}</div>
+						<div class="text-xs tracking-wider text-slate-500 uppercase">Posts</div>
+					</div>
+
+					<div class="h-8 w-px bg-slate-700"></div>
+
+					<div class="text-center">
+						<div class="text-2xl font-bold text-sky-400">{profile_followers_count}</div>
+						<div class="text-xs tracking-wider text-slate-500 uppercase">Followers</div>
+					</div>
+
+					<div class="h-8 w-px bg-slate-700"></div>
+
+					<div class="text-center">
+						<div class="text-2xl font-bold text-sky-400">{data['stats'].following_count}</div>
+						<div class="text-xs tracking-wider text-slate-500 uppercase">Following</div>
+					</div>
+				</div>
+			{/if}
+
+			<div
+				class="relative mx-2 {is_editing_profile
+					? 'mt-5'
+					: 'mt-6'} rounded-3xl bg-[#121324] p-4 min-[420px]:p-5 md:p-6"
+			>
+				<div
+					class="absolute inset-0 rounded-3xl bg-linear-to-r from-[#CD82FF] via-[#FF0DA6] to-[#C575E3] p-px"
+				>
+					<div class="h-full w-full rounded-3xl bg-[#121324]"></div>
+				</div>
+
+				<span
+					class="absolute -top-3 left-6 z-10 rounded-2xl bg-[#0a0b1e] px-3 text-xs font-semibold tracking-wide text-purple-400"
+				>
+					ABOUT
+				</span>
+
+				{#if is_editing_profile}
+					<div class="about-edit-panel">
+						<div class="relative z-10 mt-2">
+							<label
+								for="edit-profile-bio"
+								class="block text-xs font-semibold tracking-wide text-slate-400 uppercase"
+							>
+								Bio
+							</label>
+							<textarea
+								id="edit-profile-bio"
+								name="bio"
+								bind:value={edit_profile_bio}
+								maxlength="200"
+								rows="4"
+								placeholder="Write a short bio"
+								oninput={apply_profile_bio_validation}
+								oninvalid={apply_profile_bio_validation}
+								class="mt-2 w-full resize-none rounded-2xl border border-white/12 bg-white/8 px-3 py-2.5 text-sm leading-5 text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-300/70 min-[420px]:px-4 min-[420px]:py-3"
+							></textarea>
+							<div class="mt-1 flex items-center justify-between gap-2">
+								<div class="flex gap-1.5">
+									<button
+										type="button"
+										onclick={() => {
+											edit_profile_bio = '';
+										}}
+										class="about-field-action"
+									>
+										Clear
+									</button>
+									<button
+										type="button"
+										onclick={() => {
+											reset_profile_about_field('bio');
+										}}
+										class="about-field-action"
+									>
+										Reset
+									</button>
+								</div>
+								<p class="text-[11px] text-slate-500">{edit_profile_bio.length}/200</p>
+							</div>
+						</div>
+
+						<div
+							class="relative z-10 mt-3 grid gap-2.5 text-xs text-slate-300 min-[420px]:mt-4 min-[420px]:gap-3 md:grid-cols-2"
+						>
+							<div class="profile-email-edit-row flex items-center gap-2">
+								<img
+									src={edit_profile_location.trim() ? about_icons.location : about_icons.add}
+									alt=""
+									class="h-4 w-4 shrink-0"
+								/>
+								<input
+									name="location"
+									bind:value={edit_profile_location}
+									maxlength="80"
+									placeholder="Location"
+									autocomplete="street-address"
+									oninput={apply_profile_location_validation}
+									oninvalid={apply_profile_location_validation}
+									aria-describedby="edit-profile-location-requirements"
+									class="w-full min-w-0 rounded-xl border border-white/12 bg-white/8 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-300/70"
+								/>
+								<span id="edit-profile-location-requirements" class="sr-only">
+									Address can be up to 80 characters and may include letters, numbers, spaces, and
+									common address symbols.
+								</span>
+								<div class="flex shrink-0 gap-1">
+									<button
+										type="button"
+										onclick={() => {
+											edit_profile_location = '';
+										}}
+										class="about-field-icon-button"
+										aria-label="Clear location"
+										title="Clear location"
+									>
+										×
+									</button>
+									<button
+										type="button"
+										onclick={() => {
+											reset_profile_about_field('location');
+										}}
+										class="about-field-icon-button"
+										aria-label="Reset location"
+										title="Reset location"
+									>
+										↺
+									</button>
+								</div>
+							</div>
+
+							<div class="flex items-center gap-2">
+								<img
+									src={edit_profile_email.trim() ? about_icons.email : about_icons.add}
+									alt=""
+									class="h-4 w-4 shrink-0"
+								/>
+								<span class="profile-email-edit-field relative min-w-0 flex-1">
+									<input
+										name="email"
+										type="email"
+										bind:value={edit_profile_email}
+										maxlength="254"
+										readonly
+										placeholder="Email"
+										class="profile-readonly-input w-full min-w-0 cursor-not-allowed rounded-xl border border-white/12 py-2 pr-[6.7rem] pl-3 text-sm outline-none placeholder:text-slate-500 focus:border-sky-300/70"
+									/>
+									<label
+										class="email-visibility-toggle absolute top-1/2 right-1.5 flex -translate-y-1/2 cursor-pointer items-center gap-1.5 px-1 py-0.5 text-[10px] font-semibold text-slate-300 transition-colors hover:text-white"
+										title={edit_profile_email_visible
+											? 'Email is visible to the public'
+											: 'Email is hidden from the public'}
+										aria-label="Toggle public email visibility"
+									>
+										<input
+											type="checkbox"
+											name="email_visible"
+											bind:checked={edit_profile_email_visible}
+											class="peer sr-only"
+											disabled={!edit_profile_email.trim()}
+										/>
+										<span
+											class="relative h-4 w-7 rounded-full bg-slate-600 transition-colors peer-checked:bg-sky-400"
+											aria-hidden="true"
+										>
+											<span
+												class="absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white transition-transform peer-checked:translate-x-3"
+											></span>
+										</span>
+										<span class="w-9 text-left">
+											{edit_profile_email_visible ? 'Public' : 'Hidden'}
+										</span>
+									</label>
+								</span>
+								<div class="flex shrink-0 gap-1">
+									<button
+										type="button"
+										onclick={() => {
+											edit_profile_email = '';
+										}}
+										class="about-field-icon-button"
+										aria-label="Clear email"
+										title="Clear email"
+									>
+										×
+									</button>
+									<button
+										type="button"
+										onclick={() => {
+											reset_profile_about_field('email');
+										}}
+										class="about-field-icon-button"
+										aria-label="Reset email"
+										title="Reset email"
+									>
+										↺
+									</button>
+								</div>
+							</div>
+
+							<div class="profile-phone-edit-row flex items-center gap-2 md:col-span-2">
+								<img
+									src={edit_profile_phone.trim() ? about_icons.phone : about_icons.add}
+									alt=""
+									class="h-4 w-4 shrink-0"
+								/>
+								<LanguageDropdown
+									items={PROFILE_PHONE_COUNTRIES}
+									bind:value={edit_profile_phone_country}
+									on_change={handle_profile_phone_country_change}
+									on_open_change={handle_phone_country_dropdown_open_change}
+								/>
+
+								<input
+									name="phone"
+									bind:value={edit_profile_phone}
+									maxlength="32"
+									placeholder={PROFILE_PHONE_COUNTRIES.find(
+										(phone_country) => phone_country.country === edit_profile_phone_country
+									)?.example ?? '+1-415-555-2671'}
+									autocomplete="tel"
+									inputmode="tel"
+									oninput={handle_profile_phone_input}
+									oninvalid={apply_profile_phone_validation}
+									aria-describedby="edit-profile-phone-requirements"
+									class="w-full min-w-0 rounded-xl border border-white/12 bg-white/8 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-300/70"
+								/>
+								<span id="edit-profile-phone-requirements" class="sr-only">
+									Choose US, Japan, or Cambodia. Phone numbers are automatically formatted for the
+									selected country.
+								</span>
+								<div class="flex shrink-0 gap-1">
+									<button
+										type="button"
+										onclick={() => {
+											edit_profile_phone = '';
+										}}
+										class="about-field-icon-button"
+										aria-label="Clear phone number"
+										title="Clear phone number"
+									>
+										×
+									</button>
+									<button
+										type="button"
+										onclick={() => {
+											reset_profile_about_field('phone');
+										}}
+										class="about-field-icon-button"
+										aria-label="Reset phone number"
+										title="Reset phone number"
+									>
+										↺
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<div
+							class={`profile-edit-actions relative z-10 mt-4 grid grid-cols-2 gap-2.5 min-[420px]:mt-5 min-[420px]:gap-3 ${is_phone_country_dropdown_open ? 'pointer-events-none' : ''}`}
+						>
+							<button
+								type="button"
+								onclick={cancel_profile_editing}
+								class="editor-action-secondary rounded-2xl px-4 py-2.5 text-sm font-semibold text-white/78 transition-all duration-180 hover:scale-[0.99] hover:bg-white/10 active:scale-[0.97] min-[420px]:py-3"
+								transition:scale={{ duration: 160, start: 0.96, opacity: 0.65 }}
+							>
+								Cancel
+							</button>
+							<button
+								type="submit"
+								class="editor-action-primary rounded-2xl px-4 py-2.5 text-sm font-semibold text-[#CD82FF] transition-all duration-180 hover:scale-[0.99] active:scale-[0.97] min-[420px]:py-3"
+								transition:scale={{ duration: 160, start: 0.96, opacity: 0.65 }}
+							>
+								Save changes
+							</button>
+						</div>
+					</div>
+				{:else}
+					<div>
+						{#if data['profile'].bio}
+							<p class="relative z-10 mt-1 text-sm whitespace-pre-wrap text-slate-200">
+								{data['profile'].bio}
+							</p>
+						{:else if data['relationship'].is_own_profile}
+							<div
+								class="relative z-10 mt-1 flex items-center gap-2 text-sm font-medium text-sky-400"
+							>
+								<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add bio
+							</div>
+						{:else}
+							<p class="relative z-10 mt-1 text-sm text-slate-400">No bio yet.</p>
+						{/if}
+
+						<div class="relative z-10 mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300">
+							{#if profile_about.location}
+								<div class="flex items-center gap-2">
+									<img src={about_icons.location} alt="Location" class="h-4 w-4" />
+									{profile_about.location}
+								</div>
+							{:else if data['relationship'].is_own_profile}
+								<div class="flex items-center gap-2 font-medium text-sky-400">
+									<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add location
+								</div>
+							{/if}
+
+							{#if profile_about.email}
+								<div class="flex items-center gap-2 truncate">
+									<img src={about_icons.email} alt="Email" class="h-4 w-4" />
+									{profile_about.email}
+								</div>
+							{:else if data['relationship'].is_own_profile}
+								<div class="flex items-center gap-2 font-medium text-sky-400">
+									<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add email
+								</div>
+							{/if}
+
+							{#if profile_about.phone}
+								<div class="flex items-center gap-2">
+									<img src={about_icons.phone} alt="Phone" class="h-4 w-4" />
+									{profile_about.phone}
+								</div>
+							{:else if data['relationship'].is_own_profile}
+								<div class="flex items-center gap-2 font-medium text-sky-400">
+									<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add phone number
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+			</div>
+		</form>
+
+		{#if !is_editing_profile}
+			<div
+				class=" mt-6 flex items-center gap-2 rounded-full border-[6px] border-[#535060] bg-[#474555] p-1.5 text-sm font-bold"
+			>
+				<button
+					onclick={() => (active_tab = 'posts')}
+					class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
+					'posts'
+						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
+						: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
+				>
+					Posts
+				</button>
+				<button
+					onclick={() => (active_tab = 'videos')}
+					class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
+					'videos'
+						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
+						: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
+				>
+					Videos
+				</button>
+				<button
+					onclick={() => (active_tab = 'shared')}
+					class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
+					'shared'
+						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
+						: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
+				>
+					Shared
+				</button>
+			</div>
 		{/if}
 
-		<div class="mx-auto mt-6 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-6 md:gap-10">
-			<div class="text-center">
-				<div class="text-2xl font-bold text-sky-400">{data['stats'].post_count}</div>
-				<div class="text-xs tracking-wider text-slate-500 uppercase">Posts</div>
-			</div>
-
-			<div class="h-8 w-px bg-slate-700"></div>
-
-			<div class="text-center">
-				<div class="text-2xl font-bold text-sky-400">{profile_followers_count}</div>
-				<div class="text-xs tracking-wider text-slate-500 uppercase">Followers</div>
-			</div>
-
-			<div class="h-8 w-px bg-slate-700"></div>
-
-			<div class="text-center">
-				<div class="text-2xl font-bold text-sky-400">{data['stats'].following_count}</div>
-				<div class="text-xs tracking-wider text-slate-500 uppercase">Following</div>
-			</div>
-		</div>
-
-		<div class="relative mx-2 mt-6 rounded-3xl bg-[#121324] p-6">
-			<div
-				class="absolute inset-0 rounded-3xl bg-linear-to-r from-[#CD82FF] via-[#FF0DA6] to-[#C575E3] p-px"
-			>
-				<div class="h-full w-full rounded-3xl bg-[#121324]"></div>
-			</div>
-
-			<span
-				class="absolute -top-3 left-6 z-10 rounded-2xl bg-[#0a0b1e] px-3 text-xs font-semibold tracking-wide text-purple-400"
-			>
-				ABOUT
-			</span>
-
-			<p class="relative z-10 mt-1 text-sm whitespace-pre-wrap text-slate-200">
-				{data['profile'].bio || 'No bio added yet.'}
-			</p>
-
-			<div class="relative z-10 mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300">
-				{#if profile_about.location}
-					<div class="flex items-center gap-2">
-						<img src={about_icons.location} alt="Location" class="h-4 w-4" />
-						{profile_about.location}
-					</div>
-				{:else if data['relationship'].is_own_profile}
-					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
-						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add location
-					</div>
-				{/if}
-
-				{#if profile_about.email}
-					<div class="flex items-center gap-2 truncate">
-						<img src={about_icons.email} alt="Email" class="h-4 w-4" />
-						{profile_about.email}
-					</div>
-				{:else if data['relationship'].is_own_profile}
-					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
-						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add email
-					</div>
-				{/if}
-
-				{#if profile_about.phone}
-					<div class="flex items-center gap-2">
-						<img src={about_icons.phone} alt="Phone" class="h-4 w-4" />
-						{profile_about.phone}
-					</div>
-				{:else if data['relationship'].is_own_profile}
-					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
-						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add phone number
-					</div>
-				{/if}
-
-				{#if data['relationship'].is_own_profile}
-					<div class="flex cursor-pointer items-center gap-2 font-medium text-sky-400">
-						<img src={about_icons.add} alt="Add" class="h-4 w-4" /> Add More
-					</div>
-				{/if}
-			</div>
-		</div>
-
-		<div
-			class=" mt-6 flex items-center gap-2 rounded-full border-[6px] border-[#535060] bg-[#474555] p-1.5 text-sm font-bold"
-		>
-			<button
-				onclick={() => (active_tab = 'posts')}
-				class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
-				'posts'
-					? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
-					: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
-			>
-				Posts
-			</button>
-			<button
-				onclick={() => (active_tab = 'videos')}
-				class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
-				'videos'
-					? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
-					: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
-			>
-				Videos
-			</button>
-			<button
-				onclick={() => (active_tab = 'shared')}
-				class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
-				'shared'
-					? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
-					: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
-			>
-				Shared
-			</button>
-		</div>
-
-		{#if active_tab === 'posts'}
+		{#if !is_editing_profile && active_tab === 'posts'}
 			<div
 				class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8"
 				style="content-visibility:auto; contain-intrinsic-size: 720px;"
@@ -1260,7 +1884,7 @@
 			</div>
 		{/if}
 
-		{#if active_tab === 'videos'}
+		{#if !is_editing_profile && active_tab === 'videos'}
 			<div class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8">
 				{#if data['relationship'].is_own_profile}
 					<button
@@ -1271,6 +1895,10 @@
 					</button>
 				{/if}
 			</div>
+		{/if}
+
+		{#if is_editing_profile}
+			<div class="h-10 shrink-0 md:h-16" aria-hidden="true"></div>
 		{/if}
 
 		<div class="h-36 shrink-0 md:hidden" aria-hidden="true"></div>
@@ -1297,13 +1925,13 @@
 		}}
 	>
 		<div
-			class="w-full rounded-4xl bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src
+			class="w-full rounded-[1.25rem] bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src
 				? 'max-w-4xl'
 				: 'max-w-lg'}"
 			transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 		>
 			<div
-				class="flex max-h-[calc(100dvh-1.5rem)] w-full overflow-hidden rounded-4xl bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)] md:max-h-[90vh] md:rounded-3xl"
+				class="flex max-h-[calc(100dvh-1rem)] w-full overflow-hidden rounded-[1.25rem] bg-[#1a1224] shadow-[0_0_5px_rgba(255,0,229,10)] md:max-h-[90vh] md:rounded-3xl"
 			>
 				<form
 					method="post"
@@ -1312,15 +1940,17 @@
 					onsubmit={handle_post_submit}
 					class="flex flex-1 flex-col"
 				>
-					<div class="flex items-center justify-between border-b border-white/40 px-4 py-3">
+					<div
+						class="flex items-center justify-between border-b border-white/40 px-3 py-2 md:px-4 md:py-3"
+					>
 						<div class="w-5"></div>
 
-						<h2 class="text-base font-semibold text-white">Create post</h2>
+						<h2 class="text-sm font-semibold text-white md:text-base">Create post</h2>
 
 						<button
 							type="button"
 							onclick={close_upload_modal}
-							class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-white hover:bg-[#4e4f50]"
+							class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-sm text-white hover:bg-[#4e4f50] md:h-8 md:w-8 md:text-base"
 						>
 							✕
 						</button>
@@ -1329,29 +1959,29 @@
 					<div class="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
 						{#if image_src}
 							<div
-								class="relative flex h-72 w-full shrink-0 items-center justify-center overflow-hidden border-b border-white/40 bg-[#18191a] p-3 md:h-auto md:w-1/2 md:border-r md:border-b-0 md:p-6"
+								class="relative flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-white/40 bg-[#18191a] p-2 min-[480px]:h-48 md:h-auto md:w-1/2 md:border-r md:border-b-0 md:p-6"
 							>
 								<img
 									src={image_src}
 									alt="Preview"
-									class="max-h-full w-auto max-w-full rounded-[1.6rem] object-contain"
+									class="max-h-full w-auto max-w-full rounded-[1.1rem] object-contain md:rounded-[1.6rem]"
 									decoding="async"
 								/>
 
 								<button
 									type="button"
 									onclick={remove_image}
-									class="absolute top-4 right-4 cursor-pointer rounded-full bg-black/60 px-3 py-1.5 text-white hover:bg-black/80"
+									class="editor-remove-action absolute top-2 right-2 grid h-8 w-8 cursor-pointer place-items-center rounded-full text-sm md:top-4 md:right-4 md:h-9 md:w-9 md:text-base"
 								>
 									✕
 								</button>
 							</div>
 						{/if}
 
-						<div class="flex w-full flex-1 flex-col p-4 {image_src ? 'md:w-1/2' : ''}">
-							<div class="mb-4 flex items-center gap-3">
+						<div class="flex w-full flex-1 flex-col p-3 md:p-4 {image_src ? 'md:w-1/2' : ''}">
+							<div class="mb-2 flex items-center gap-2 md:mb-4 md:gap-3">
 								<div
-									class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-500 text-xs text-white"
+									class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-500 text-[11px] text-white md:h-10 md:w-10 md:text-xs"
 								>
 									{#if profile_avatar}
 										<img
@@ -1368,7 +1998,7 @@
 									{/if}
 								</div>
 								<div>
-									<p class="text-sm font-semibold text-white">{profile_display_name}</p>
+									<p class="text-xs font-semibold text-white md:text-sm">{profile_display_name}</p>
 									<p class="text-xs text-slate-400">@{data['profile'].username}</p>
 								</div>
 							</div>
@@ -1379,12 +2009,12 @@
 								bind:value={caption}
 								rows={image_src ? 6 : 4}
 								placeholder="Write a caption..."
-								class="w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none {image_src
+								class="min-h-18 w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none md:min-h-28 {image_src
 									? 'text-sm'
-									: 'text-lg'}"
+									: 'text-base md:text-lg'}"
 							></textarea>
 
-							<div class="my-2 flex items-center justify-between text-slate-400">
+							<div class="my-1.5 flex items-center justify-between text-slate-400 md:my-2">
 								<span class="text-xs">{caption.length}/1000</span>
 								{#if caption.length > 1000}
 									<span class="text-xs text-rose-400">Caption exceeds maximum length!</span>
@@ -1398,9 +2028,9 @@
 
 							<label
 								for="file-upload"
-								class="mt-auto flex cursor-pointer items-center justify-between rounded-lg border border-white/40 px-4 py-3 hover:bg-white/5"
+								class="mt-auto flex cursor-pointer items-center justify-between rounded-lg border border-white/40 px-3 py-2 hover:bg-white/5 md:px-4 md:py-3"
 							>
-								<span class="text-sm font-semibold text-white">
+								<span class="text-xs font-semibold text-white md:text-sm">
 									{image_src ? 'Photo selected' : 'Add a photo'}
 								</span>
 
@@ -1410,7 +2040,7 @@
 								<button
 									type="button"
 									onclick={reopen_post_image_editor}
-									class="mt-3 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-3 text-sm font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99]"
+									class="mt-2 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-2 text-xs font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99] md:mt-3 md:py-3 md:text-sm"
 								>
 									Edit photo
 								</button>
@@ -1427,7 +2057,7 @@
 
 							<button
 								type="submit"
-								class="text-md mt-4 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-3 font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] {!selected_image ||
+								class="mt-3 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!selected_image ||
 								caption.length > 1000 ||
 								submitting_post
 									? 'cursor-not-allowed opacity-50'
@@ -1475,13 +2105,15 @@
 			</div>
 
 			<div class="grid gap-2">
-				<button
-					type="button"
-					onclick={preview_from_image_actions}
-					class="rounded-[1.25rem] bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-3.5 text-sm font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99]"
-				>
-					Preview
-				</button>
+				{#if image_actions.preview_src}
+					<button
+						type="button"
+						onclick={preview_from_image_actions}
+						class="rounded-[1.25rem] bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-3.5 text-sm font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99]"
+					>
+						Preview
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={change_from_image_actions}
@@ -1503,7 +2135,7 @@
 
 {#if image_editor}
 	<div
-		class="fixed inset-0 z-70 flex items-center justify-center overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.18),transparent_32%),rgba(4,3,13,0.9)] px-3 py-4 backdrop-blur-md md:px-6 md:py-6"
+		class="fixed inset-0 z-70 flex items-center justify-center overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.18),transparent_32%),rgba(4,3,13,0.9)] px-2 py-2 backdrop-blur-md md:px-6 md:py-6"
 		role="dialog"
 		aria-modal="true"
 		aria-label={image_editor.mode === 'cover'
@@ -1526,19 +2158,21 @@
 		}}
 	>
 		<div
-			class="editor-shell w-full max-w-5xl overflow-hidden rounded-[1.75rem] border border-white/12"
+			class="editor-shell max-h-[calc(100dvh-1rem)] w-full max-w-5xl overflow-y-auto rounded-[1.1rem] border border-white/12 md:max-h-[90vh] md:rounded-[1.75rem]"
 			transition:scale={{ duration: 220, start: 0.96, opacity: 0.55 }}
 		>
 			<div class="grid gap-0 lg:grid-cols-[minmax(260px,320px)_1fr]">
 				<div
-					class="order-2 border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5 lg:order-1 lg:border-t-0 lg:border-r lg:p-6"
+					class="order-2 border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-2.5 md:p-5 lg:order-1 lg:border-t-0 lg:border-r lg:p-6"
 				>
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<p class="text-[11px] font-semibold tracking-[0.26em] text-sky-200/70 uppercase">
+							<p
+								class="hidden text-[11px] font-semibold tracking-[0.26em] text-sky-200/70 uppercase md:block"
+							>
 								Adjust
 							</p>
-							<h2 class="mt-1 text-xl font-semibold text-white md:text-2xl">
+							<h2 class="text-sm font-semibold text-white md:mt-1 md:text-2xl">
 								{image_editor.mode === 'cover'
 									? 'Cover'
 									: image_editor.mode === 'post'
@@ -1551,7 +2185,7 @@
 							onclick={() => {
 								close_image_editor();
 							}}
-							class="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/6 text-lg text-white transition-colors hover:bg-white/12"
+							class="editor-remove-action grid h-8 w-8 place-items-center rounded-full text-base transition-colors md:h-10 md:w-10 md:text-lg"
 							disabled={is_applying_image_editor}
 							aria-label="Close image editor"
 						>
@@ -1559,34 +2193,62 @@
 						</button>
 					</div>
 
-					<div class="mt-4 rounded-[1.35rem] border border-white/8 bg-white/[0.035] p-4">
+					<div
+						class="mt-2 rounded-2xl border border-white/8 bg-white/[0.035] p-2.5 md:mt-4 md:rounded-[1.35rem] md:p-4"
+					>
 						<div class="flex items-center justify-between gap-3">
-							<span class="text-sm font-medium text-white/84">Zoom</span>
+							<span class="text-xs font-medium text-white/84 md:text-sm">Zoom</span>
 							<button
 								type="button"
 								onclick={reset_image_editor_view}
-								class="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-white/78 uppercase transition-colors hover:bg-white/12"
+								class="editor-reset-action rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase transition-colors md:px-3 md:text-[11px] md:tracking-[0.18em]"
 							>
 								Reset
 							</button>
 						</div>
 
-						<input
-							type="range"
-							min="1"
-							max="3"
-							step="0.01"
-							value={image_editor_zoom}
-							oninput={(event) => {
-								const next_value = Number((event.currentTarget as HTMLInputElement).value);
-								update_image_editor_zoom(next_value);
-							}}
-							class="editor-slider mt-4 w-full"
-							aria-label="Zoom image"
-						/>
+						<div class="mt-2 flex items-center gap-2 md:mt-4">
+							<button
+								type="button"
+								onpointerdown={() => start_image_editor_zoom_step(-1)}
+								onpointerup={stop_image_editor_zoom_step}
+								onpointercancel={stop_image_editor_zoom_step}
+								onpointerleave={stop_image_editor_zoom_step}
+								onblur={stop_image_editor_zoom_step}
+								class="editor-zoom-step"
+								aria-label="Zoom out"
+							>
+								-
+							</button>
+							<input
+								type="range"
+								min="1"
+								max="3"
+								step="0.01"
+								value={image_editor_zoom}
+								oninput={(event) => {
+									const next_value = Number((event.currentTarget as HTMLInputElement).value);
+									update_image_editor_zoom(next_value);
+								}}
+								class="editor-slider w-full"
+								aria-label="Zoom image"
+							/>
+							<button
+								type="button"
+								onpointerdown={() => start_image_editor_zoom_step(1)}
+								onpointerup={stop_image_editor_zoom_step}
+								onpointercancel={stop_image_editor_zoom_step}
+								onpointerleave={stop_image_editor_zoom_step}
+								onblur={stop_image_editor_zoom_step}
+								class="editor-zoom-step"
+								aria-label="Zoom in"
+							>
+								+
+							</button>
+						</div>
 
 						<div
-							class="mt-2 flex items-center justify-between text-[11px] font-medium tracking-[0.16em] text-white/42 uppercase"
+							class="mt-2 hidden items-center justify-between text-[11px] font-medium tracking-[0.16em] text-white/42 uppercase md:flex"
 						>
 							<span>Wide</span>
 							<span>Close</span>
@@ -1601,13 +2263,13 @@
 						</p>
 					{/if}
 
-					<div class="mt-4 grid grid-cols-2 gap-3 lg:mt-6 lg:grid-cols-1">
+					<div class="mt-2 grid grid-cols-2 gap-2 md:mt-3 md:gap-3 lg:mt-6 lg:grid-cols-1">
 						<button
 							type="button"
 							onclick={() => {
 								close_image_editor();
 							}}
-							class="editor-action-secondary rounded-[1.15rem] px-4 py-3 text-sm font-semibold text-white/82 transition-colors disabled:cursor-not-allowed disabled:opacity-55"
+							class="editor-action-secondary rounded-[0.9rem] px-4 py-2 text-xs font-semibold text-white/82 transition-colors disabled:cursor-not-allowed disabled:opacity-55 md:rounded-[1.15rem] md:py-3 md:text-sm"
 							disabled={is_applying_image_editor}
 						>
 							Cancel
@@ -1615,7 +2277,7 @@
 						<button
 							type="button"
 							onclick={apply_image_editor}
-							class="editor-action-primary rounded-[1.15rem] px-4 py-3 text-sm font-semibold text-[#CD82FF] transition-transform hover:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55"
+							class="editor-action-primary rounded-[0.9rem] px-4 py-2 text-xs font-semibold text-[#CD82FF] transition-transform hover:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 md:rounded-[1.15rem] md:py-3 md:text-sm"
 							disabled={is_applying_image_editor}
 						>
 							{is_applying_image_editor ? 'Applying...' : 'Save'}
@@ -1623,26 +2285,23 @@
 					</div>
 				</div>
 
-				<div class="order-1 p-3 md:p-5 lg:order-2 lg:p-7">
+				<div class="order-1 p-1.5 md:p-5 lg:order-2 lg:p-7">
 					<div
-						class="rounded-[1.55rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.018))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-4 lg:p-5"
+						class="rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.018))] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:rounded-[1.55rem] md:p-4 lg:p-5"
 					>
-						<div class="mb-3 flex items-center justify-between gap-3">
-							<p class="text-[11px] font-semibold tracking-[0.24em] text-white/42 uppercase">
+						<div class="hidden justify-center md:mb-3 md:flex">
+							<p class="text-[11px] font-semibold tracking-[0.24em] text-white/48 uppercase">
 								Preview
 							</p>
-							<div
-								class="editor-preview-chip rounded-full px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-white/72 uppercase"
-							>
-								Drag
-							</div>
 						</div>
 
-						<div class="editor-preview-shell mx-auto w-full max-w-4xl rounded-[1.7rem] p-3 md:p-4">
+						<div
+							class="editor-preview-shell mx-auto flex w-full max-w-4xl items-center justify-center rounded-2xl p-1.5 md:rounded-[1.7rem] md:p-4"
+						>
 							{#if image_editor.mode === 'cover'}
 								<div
 									bind:this={image_editor_stage}
-									class="editor-stage relative mx-auto aspect-16/6 w-full max-w-4xl overflow-hidden rounded-[1.45rem] border border-white/10"
+									class="editor-stage relative mx-auto aspect-16/6 w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.45rem]"
 									role="presentation"
 									style="touch-action:none;"
 									onpointerdown={begin_image_editor_drag}
@@ -1657,17 +2316,24 @@
 										style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
 										draggable="false"
 									/>
+									{#if image_editor_drag_hint_visible}
+										<div
+											class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center"
+										>
+											<span aria-hidden="true">Drag</span>
+										</div>
+									{/if}
 									<div
-										class="editor-stage-frame pointer-events-none absolute inset-0 border-10 md:border-12"
+										class="editor-stage-frame pointer-events-none absolute inset-0 border-6 md:border-12"
 									></div>
 								</div>
 							{:else if image_editor.mode === 'post'}
-								<div class="flex min-h-85 items-center justify-center md:min-h-115">
+								<div class="flex min-h-0 w-full items-center justify-center md:min-h-115">
 									<div
 										bind:this={image_editor_stage}
-										class="editor-stage relative w-full overflow-hidden rounded-[1.75rem] border border-white/10"
+										class="editor-stage editor-post-stage relative w-full overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.75rem]"
 										role="presentation"
-										style={`touch-action:none;aspect-ratio:${image_editor_frame_ratio};max-width:${image_editor.natural_width >= image_editor.natural_height ? '640px' : '380px'};`}
+										style={`touch-action:none;aspect-ratio:${image_editor_frame_ratio};--post-editor-mobile-max-width:${image_editor_frame_ratio * 34}dvh;--post-editor-max-width:${image_editor.natural_width >= image_editor.natural_height ? '640px' : '380px'};`}
 										onpointerdown={begin_image_editor_drag}
 										onpointermove={move_image_editor_drag}
 										onpointerup={end_image_editor_drag}
@@ -1680,16 +2346,23 @@
 											style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
 											draggable="false"
 										/>
+										{#if image_editor_drag_hint_visible}
+											<div
+												class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center"
+											>
+												<span aria-hidden="true">Drag</span>
+											</div>
+										{/if}
 										<div
-											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-[1.75rem] border-10 md:border-12"
+											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-2xl border-6 md:rounded-[1.75rem] md:border-12"
 										></div>
 									</div>
 								</div>
 							{:else}
-								<div class="flex min-h-75 items-center justify-center md:min-h-105">
+								<div class="flex min-h-0 w-full items-center justify-center md:min-h-105">
 									<div
 										bind:this={image_editor_stage}
-										class="editor-stage relative aspect-square w-full max-w-[320px] overflow-hidden rounded-full border border-white/10 md:max-w-105"
+										class="editor-stage relative aspect-square w-full max-w-42 overflow-hidden rounded-full border border-white/10 min-[390px]:max-w-46 min-[480px]:max-w-52 md:max-w-105"
 										role="presentation"
 										style="touch-action:none;"
 										onpointerdown={begin_image_editor_drag}
@@ -1704,8 +2377,15 @@
 											style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
 											draggable="false"
 										/>
+										{#if image_editor_drag_hint_visible}
+											<div
+												class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center rounded-full"
+											>
+												<span aria-hidden="true">Drag</span>
+											</div>
+										{/if}
 										<div
-											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-full border-10 md:border-12"
+											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-full border-6 md:border-12"
 										></div>
 									</div>
 								</div>
