@@ -9,10 +9,21 @@ import {
 import { get_db } from '$lib/server/db';
 import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import { user as auth_user } from '$lib/server/db/auth.schema';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { delete_image_by_public_id, upload_image_from_file } from '$lib/server/cloudinary';
 import { validate_uploaded_image } from '$lib/server/image-validation';
+import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
+import {
+	format_profile_phone,
+	is_profile_phone_country,
+	localize_profile_validation_message,
+	name_validator,
+	profile_bio_validator,
+	profile_location_validator,
+	type ProfilePhoneCountry,
+	profile_phone_validator
+} from '$lib/utilities/validator';
 import { consume_create_post_rate_limit } from '$lib/server/utilities/post-rate-limit';
 import {
 	consume_follow_target_cooldown,
@@ -64,6 +75,190 @@ const get_missing_post_image_message = (caption: string): string =>
 	caption
 		? 'Add a photo before posting. Captions need an image.'
 		: 'Please choose a photo to upload.';
+
+const get_form_string = (form_data: FormData, key: string): string => {
+	const value = form_data.get(key);
+	return typeof value === 'string' ? value.normalize('NFKC').trim() : '';
+};
+
+const normalize_optional_profile_text = (value: string, max_length: number): string | null => {
+	const normalized = value.replaceAll(/\s+/g, ' ').trim();
+	// eslint-disable-next-line unicorn/no-null
+	return normalized ? normalized.slice(0, max_length) : null;
+};
+
+const MAX_PROFILE_EMAIL_LENGTH = 254;
+
+const has_whitespace = (value: string): boolean => {
+	for (const character of value) {
+		if (character.trim() === '') {
+			return true;
+		}
+	}
+
+	return false;
+};
+
+const is_valid_profile_email = (value: string): boolean => {
+	if (!value) {
+		return true;
+	}
+
+	if (value.length > MAX_PROFILE_EMAIL_LENGTH || has_whitespace(value)) {
+		return false;
+	}
+
+	const at_index = value.indexOf('@');
+	if (at_index <= 0 || at_index !== value.lastIndexOf('@')) {
+		return false;
+	}
+
+	const domain = value.slice(at_index + 1);
+	const dot_index = domain.indexOf('.');
+
+	return dot_index > 0 && dot_index < domain.length - 1;
+};
+
+type ProfileDetailsForm = {
+	bio: string;
+	email: string;
+	email_visible: boolean;
+	location: string;
+	name: string;
+	phone: string;
+	phone_country: ProfilePhoneCountry;
+	raw_username: string;
+	username: string;
+};
+
+const get_profile_details_form = (form_data: FormData): ProfileDetailsForm => {
+	const raw_username = get_form_string(form_data, 'username').replace(/^@+/, '');
+	const raw_phone_country = get_form_string(form_data, 'phone_country').toUpperCase();
+	const phone_country = is_profile_phone_country(raw_phone_country) ? raw_phone_country : 'US';
+	const raw_phone = get_form_string(form_data, 'phone');
+
+	return {
+		bio: get_form_string(form_data, 'bio'),
+		email: get_form_string(form_data, 'email').toLowerCase(),
+		email_visible: form_data.get('email_visible') === 'on',
+		location: get_form_string(form_data, 'location'),
+		name: get_form_string(form_data, 'name'),
+		phone: raw_phone ? format_profile_phone(raw_phone, phone_country) : '',
+		phone_country,
+		raw_username,
+		username: slugify_username(raw_username)
+	};
+};
+
+const get_validation_locale = (request: Request): string =>
+	request.headers.get('accept-language')?.split(',')[0]?.trim() ?? '';
+
+const get_profile_name_validation_message = (
+	value: string,
+	label: string,
+	locale: string
+): string | undefined => {
+	const result = name_validator(value);
+	if (result.is_Valid) {
+		return;
+	}
+
+	return localize_profile_validation_message(
+		(result.message ?? `Invalid ${label}`).replace('Name', label),
+		locale
+	);
+};
+
+const validate_profile_details_form = (
+	form: ProfileDetailsForm,
+	locale: string
+): ReturnType<typeof fail> | undefined => {
+	const nickname_message = get_profile_name_validation_message(form.name, 'Nickname', locale);
+	if (nickname_message) {
+		return fail(400, { message: nickname_message });
+	}
+
+	const username_message = get_profile_name_validation_message(
+		form.raw_username,
+		'Username',
+		locale
+	);
+	if (username_message || is_reserved_profile_username(form.username)) {
+		return fail(400, {
+			message:
+				username_message ??
+				localize_profile_validation_message('Please choose a different @username.', locale)
+		});
+	}
+
+	if (!is_valid_profile_email(form.email)) {
+		return fail(400, {
+			message: localize_profile_validation_message('Please enter a valid email address.', locale)
+		});
+	}
+
+	const bio_result = profile_bio_validator(form.bio);
+	if (!bio_result.is_Valid) {
+		return fail(400, {
+			message: localize_profile_validation_message(
+				bio_result.message ?? 'Bio must be 200 characters or less.',
+				locale
+			)
+		});
+	}
+
+	const location_result = profile_location_validator(form.location);
+	if (!location_result.is_Valid) {
+		return fail(400, {
+			message: localize_profile_validation_message(
+				location_result.message ?? 'Please enter a valid address.',
+				locale
+			)
+		});
+	}
+
+	const phone_result = profile_phone_validator(form.phone);
+	if (!phone_result.is_Valid) {
+		return fail(400, {
+			message: localize_profile_validation_message(
+				phone_result.message ?? 'Please enter a valid phone number.',
+				locale
+			)
+		});
+	}
+
+	return undefined;
+};
+
+const validate_unique_profile_details = async (params: {
+	db: ReturnType<typeof get_db>;
+	user_id: string;
+	username: string;
+}): Promise<ReturnType<typeof fail> | undefined> => {
+	const existing_username = await params.db
+		.select({ user_id: profiles.user_id })
+		.from(profiles)
+		.where(and(eq(profiles.username, params.username), ne(profiles.user_id, params.user_id)))
+		.limit(1);
+
+	if (existing_username.length > 0) {
+		return fail(400, { message: 'That @username is already taken.' });
+	}
+
+	return undefined;
+};
+
+const get_account_email = async (
+	db: ReturnType<typeof get_db>,
+	user_id: string
+): Promise<string> => {
+	const rows = await db
+		.select({ email: auth_user.email })
+		.from(auth_user)
+		.where(eq(auth_user.id, user_id))
+		.limit(1);
+	return rows[0]?.email ?? '';
+};
 
 const fail_rate_limited_action = async (params: {
 	category: 'rate_limit_follow' | 'rate_limit_post';
@@ -144,6 +339,82 @@ export const load = (async ({ params, locals }) => {
 }) satisfies PageServerLoad;
 
 export const actions = {
+	update_profile_details: async ({ locals, params, request }) => {
+		if (!locals.user) {
+			throw redirect(302, '/demo/better-auth/login');
+		}
+
+		const profile_owner = await get_profile_owner_by_username(params.username);
+
+		if (!profile_owner) {
+			throw error(404, 'Profile not found');
+		}
+
+		if (profile_owner.user_id !== locals.user.id) {
+			return fail(403, { message: 'You can only update your own profile.' });
+		}
+
+		const profile_form = get_profile_details_form(await request.formData());
+		const profile_form_failure = validate_profile_details_form(
+			profile_form,
+			get_validation_locale(request)
+		);
+		if (profile_form_failure) {
+			return profile_form_failure;
+		}
+
+		const normalized_location = normalize_optional_profile_text(profile_form.location, 80);
+		const normalized_phone = normalize_optional_profile_text(profile_form.phone, 32);
+
+		const db = get_db();
+		const account_email = await get_account_email(db, locals.user.id);
+		if (profile_form.email && profile_form.email !== account_email.toLowerCase()) {
+			return fail(400, { message: 'Email cannot be edited from profile About.' });
+		}
+
+		const unique_details_failure = await validate_unique_profile_details({
+			db,
+			user_id: locals.user.id,
+			username: profile_form.username
+		});
+		if (unique_details_failure) {
+			return unique_details_failure;
+		}
+
+		try {
+			await db
+				.update(auth_user)
+				.set({ name: profile_form.name.slice(0, 80) })
+				.where(eq(auth_user.id, locals.user.id));
+
+			await db
+				.update(profiles)
+				.set({
+					// eslint-disable-next-line unicorn/no-null
+					bio: profile_form.bio || null,
+					location: normalized_location,
+					phone: normalized_phone,
+					email_visible: profile_form.email ? profile_form.email_visible : false,
+					username: profile_form.username
+				})
+				.where(eq(profiles.user_id, locals.user.id));
+		} catch {
+			return fail(500, { message: 'Profile update failed. Please check your details.' });
+		}
+
+		invalidate_profile_cache({
+			profile_user_id: locals.user.id,
+			username: params.username
+		});
+
+		invalidate_profile_cache({
+			profile_user_id: locals.user.id,
+			username: profile_form.username
+		});
+
+		throw redirect(303, `/profile/${profile_form.username}`);
+	},
+
 	update_cover_image: async ({ locals, params, request }) => {
 		if (!locals.user) {
 			throw redirect(302, '/demo/better-auth/login');
