@@ -22,7 +22,7 @@
 	let open = $state(false);
 	let root_element = $state<HTMLDivElement | undefined>();
 
-	const selected_item = $derived(items.find((item) => item.country === value);
+	const selected_item = $derived(items.find((item) => item.country === value) ?? items[0]);
 
 	function toggle_dropdown() {
 		open = !open;
