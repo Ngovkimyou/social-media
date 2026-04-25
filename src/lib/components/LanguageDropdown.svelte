@@ -92,7 +92,7 @@
 				Select country
 			{/if}
 		</span>
-		<span class="ml-2 shrink-0">{open ? '^' : 'v'}</span>
+		<span aria-hidden="true" class="ml-2 shrink-0">{open ? '▲' : '▼'}</span>
 	</button>
 
 	{#if open}
