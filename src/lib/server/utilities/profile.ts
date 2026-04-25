@@ -1,7 +1,7 @@
-import { and, count, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { get_db } from '$lib/server/db';
-import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
+import { comments, follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import {
 	get_or_set_short_ttl_cache,
 	invalidate_short_ttl_cache_key,
@@ -384,6 +384,21 @@ export const get_profile_posts_by_username = async (
 		return true;
 	});
 
+	const post_ids = unique_posts.map((row) => row.id);
+	const comment_count_rows =
+		post_ids.length === 0
+			? []
+			: await db
+					.select({ post_id: comments.post_id, comment_count: count() })
+					.from(comments)
+					.where(and(inArray(comments.post_id, post_ids), isNull(comments.deleted_at)))
+					.groupBy(comments.post_id);
+
+	const comment_count_by_post = new Map<string, number>();
+	for (const row of comment_count_rows) {
+		comment_count_by_post.set(row.post_id, row.comment_count);
+	}
+
 	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
 		id: row.id,
 		content: row.content,
@@ -394,7 +409,8 @@ export const get_profile_posts_by_username = async (
 		media_display_srcset: undefined,
 		media_display_url: undefined,
 		media_url: row.media_url,
-		media_type: row.media_type
+		media_type: row.media_type,
+		comment_count: comment_count_by_post.get(row.id) ?? 0
 	}));
 
 	if (!selected_post_id) {

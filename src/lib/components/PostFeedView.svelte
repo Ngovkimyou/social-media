@@ -759,14 +759,16 @@
 								</button>
 								<button
 									type="button"
-									class="transition-opacity hover:opacity-70"
+									class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
 									onclick={() => open_post_detail(post)}
 									aria-label="View comments"
 									><img
 										src="/images/home-screen/comment-icon.avif"
 										alt="comment"
 										class="h-6 w-auto"
-									/></button
+									/>{#if post.comment_count > 0}<span class="text-xs font-medium text-white/60"
+											>{post.comment_count}</span
+										>{/if}</button
 								>
 								<button class="transition-opacity hover:opacity-70"
 									><img
@@ -973,14 +975,16 @@
 								</button>
 								<button
 									type="button"
-									class="transition-opacity hover:opacity-70"
+									class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
 									onclick={() => open_post_detail(post)}
 									aria-label="View comments"
 									><img
 										src="/images/home-screen/comment-icon.avif"
 										alt="comment"
 										class="h-6 w-auto"
-									/></button
+									/>{#if post.comment_count > 0}<span class="text-xs font-medium text-white/60"
+											>{post.comment_count}</span
+										>{/if}</button
 								>
 								<button class="transition-opacity hover:opacity-70"
 									><img
