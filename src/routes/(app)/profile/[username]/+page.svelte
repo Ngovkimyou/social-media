@@ -61,12 +61,15 @@
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	let upload_modal_open = $state(false);
+	let upload_media_type = $state<'image' | 'video'>('image');
 	let is_phone_country_dropdown_open = $state(false);
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
 	let image_editor_backdrop = $state<HTMLDivElement | undefined>();
 	let image_actions_backdrop = $state<HTMLDivElement | undefined>();
 	let post_image_input = $state<HTMLInputElement | undefined>();
+	let post_video_input = $state<HTMLInputElement | undefined>();
+	let video_editor_preview_element = $state<HTMLVideoElement | undefined>();
 	let profile_image_input = $state<HTMLInputElement | undefined>();
 	let cover_image_input = $state<HTMLInputElement | undefined>();
 	let profile_image_form = $state<HTMLFormElement | undefined>();
@@ -91,12 +94,13 @@
 	>();
 	let image_editor = $state<
 		| {
-				mode: 'avatar' | 'cover' | 'post';
+				mode: 'avatar' | 'cover' | 'post' | 'video-post';
 				src: string;
 				file_name: string;
 				mime_type: string;
 				natural_width: number;
 				natural_height: number;
+				duration_seconds?: number;
 		  }
 		| undefined
 	>();
@@ -119,8 +123,18 @@
 	>();
 	let image_editor_error = $state('');
 	let is_applying_image_editor = $state(false);
+	let is_saving_profile_media = $state(false);
 	let image_editor_object_url = $state('');
 	let post_editor_source_file = $state<File | undefined>();
+	let upload_media_error = $state('');
+	let selected_image = $state<File>();
+	let selected_video = $state<File>();
+	let image_src = $state('');
+	let video_src = $state('');
+	let post_video_duration_seconds = $state(0);
+	let post_video_trim_start_seconds = $state(0);
+	let post_video_trim_end_seconds = $state(0);
+	let video_trim_preview_focus = $state<'start' | 'end'>('start');
 	let is_editing_profile = $state(false);
 	let edit_profile_name = $state('');
 	let edit_profile_username = $state('');
@@ -130,6 +144,29 @@
 	let edit_profile_phone_country = $state<ProfilePhoneCountry>('US');
 	let edit_profile_email = $state('');
 	let edit_profile_email_visible = $state(false);
+
+	const MAX_POST_IMAGE_BYTES = 10 * 1024 * 1024;
+	const MAX_POST_VIDEO_OUTPUT_BYTES = 40 * 1024 * 1024;
+	const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
+	const MAX_POST_VIDEO_DURATION_SECONDS = 60;
+
+	const estimated_trimmed_video_bytes = $derived.by(() => {
+		const video_source_file =
+			image_editor?.mode === 'video-post' ? post_editor_source_file : selected_video;
+
+		if (!video_source_file || post_video_duration_seconds <= 0) {
+			return 0;
+		}
+
+		const trimmed_duration_seconds = Math.max(
+			0,
+			post_video_trim_end_seconds - post_video_trim_start_seconds
+		);
+
+		return Math.round(
+			(video_source_file.size * trimmed_duration_seconds) / post_video_duration_seconds
+		);
+	});
 
 	const post_tiles = $derived.by(() =>
 		data['photo_posts'].map((post) => ({
@@ -142,6 +179,7 @@
 			})
 		}))
 	);
+	const video_tiles = $derived(data['video_posts'] as Array<{ id: string; video_url: string }>);
 
 	const success_message = $derived(
 		(form as { success?: boolean } | null | undefined)?.success === true
@@ -173,7 +211,7 @@
 			return 16 / 6;
 		}
 
-		if (image_editor?.mode === 'post') {
+		if (image_editor?.mode === 'post' || image_editor?.mode === 'video-post') {
 			return image_editor.natural_width / image_editor.natural_height;
 		}
 
@@ -376,14 +414,23 @@
 		is_phone_country_dropdown_open = open;
 	}
 
-	function open_upload_modal() {
+	function open_upload_modal(media_type: 'image' | 'video' = 'image') {
+		clear_post_preview();
+		caption = '';
+		upload_media_error = '';
+		upload_media_type = media_type;
 		submitting_post = false;
 		upload_modal_open = true;
 	}
 
 	function close_upload_modal() {
+		if (submitting_post) {
+			return;
+		}
+
 		submitting_post = false;
 		caption = '';
+		upload_media_error = '';
 		clear_post_preview();
 		upload_modal_open = false;
 	}
@@ -459,16 +506,31 @@
 		open_profile_image_picker();
 	}
 
-	let selected_image = $state<File>();
-	let image_src = $state('');
+	function format_media_time(seconds: number) {
+		const normalized = Math.max(0, Math.floor(seconds));
+		const minutes = Math.floor(normalized / 60);
+		const remaining_seconds = normalized % 60;
+
+		return `${minutes}:${String(remaining_seconds).padStart(2, '0')}`;
+	}
+
+	function noop() {}
+
 	let caption = $state('');
 	let share_feedback = $state('');
 	let submitting_post = $state(false);
-	const post_validation_message = $derived(
-		caption.trim().length > 0 && !selected_image
-			? 'Add a photo before posting. Captions need an image.'
-			: ''
+	const selected_post_media = $derived(
+		upload_media_type === 'video' ? selected_video : selected_image
 	);
+	const post_validation_message = $derived.by(() => {
+		if (caption.trim().length === 0 || selected_post_media) {
+			return '';
+		}
+
+		return upload_media_type === 'video'
+			? 'Add a video before posting. Captions need a video.'
+			: 'Add a photo before posting. Captions need an image.';
+	});
 
 	$effect(() => {
 		const next_sync_key = data['profile'].user_id;
@@ -528,16 +590,33 @@
 			URL.revokeObjectURL(image_src);
 		}
 
+		if (video_src) {
+			URL.revokeObjectURL(video_src);
+		}
+
 		if (post_image_input) {
 			post_image_input.value = '';
 		}
 
+		if (post_video_input) {
+			post_video_input.value = '';
+		}
+
 		selected_image = undefined;
+		selected_video = undefined;
 		image_src = '';
+		video_src = '';
+		post_video_duration_seconds = 0;
+		post_video_trim_start_seconds = 0;
+		post_video_trim_end_seconds = 0;
 		post_editor_source_file = undefined;
 	}
 
-	async function handle_file_change(event: Event) {
+	async function handle_image_file_change(event: Event) {
+		if (submitting_post) {
+			return;
+		}
+
 		const target = event.currentTarget as HTMLInputElement | null;
 		const file = target?.files?.[0];
 
@@ -545,24 +624,81 @@
 			return;
 		}
 
+		upload_media_error = '';
+		if (file.size > MAX_POST_IMAGE_BYTES) {
+			upload_media_error = 'Photo must be 10MB or smaller.';
+			target.value = '';
+			return;
+		}
+
 		post_editor_source_file = file;
 		await open_image_editor(file, 'post');
 	}
 
+	async function handle_video_file_change(event: Event) {
+		if (submitting_post) {
+			return;
+		}
+
+		const target = event.currentTarget as HTMLInputElement | null;
+		const file = target?.files?.[0];
+
+		if (!file) {
+			return;
+		}
+
+		upload_media_error = '';
+		if (file.size > MAX_POST_VIDEO_SOURCE_BYTES) {
+			upload_media_error = 'Video source must be 200MB or smaller before trimming.';
+			target.value = '';
+			return;
+		}
+
+		post_editor_source_file = file;
+		await open_image_editor(file, 'video-post');
+	}
+
 	function remove_image() {
+		if (submitting_post) {
+			return;
+		}
+
 		clear_post_preview();
 	}
 
 	function reopen_post_image_editor() {
+		if (submitting_post) {
+			return;
+		}
+
 		if (!post_editor_source_file) {
 			return;
 		}
 
-		void open_image_editor(post_editor_source_file, 'post');
+		void open_image_editor(
+			post_editor_source_file,
+			upload_media_type === 'video' ? 'video-post' : 'post'
+		);
 	}
 
 	function handle_post_submit(event: SubmitEvent) {
-		if (!selected_image) {
+		if (submitting_post) {
+			event.preventDefault();
+			return;
+		}
+
+		if (!selected_post_media) {
+			event.preventDefault();
+			submitting_post = false;
+			return;
+		}
+
+		if (
+			upload_media_type === 'video' &&
+			(post_video_trim_end_seconds - post_video_trim_start_seconds >
+				MAX_POST_VIDEO_DURATION_SECONDS ||
+				estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES)
+		) {
 			event.preventDefault();
 			submitting_post = false;
 			return;
@@ -598,18 +734,53 @@
 		}
 	}
 
+	function revoke_image_editor_object_url() {
+		if (!image_editor_object_url) {
+			return;
+		}
+
+		URL.revokeObjectURL(image_editor_object_url);
+		image_editor_object_url = '';
+	}
+
+	function reset_post_editor_input(active_mode: NonNullable<typeof image_editor>['mode']) {
+		if (active_mode === 'post' && !selected_image && !image_src && post_image_input) {
+			post_image_input.value = '';
+			post_editor_source_file = undefined;
+			return;
+		}
+
+		if (active_mode !== 'video-post' || selected_video || video_src || !post_video_input) {
+			return;
+		}
+
+		post_video_input.value = '';
+		post_editor_source_file = undefined;
+		post_video_duration_seconds = 0;
+		post_video_trim_start_seconds = 0;
+		post_video_trim_end_seconds = 0;
+	}
+
+	function close_post_image_editor(
+		active_mode: NonNullable<typeof image_editor>['mode'],
+		options?: { reset_inputs?: boolean }
+	) {
+		if (options?.reset_inputs !== false) {
+			reset_post_editor_input(active_mode);
+		}
+
+		revoke_image_editor_object_url();
+	}
+
 	function close_image_editor(options?: { reset_inputs?: boolean }) {
 		const active_mode = image_editor?.mode;
 		image_editor = undefined;
-		reset_image_editor_view();
+		video_editor_preview_element = undefined;
 		is_applying_image_editor = false;
+		reset_image_editor_view();
 
-		if (active_mode === 'post') {
-			if (image_editor_object_url) {
-				URL.revokeObjectURL(image_editor_object_url);
-				image_editor_object_url = '';
-			}
-
+		if (active_mode === 'post' || active_mode === 'video-post') {
+			close_post_image_editor(active_mode, options);
 			return;
 		}
 
@@ -618,10 +789,7 @@
 			return;
 		}
 
-		if (image_editor_object_url) {
-			URL.revokeObjectURL(image_editor_object_url);
-			image_editor_object_url = '';
-		}
+		revoke_image_editor_object_url();
 	}
 
 	function get_image_editor_frame_size() {
@@ -659,7 +827,7 @@
 	}
 
 	function is_image_editor_draggable() {
-		if (!image_editor) {
+		if (!image_editor || image_editor.mode === 'video-post') {
 			return false;
 		}
 
@@ -708,6 +876,10 @@
 	}
 
 	function update_image_editor_zoom(next_zoom: number) {
+		if (is_applying_image_editor) {
+			return;
+		}
+
 		image_editor_zoom = Math.min(3, Math.max(1, next_zoom));
 		sync_image_editor_offsets();
 		show_image_editor_drag_hint();
@@ -730,6 +902,10 @@
 	}
 
 	function start_image_editor_zoom_step(direction: -1 | 1) {
+		if (is_applying_image_editor) {
+			return;
+		}
+
 		stop_image_editor_zoom_step();
 		step_image_editor_zoom(direction);
 
@@ -769,7 +945,7 @@
 		}, 900);
 	}
 
-	async function open_image_editor(file: File, mode: 'avatar' | 'cover' | 'post') {
+	async function open_image_editor(file: File, mode: 'avatar' | 'cover' | 'post' | 'video-post') {
 		reset_image_editor_view();
 
 		if (image_editor_object_url) {
@@ -779,27 +955,71 @@
 		const next_src = URL.createObjectURL(file);
 		image_editor_object_url = next_src;
 
-		const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-			const probe = new Image();
-			probe.onload = () => {
-				resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
-			};
-			probe.onerror = () => {
-				reject(new Error('Image failed to load.'));
-			};
-			probe.src = next_src;
-		});
+		if (mode === 'video-post') {
+			const video_metadata = await new Promise<{
+				duration_seconds: number;
+				height: number;
+				width: number;
+			}>((resolve, reject) => {
+				const probe = document.createElement('video');
+				probe.preload = 'metadata';
+				probe.onloadedmetadata = () => {
+					resolve({
+						duration_seconds: probe.duration,
+						height: probe.videoHeight,
+						width: probe.videoWidth
+					});
+				};
+				probe.onerror = () => {
+					reject(new Error('Video failed to load.'));
+				};
+				probe.src = next_src;
+			});
 
-		image_editor = {
-			mode,
-			src: next_src,
-			file_name: file.name,
-			mime_type: file.type || 'image/jpeg',
-			natural_width: dimensions.width,
-			natural_height: dimensions.height
-		};
+			image_editor = {
+				mode,
+				src: next_src,
+				file_name: file.name,
+				mime_type: file.type || 'video/mp4',
+				natural_width: video_metadata.width,
+				natural_height: video_metadata.height,
+				duration_seconds: video_metadata.duration_seconds
+			};
+
+			post_video_duration_seconds = video_metadata.duration_seconds;
+			post_video_trim_start_seconds = 0;
+			post_video_trim_end_seconds = Math.min(60, video_metadata.duration_seconds);
+			video_trim_preview_focus = 'start';
+		} else {
+			const image_metadata = await new Promise<{ height: number; width: number }>(
+				(resolve, reject) => {
+					const probe = new Image();
+					probe.onload = () => {
+						resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
+					};
+					probe.onerror = () => {
+						reject(new Error('Image failed to load.'));
+					};
+					probe.src = next_src;
+				}
+			);
+
+			image_editor = {
+				mode,
+				src: next_src,
+				file_name: file.name,
+				mime_type: file.type || 'image/jpeg',
+				natural_width: image_metadata.width,
+				natural_height: image_metadata.height
+			};
+		}
 
 		await tick();
+		if (mode === 'video-post') {
+			image_editor_drag_hint_visible = false;
+			return;
+		}
+
 		show_image_editor_drag_hint();
 	}
 
@@ -823,7 +1043,7 @@
 	}
 
 	function begin_image_editor_drag(event: PointerEvent) {
-		if (!image_editor) {
+		if (!image_editor || is_applying_image_editor) {
 			return;
 		}
 
@@ -963,6 +1183,7 @@
 
 		if (editor.mode === 'avatar' && profile_image_input && profile_image_form) {
 			profile_image_input.files = transfer.files;
+			is_saving_profile_media = true;
 			close_image_editor({ reset_inputs: false });
 			profile_image_form.requestSubmit();
 			return;
@@ -970,6 +1191,7 @@
 
 		if (editor.mode === 'cover' && cover_image_input && cover_image_form) {
 			cover_image_input.files = transfer.files;
+			is_saving_profile_media = true;
 			close_image_editor({ reset_inputs: false });
 			cover_image_form.requestSubmit();
 			return;
@@ -978,13 +1200,297 @@
 		throw new Error('Upload form is unavailable.');
 	}
 
-	async function apply_image_editor() {
-		const editor = image_editor;
+	function clamp_video_trim_range(next_start: number, next_end: number) {
+		const duration = post_video_duration_seconds;
+		const bounded_start = Math.max(0, Math.min(next_start, Math.max(duration - 1, 0)));
+		const min_end = Math.min(duration, bounded_start + 1);
+		const bounded_end = Math.max(min_end, Math.min(next_end, duration));
 
-		if (!editor) {
+		if (bounded_end - bounded_start <= 60) {
+			return {
+				end_seconds: bounded_end,
+				start_seconds: bounded_start
+			};
+		}
+
+		return {
+			end_seconds: Math.min(duration, bounded_start + 60),
+			start_seconds: bounded_start
+		};
+	}
+
+	function sync_video_trim_preview(focus: 'start' | 'end' = video_trim_preview_focus) {
+		if (!video_editor_preview_element || !Number.isFinite(video_editor_preview_element.duration)) {
 			return;
 		}
 
+		const preview_time =
+			focus === 'start'
+				? post_video_trim_start_seconds
+				: Math.max(post_video_trim_start_seconds, post_video_trim_end_seconds - 0.05);
+
+		video_editor_preview_element.pause();
+		video_editor_preview_element.currentTime = Math.min(
+			preview_time,
+			video_editor_preview_element.duration
+		);
+	}
+
+	function update_video_trim_range(next_start: number, next_end: number, focus: 'start' | 'end') {
+		if (is_applying_image_editor) {
+			return;
+		}
+
+		const trimmed = clamp_video_trim_range(next_start, next_end);
+		post_video_trim_start_seconds = trimmed.start_seconds;
+		post_video_trim_end_seconds = trimmed.end_seconds;
+		video_trim_preview_focus = focus;
+		sync_video_trim_preview(focus);
+	}
+
+	function adjust_video_trim_point(focus: 'start' | 'end', delta_seconds: number) {
+		if (focus === 'start') {
+			update_video_trim_range(
+				Math.round(post_video_trim_start_seconds + delta_seconds),
+				post_video_trim_end_seconds,
+				'start'
+			);
+			return;
+		}
+
+		update_video_trim_range(
+			post_video_trim_start_seconds,
+			Math.round(post_video_trim_end_seconds + delta_seconds),
+			'end'
+		);
+	}
+
+	function handle_video_trim_start_input(event: Event) {
+		const next_start = Number((event.currentTarget as HTMLInputElement).value);
+		update_video_trim_range(next_start, post_video_trim_end_seconds, 'start');
+	}
+
+	function handle_video_trim_end_input(event: Event) {
+		const next_end = Number((event.currentTarget as HTMLInputElement).value);
+		update_video_trim_range(post_video_trim_start_seconds, next_end, 'end');
+	}
+
+	type VideoWithCaptureStream = HTMLVideoElement & {
+		['captureStream']?: () => MediaStream;
+		['mozCaptureStream']?: () => MediaStream;
+	};
+
+	async function seek_video_element(video: HTMLVideoElement, time_seconds: number) {
+		await new Promise<void>((resolve, reject) => {
+			const handle_seeked = () => {
+				cleanup();
+				resolve();
+			};
+			const handle_error = () => {
+				cleanup();
+				reject(new Error('Video preview could not seek to the selected trim point.'));
+			};
+			const cleanup = () => {
+				video.removeEventListener('seeked', handle_seeked);
+				video.removeEventListener('error', handle_error);
+			};
+
+			video.addEventListener('seeked', handle_seeked, { once: true });
+			video.addEventListener('error', handle_error, { once: true });
+			video.currentTime = time_seconds;
+		});
+	}
+
+	async function create_trimmed_video_blob(
+		editor: NonNullable<typeof image_editor>
+	): Promise<Blob> {
+		const clip_duration_seconds = post_video_trim_end_seconds - post_video_trim_start_seconds;
+		if (clip_duration_seconds <= 0) {
+			throw new Error('Choose a valid start and end time for the video clip.');
+		}
+
+		if (typeof MediaRecorder === 'undefined') {
+			throw new Error('This browser cannot trim videos here yet.');
+		}
+
+		const mime_type =
+			['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find((value) =>
+				MediaRecorder.isTypeSupported(value)
+			) ?? '';
+		if (!mime_type) {
+			throw new Error('This browser cannot export a trimmed video clip yet.');
+		}
+
+		const source_video = document.createElement('video');
+		source_video.src = editor.src;
+		source_video.preload = 'auto';
+		source_video.playsInline = true;
+		source_video.muted = true;
+
+		await new Promise<void>((resolve, reject) => {
+			source_video.onloadedmetadata = () => resolve();
+			source_video.onerror = () => reject(new Error('Video failed to load for trimming.'));
+		});
+		await seek_video_element(source_video, post_video_trim_start_seconds);
+
+		const capture_stream =
+			(source_video as VideoWithCaptureStream).captureStream?.() ??
+			(source_video as VideoWithCaptureStream).mozCaptureStream?.();
+		if (!capture_stream) {
+			throw new Error('This browser cannot capture the trimmed video segment.');
+		}
+
+		const chunks: BlobPart[] = [];
+		let settled = false;
+		let stop_timeout: ReturnType<typeof setTimeout> | undefined;
+		let timeupdate_cleanup: () => void = noop;
+
+		const cleanup = () => {
+			if (stop_timeout) {
+				clearTimeout(stop_timeout);
+				stop_timeout = undefined;
+			}
+
+			timeupdate_cleanup();
+			source_video.pause();
+			capture_stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+			source_video.src = '';
+		};
+
+		const stop_recording = (recorder: MediaRecorder) => {
+			if (settled) {
+				return;
+			}
+
+			settled = true;
+			if (recorder.state !== 'inactive') {
+				recorder.stop();
+			}
+		};
+
+		const recorder = new MediaRecorder(capture_stream, {
+			audioBitsPerSecond: 128_000,
+			mimeType: mime_type,
+			videoBitsPerSecond: 3_500_000
+		});
+
+		const completion = new Promise<Blob>((resolve, reject) => {
+			recorder.ondataavailable = (event) => {
+				if (event.data.size > 0) {
+					chunks.push(event.data);
+				}
+			};
+			recorder.onerror = () => {
+				cleanup();
+				reject(new Error('Unable to trim that video right now.'));
+			};
+			recorder.onstop = () => {
+				cleanup();
+				resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
+			};
+		});
+
+		const handle_time_update = () => {
+			if (source_video.currentTime >= post_video_trim_end_seconds - 0.05) {
+				stop_recording(recorder);
+			}
+		};
+		source_video.addEventListener('timeupdate', handle_time_update);
+		timeupdate_cleanup = () => {
+			source_video.removeEventListener('timeupdate', handle_time_update);
+		};
+
+		stop_timeout = setTimeout(
+			() => {
+				stop_recording(recorder);
+			},
+			Math.ceil((clip_duration_seconds + 0.75) * 1000)
+		);
+
+		recorder.start(250);
+		await source_video.play();
+
+		return completion;
+	}
+
+	async function submit_video_editor_file(editor: NonNullable<typeof image_editor>) {
+		if (!post_video_input) {
+			throw new Error('Video upload form is unavailable.');
+		}
+
+		const trimmed_blob = await create_trimmed_video_blob(editor);
+		const trimmed_duration_seconds = post_video_trim_end_seconds - post_video_trim_start_seconds;
+		const trimmed_file_name = `${editor.file_name.replace(/\.[^.]+$/u, '') || 'video'}-trimmed.webm`;
+		const trimmed_file = new File([trimmed_blob], trimmed_file_name, {
+			type: trimmed_blob.type || 'video/webm'
+		});
+		const transfer = new DataTransfer();
+		transfer.items.add(trimmed_file);
+
+		if (video_src) {
+			URL.revokeObjectURL(video_src);
+		}
+
+		post_video_input.files = transfer.files;
+		selected_video = trimmed_file;
+		post_editor_source_file = trimmed_file;
+		video_src = URL.createObjectURL(trimmed_file);
+		post_video_duration_seconds = trimmed_duration_seconds;
+		post_video_trim_start_seconds = 0;
+		post_video_trim_end_seconds = trimmed_duration_seconds;
+		video_trim_preview_focus = 'start';
+		selected_image = undefined;
+		image_src = '';
+		upload_media_error = '';
+		close_image_editor({ reset_inputs: false });
+	}
+
+	function begin_applying_image_editor() {
+		is_applying_image_editor = true;
+		stop_image_editor_zoom_step();
+		image_editor_drag_state = undefined;
+		image_editor_error = '';
+	}
+
+	function get_apply_error_message(error: unknown, fallback: string) {
+		return error instanceof Error ? error.message : fallback;
+	}
+
+	function validate_video_editor_range() {
+		if (post_video_trim_end_seconds <= post_video_trim_start_seconds) {
+			return 'Choose a valid start and end time for the video clip.';
+		}
+
+		if (post_video_trim_end_seconds - post_video_trim_start_seconds > 60) {
+			return 'Trim the video to 60 seconds or less before posting.';
+		}
+
+		return '';
+	}
+
+	async function apply_video_editor(editor: NonNullable<typeof image_editor>) {
+		const validation_message = validate_video_editor_range();
+
+		if (validation_message) {
+			image_editor_error = validation_message;
+			return;
+		}
+
+		begin_applying_image_editor();
+		video_editor_preview_element?.pause();
+
+		try {
+			await submit_video_editor_file(editor);
+		} catch (error) {
+			image_editor_error = get_apply_error_message(
+				error,
+				'Unable to prepare that video right now.'
+			);
+			is_applying_image_editor = false;
+		}
+	}
+
+	async function apply_crop_editor(editor: NonNullable<typeof image_editor>) {
 		const frame = get_image_editor_frame_size();
 		const scale = get_image_editor_scale();
 
@@ -993,17 +1499,37 @@
 			return;
 		}
 
-		image_editor_error = '';
-		is_applying_image_editor = true;
+		begin_applying_image_editor();
 
 		try {
 			const blob = await create_editor_blob(editor, frame, scale);
 			submit_cropped_editor_file(editor, blob);
 		} catch (error) {
-			image_editor_error =
-				error instanceof Error ? error.message : 'Unable to prepare that image right now.';
+			image_editor_error = get_apply_error_message(
+				error,
+				'Unable to prepare that image right now.'
+			);
 			is_applying_image_editor = false;
 		}
+	}
+
+	async function apply_image_editor() {
+		if (is_applying_image_editor) {
+			return;
+		}
+
+		const editor = image_editor;
+
+		if (!editor) {
+			return;
+		}
+
+		if (editor.mode === 'video-post') {
+			await apply_video_editor(editor);
+			return;
+		}
+
+		await apply_crop_editor(editor);
 	}
 
 	async function handle_return_navigation() {
@@ -1792,11 +2318,11 @@
 
 		{#if !is_editing_profile}
 			<div
-				class=" mt-6 flex items-center gap-2 rounded-full border-[6px] border-[#535060] bg-[#474555] p-1.5 text-sm font-bold"
+				class="mt-4 flex items-center gap-1 rounded-full border-[3px] border-[#535060] bg-[#474555] p-1 text-xs font-bold md:mt-6 md:gap-2 md:border-[6px] md:p-1.5 md:text-sm"
 			>
 				<button
 					onclick={() => (active_tab = 'posts')}
-					class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
+					class="flex-1 cursor-pointer rounded-full border py-2 text-center text-white opacity-85 transition-all hover:opacity-100 md:border-2 md:py-3 {active_tab ===
 					'posts'
 						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
 						: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
@@ -1805,7 +2331,7 @@
 				</button>
 				<button
 					onclick={() => (active_tab = 'videos')}
-					class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
+					class="flex-1 cursor-pointer rounded-full border py-2 text-center text-white opacity-85 transition-all hover:opacity-100 md:border-2 md:py-3 {active_tab ===
 					'videos'
 						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
 						: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
@@ -1814,7 +2340,7 @@
 				</button>
 				<button
 					onclick={() => (active_tab = 'shared')}
-					class="flex-1 cursor-pointer rounded-full border-2 py-3 text-center text-white opacity-85 transition-all hover:opacity-100 {active_tab ===
+					class="flex-1 cursor-pointer rounded-full border py-2 text-center text-white opacity-85 transition-all hover:opacity-100 md:border-2 md:py-3 {active_tab ===
 					'shared'
 						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
 						: 'border-[#7DD4FF] bg-linear-to-r from-[#4B7F99] via-[#7DD4FF] to-[#B9E8FF]'}"
@@ -1832,7 +2358,7 @@
 				{#if data['relationship'].is_own_profile}
 					<button
 						type="button"
-						onclick={open_upload_modal}
+						onclick={() => open_upload_modal('image')}
 						class="flex aspect-square cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
 					>
 						<span class="text-5xl font-light text-white/70">+</span>
@@ -1868,11 +2394,30 @@
 				{#if data['relationship'].is_own_profile}
 					<button
 						type="button"
+						onclick={() => open_upload_modal('video')}
 						class="flex aspect-9/16 cursor-pointer items-center justify-center rounded-xl border border-purple-500/20 bg-linear-to-br from-[#7DD4FF] via-[#AAAAAA] to-[#CD82FF] transition-transform hover:scale-[0.98] md:rounded-2xl"
 					>
 						<span class="text-5xl font-light text-white/70">+</span>
 					</button>
 				{/if}
+
+				{#each video_tiles as post (post.id)}
+					<a
+						href={resolve(
+							`/profile/${encodeURIComponent(data['profile'].username)}/posts/${post.id}`
+						)}
+						class="block aspect-9/16 cursor-pointer overflow-hidden rounded-xl bg-black transition-transform hover:scale-[0.98] md:rounded-2xl"
+						aria-label="Open video post"
+					>
+						<video
+							src={post.video_url}
+							class="h-full w-full object-cover"
+							muted
+							playsinline
+							preload="metadata"
+						></video>
+					</a>
+				{/each}
 			</div>
 		{/if}
 
@@ -1889,24 +2434,27 @@
 		class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm md:px-4"
 		role="dialog"
 		aria-modal="true"
+		aria-busy={submitting_post}
 		tabindex="0"
 		bind:this={upload_modal_backdrop}
 		transition:fade={{ duration: 180 }}
 		onclick={(event) => {
-			if (event.target === event.currentTarget) {
+			if (event.target === event.currentTarget && !submitting_post) {
 				close_upload_modal();
 			}
 		}}
 		onkeydown={(event) => {
-			if (event.key === 'Escape') {
+			if (event.key === 'Escape' && !submitting_post) {
 				close_upload_modal();
 			}
 		}}
 	>
 		<div
-			class="w-full rounded-[1.25rem] bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src
+			class="w-full rounded-[1.25rem] bg-linear-to-r from-[#7DD4FF] to-[#CD82FF] p-px transition-all duration-500 ease-in-out md:rounded-3xl {image_src ||
+			video_src
 				? 'max-w-4xl'
 				: 'max-w-lg'}"
+			inert={submitting_post}
 			transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 		>
 			<div
@@ -1919,45 +2467,82 @@
 					onsubmit={handle_post_submit}
 					class="flex flex-1 flex-col"
 				>
+					<input type="hidden" name="media_type" value={upload_media_type} />
+					{#if upload_media_type === 'video'}
+						<input
+							type="hidden"
+							name="trim_start_seconds"
+							value={String(post_video_trim_start_seconds)}
+						/>
+						<input
+							type="hidden"
+							name="trim_end_seconds"
+							value={String(post_video_trim_end_seconds)}
+						/>
+						<input
+							type="hidden"
+							name="video_duration_seconds"
+							value={String(post_video_duration_seconds)}
+						/>
+					{/if}
 					<div
 						class="flex items-center justify-between border-b border-white/40 px-3 py-2 md:px-4 md:py-3"
 					>
 						<div class="w-5"></div>
 
-						<h2 class="text-sm font-semibold text-white md:text-base">Create post</h2>
+						<h2 class="text-sm font-semibold text-white md:text-base">
+							{upload_media_type === 'video' ? 'Create video post' : 'Create post'}
+						</h2>
 
 						<button
 							type="button"
 							onclick={close_upload_modal}
 							class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-sm text-white hover:bg-[#4e4f50] md:h-8 md:w-8 md:text-base"
+							disabled={submitting_post}
 						>
 							✕
 						</button>
 					</div>
 
 					<div class="flex flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-						{#if image_src}
+						{#if image_src || video_src}
 							<div
 								class="relative flex h-40 w-full shrink-0 items-center justify-center overflow-hidden border-b border-white/40 bg-[#18191a] p-2 min-[480px]:h-48 md:h-auto md:w-1/2 md:border-r md:border-b-0 md:p-6"
 							>
-								<img
-									src={image_src}
-									alt="Preview"
-									class="max-h-full w-auto max-w-full rounded-[1.1rem] object-contain md:rounded-[1.6rem]"
-									decoding="async"
-								/>
+								{#if upload_media_type === 'video' && video_src}
+									<!-- svelte-ignore a11y_media_has_caption -->
+									<video
+										src={video_src}
+										class="max-h-full w-auto max-w-full rounded-[1.1rem] object-contain md:rounded-[1.6rem]"
+										controls
+										playsinline
+										preload="metadata"
+									></video>
+								{:else}
+									<img
+										src={image_src}
+										alt="Preview"
+										class="max-h-full w-auto max-w-full rounded-[1.1rem] object-contain md:rounded-[1.6rem]"
+										decoding="async"
+									/>
+								{/if}
 
 								<button
 									type="button"
 									onclick={remove_image}
 									class="editor-remove-action absolute top-2 right-2 grid h-8 w-8 cursor-pointer place-items-center rounded-full text-sm md:top-4 md:right-4 md:h-9 md:w-9 md:text-base"
+									disabled={submitting_post}
 								>
 									✕
 								</button>
 							</div>
 						{/if}
 
-						<div class="flex w-full flex-1 flex-col p-3 md:p-4 {image_src ? 'md:w-1/2' : ''}">
+						<div
+							class="flex w-full flex-1 flex-col p-3 md:p-4 {image_src || video_src
+								? 'md:w-1/2'
+								: ''}"
+						>
 							<div class="mb-2 flex items-center gap-2 md:mb-4 md:gap-3">
 								<div
 									class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-500 text-[11px] text-white md:h-10 md:w-10 md:text-xs"
@@ -1986,9 +2571,11 @@
 								id="upload-caption"
 								name="caption"
 								bind:value={caption}
-								rows={image_src ? 6 : 4}
+								rows={image_src || video_src ? 6 : 4}
 								placeholder="Write a caption..."
-								class="min-h-18 w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none md:min-h-28 {image_src
+								readonly={submitting_post}
+								class="min-h-18 w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none md:min-h-28 {image_src ||
+								video_src
 									? 'text-sm'
 									: 'text-base md:text-lg'}"
 							></textarea>
@@ -2004,44 +2591,70 @@
 									{post_validation_message}
 								</p>
 							{/if}
+							{#if upload_media_error}
+								<p class="mb-2 text-sm text-amber-200" aria-live="polite">
+									{upload_media_error}
+								</p>
+							{/if}
 
 							<label
-								for="file-upload"
-								class="mt-auto flex cursor-pointer items-center justify-between rounded-lg border border-white/40 px-3 py-2 hover:bg-white/5 md:px-4 md:py-3"
+								for={upload_media_type === 'video' ? 'video-upload' : 'file-upload'}
+								class="mt-auto flex items-center justify-between rounded-lg border border-white/40 px-3 py-2 hover:bg-white/5 md:px-4 md:py-3 {submitting_post
+									? 'cursor-not-allowed opacity-55'
+									: 'cursor-pointer'}"
 							>
 								<span class="text-xs font-semibold text-white md:text-sm">
-									{image_src ? 'Photo selected' : 'Add a photo'}
+									{upload_media_type === 'video'
+										? video_src
+											? 'Video selected'
+											: 'Add a video'
+										: image_src
+											? 'Photo selected'
+											: 'Add a photo'}
 								</span>
 
 								<span class="rounded-full p-1 text-xl">🖼️</span>
 							</label>
-							{#if image_src}
+							{#if image_src || video_src}
 								<button
 									type="button"
 									onclick={reopen_post_image_editor}
 									class="mt-2 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-2 text-xs font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99] md:mt-3 md:py-3 md:text-sm"
+									disabled={submitting_post}
 								>
-									Edit photo
+									{upload_media_type === 'video' ? 'Edit video' : 'Edit photo'}
 								</button>
 							{/if}
-							<input
-								bind:this={post_image_input}
-								id="file-upload"
-								type="file"
-								name="image"
-								accept="image/*"
-								class="sr-only"
-								onchange={handle_file_change}
-							/>
+							{#if upload_media_type === 'video'}
+								<input
+									bind:this={post_video_input}
+									id="video-upload"
+									type="file"
+									name="media"
+									accept="video/mp4,video/quicktime,video/webm"
+									class="sr-only"
+									onchange={handle_video_file_change}
+								/>
+							{:else}
+								<input
+									bind:this={post_image_input}
+									id="file-upload"
+									type="file"
+									name="media"
+									accept="image/*"
+									class="sr-only"
+									onchange={handle_image_file_change}
+								/>
+							{/if}
 
 							<button
 								type="submit"
-								class="mt-3 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!selected_image ||
+								class="mt-3 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!selected_post_media ||
 								caption.length > 1000 ||
 								submitting_post
 									? 'cursor-not-allowed opacity-50'
 									: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
-								disabled={!selected_image || caption.length > 1000 || submitting_post}
+								disabled={!selected_post_media || caption.length > 1000 || submitting_post}
 							>
 								{submitting_post ? 'Posting...' : 'Post'}
 							</button>
@@ -2050,6 +2663,19 @@
 				</form>
 			</div>
 		</div>
+		{#if submitting_post}
+			<div
+				class="absolute inset-0 z-80 grid cursor-wait place-items-center bg-black/38 backdrop-blur-[2px]"
+				aria-live="polite"
+			>
+				<div
+					class="flex items-center gap-3 rounded-full border border-white/12 bg-[rgba(8,7,24,0.9)] px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_60px_rgba(0,0,0,0.38)]"
+				>
+					<span class="editor-processing-spinner" aria-hidden="true"></span>
+					<span>Posting...</span>
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}
 
@@ -2117,11 +2743,14 @@
 		class="fixed inset-0 z-70 flex items-center justify-center overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.18),transparent_32%),rgba(4,3,13,0.9)] px-2 py-2 backdrop-blur-md md:px-6 md:py-6"
 		role="dialog"
 		aria-modal="true"
+		aria-busy={is_applying_image_editor}
 		aria-label={image_editor.mode === 'cover'
 			? 'Edit cover image'
 			: image_editor.mode === 'post'
 				? 'Edit post image'
-				: 'Edit profile image'}
+				: image_editor.mode === 'video-post'
+					? 'Edit post video'
+					: 'Edit profile image'}
 		tabindex="0"
 		bind:this={image_editor_backdrop}
 		transition:fade={{ duration: 180 }}
@@ -2137,12 +2766,25 @@
 		}}
 	>
 		<div
-			class="editor-shell max-h-[calc(100dvh-1rem)] w-full max-w-5xl overflow-y-auto rounded-[1.1rem] border border-white/12 md:max-h-[90vh] md:rounded-[1.75rem]"
+			class="editor-shell max-h-[calc(100dvh-1rem)] w-full max-w-5xl overflow-y-auto rounded-[1.1rem] border border-white/12 md:max-h-[90vh] md:rounded-[1.75rem] {image_editor.mode ===
+			'video-post'
+				? 'editor-shell-video'
+				: ''} {image_editor.natural_width < image_editor.natural_height
+				? 'editor-shell-vertical-media'
+				: ''}"
+			inert={is_applying_image_editor}
+			style={image_editor.mode === 'video-post'
+				? `--editor-video-preview-column-width:${image_editor.natural_width >= image_editor.natural_height ? 'min(62vw, 720px)' : `min(48vw, ${image_editor_frame_ratio * 82}dvh)`};--editor-video-shell-width:${image_editor.natural_width >= image_editor.natural_height ? 'min(96vw, 1080px)' : 'min(96vw, 860px)'};`
+				: undefined}
 			transition:scale={{ duration: 220, start: 0.96, opacity: 0.55 }}
 		>
-			<div class="grid gap-0 lg:grid-cols-[minmax(260px,320px)_1fr]">
+			<div
+				class="grid gap-0 lg:grid-cols-[minmax(260px,320px)_1fr] {image_editor.mode === 'video-post'
+					? 'editor-layout-video'
+					: ''}"
+			>
 				<div
-					class="order-2 border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-2.5 md:p-5 lg:order-1 lg:border-t-0 lg:border-r lg:p-6"
+					class="editor-controls-pane order-2 border-t border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-2.5 md:p-5 lg:order-1 lg:border-t-0 lg:border-r lg:p-6"
 				>
 					<div class="flex items-start justify-between gap-4">
 						<div>
@@ -2156,7 +2798,9 @@
 									? 'Cover'
 									: image_editor.mode === 'post'
 										? 'Post'
-										: 'Profile'}
+										: image_editor.mode === 'video-post'
+											? 'Video'
+											: 'Profile'}
 							</h2>
 						</div>
 						<button
@@ -2175,63 +2819,172 @@
 					<div
 						class="mt-2 rounded-2xl border border-white/8 bg-white/[0.035] p-2.5 md:mt-4 md:rounded-[1.35rem] md:p-4"
 					>
-						<div class="flex items-center justify-between gap-3">
-							<span class="text-xs font-medium text-white/84 md:text-sm">Zoom</span>
-							<button
-								type="button"
-								onclick={reset_image_editor_view}
-								class="editor-reset-action rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase transition-colors md:px-3 md:text-[11px] md:tracking-[0.18em]"
-							>
-								Reset
-							</button>
-						</div>
+						{#if image_editor.mode === 'video-post'}
+							<div class="flex items-center justify-between gap-3">
+								<span class="text-xs font-medium text-white/84 md:text-sm">Trim</span>
+								<span class="text-[11px] font-semibold tracking-[0.12em] text-sky-200/70 uppercase">
+									{format_media_time(post_video_trim_end_seconds - post_video_trim_start_seconds)}
+								</span>
+							</div>
 
-						<div class="mt-2 flex items-center gap-2 md:mt-4">
-							<button
-								type="button"
-								onpointerdown={() => start_image_editor_zoom_step(-1)}
-								onpointerup={stop_image_editor_zoom_step}
-								onpointercancel={stop_image_editor_zoom_step}
-								onpointerleave={stop_image_editor_zoom_step}
-								onblur={stop_image_editor_zoom_step}
-								class="editor-zoom-step"
-								aria-label="Zoom out"
-							>
-								-
-							</button>
-							<input
-								type="range"
-								min="1"
-								max="3"
-								step="0.01"
-								value={image_editor_zoom}
-								oninput={(event) => {
-									const next_value = Number((event.currentTarget as HTMLInputElement).value);
-									update_image_editor_zoom(next_value);
-								}}
-								class="editor-slider w-full"
-								aria-label="Zoom image"
-							/>
-							<button
-								type="button"
-								onpointerdown={() => start_image_editor_zoom_step(1)}
-								onpointerup={stop_image_editor_zoom_step}
-								onpointercancel={stop_image_editor_zoom_step}
-								onpointerleave={stop_image_editor_zoom_step}
-								onblur={stop_image_editor_zoom_step}
-								class="editor-zoom-step"
-								aria-label="Zoom in"
-							>
-								+
-							</button>
-						</div>
+							<div class="mt-3 space-y-3">
+								<div>
+									<div class="mb-1 flex items-center justify-between text-[11px] text-white/68">
+										<span>Start</span>
+										<span>{format_media_time(post_video_trim_start_seconds)}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<button
+											type="button"
+											onclick={() => adjust_video_trim_point('start', -1)}
+											class="editor-zoom-step"
+											aria-label="Trim video start back by 1 second"
+											disabled={is_applying_image_editor}
+										>
+											-
+										</button>
+										<input
+											type="range"
+											min="0"
+											max={Math.max(0, post_video_duration_seconds - 1)}
+											step="any"
+											value={post_video_trim_start_seconds}
+											oninput={handle_video_trim_start_input}
+											class="editor-slider w-full"
+											aria-label="Trim video start"
+											disabled={is_applying_image_editor}
+										/>
+										<button
+											type="button"
+											onclick={() => adjust_video_trim_point('start', 1)}
+											class="editor-zoom-step"
+											aria-label="Trim video start forward by 1 second"
+											disabled={is_applying_image_editor}
+										>
+											+
+										</button>
+									</div>
+								</div>
+								<div>
+									<div class="mb-1 flex items-center justify-between text-[11px] text-white/68">
+										<span>End</span>
+										<span>{format_media_time(post_video_trim_end_seconds)}</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<button
+											type="button"
+											onclick={() => adjust_video_trim_point('end', -1)}
+											class="editor-zoom-step"
+											aria-label="Trim video end back by 1 second"
+											disabled={is_applying_image_editor}
+										>
+											-
+										</button>
+										<input
+											type="range"
+											min="1"
+											max={Math.max(1, post_video_duration_seconds)}
+											step="any"
+											value={post_video_trim_end_seconds}
+											oninput={handle_video_trim_end_input}
+											class="editor-slider w-full"
+											aria-label="Trim video end"
+											disabled={is_applying_image_editor}
+										/>
+										<button
+											type="button"
+											onclick={() => adjust_video_trim_point('end', 1)}
+											class="editor-zoom-step"
+											aria-label="Trim video end forward by 1 second"
+											disabled={is_applying_image_editor}
+										>
+											+
+										</button>
+									</div>
+								</div>
+							</div>
 
-						<div
-							class="mt-2 hidden items-center justify-between text-[11px] font-medium tracking-[0.16em] text-white/42 uppercase md:flex"
-						>
-							<span>Wide</span>
-							<span>Close</span>
-						</div>
+							{#if post_video_duration_seconds > 60}
+								<p class="mt-3 text-sm text-amber-200">
+									This video is longer than 1 minute. Trim it to 60 seconds or less before posting.
+								</p>
+							{/if}
+							<p class="mt-3 text-sm text-white/68">
+								Estimated trimmed size: {estimated_trimmed_video_bytes <= 0
+									? '0'
+									: Math.max(
+											0.1,
+											Math.round((estimated_trimmed_video_bytes / (1024 * 1024)) * 10) / 10
+										)} MB
+							</p>
+							{#if estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES}
+								<p class="mt-2 text-sm text-amber-200">
+									Trim more to get the estimated clip size down to 40MB or less before posting.
+								</p>
+							{/if}
+						{:else}
+							<div class="flex items-center justify-between gap-3">
+								<span class="text-xs font-medium text-white/84 md:text-sm">Zoom</span>
+								<button
+									type="button"
+									onclick={reset_image_editor_view}
+									class="editor-reset-action rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase transition-colors md:px-3 md:text-[11px] md:tracking-[0.18em]"
+									disabled={is_applying_image_editor}
+								>
+									Reset
+								</button>
+							</div>
+
+							<div class="mt-2 flex items-center gap-2 md:mt-4">
+								<button
+									type="button"
+									onpointerdown={() => start_image_editor_zoom_step(-1)}
+									onpointerup={stop_image_editor_zoom_step}
+									onpointercancel={stop_image_editor_zoom_step}
+									onpointerleave={stop_image_editor_zoom_step}
+									onblur={stop_image_editor_zoom_step}
+									class="editor-zoom-step"
+									aria-label="Zoom out"
+									disabled={is_applying_image_editor}
+								>
+									-
+								</button>
+								<input
+									type="range"
+									min="1"
+									max="3"
+									step="0.01"
+									value={image_editor_zoom}
+									oninput={(event) => {
+										const next_value = Number((event.currentTarget as HTMLInputElement).value);
+										update_image_editor_zoom(next_value);
+									}}
+									class="editor-slider w-full"
+									aria-label="Zoom image"
+									disabled={is_applying_image_editor}
+								/>
+								<button
+									type="button"
+									onpointerdown={() => start_image_editor_zoom_step(1)}
+									onpointerup={stop_image_editor_zoom_step}
+									onpointercancel={stop_image_editor_zoom_step}
+									onpointerleave={stop_image_editor_zoom_step}
+									onblur={stop_image_editor_zoom_step}
+									class="editor-zoom-step"
+									aria-label="Zoom in"
+									disabled={is_applying_image_editor}
+								>
+									+
+								</button>
+							</div>
+
+							<div
+								class="mt-2 hidden items-center justify-between text-[11px] font-medium tracking-[0.16em] text-white/42 uppercase md:flex"
+							>
+								<span>Wide</span>
+								<span>Close</span>
+							</div>
+						{/if}
 					</div>
 
 					{#if image_editor_error}
@@ -2264,25 +3017,46 @@
 					</div>
 				</div>
 
-				<div class="order-1 p-1.5 md:p-5 lg:order-2 lg:p-7">
-					<div
-						class="rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.018))] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:rounded-[1.55rem] md:p-4 lg:p-5"
-					>
-						<div class="hidden justify-center md:mb-3 md:flex">
-							<p class="text-[11px] font-semibold tracking-[0.24em] text-white/48 uppercase">
-								Preview
-							</p>
-						</div>
-
-						<div
-							class="editor-preview-shell mx-auto flex w-full max-w-4xl items-center justify-center rounded-2xl p-1.5 md:rounded-[1.7rem] md:p-4"
-						>
-							{#if image_editor.mode === 'cover'}
+				<div
+					class="editor-preview-pane order-1 flex min-h-0 items-center justify-center lg:order-2"
+				>
+					<div class="mx-auto flex w-full max-w-4xl items-center justify-center">
+						{#if image_editor.mode === 'cover'}
+							<div
+								bind:this={image_editor_stage}
+								class="editor-stage relative mx-auto aspect-16/6 w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.45rem]"
+								role="presentation"
+								style="touch-action:none;"
+								onpointerdown={begin_image_editor_drag}
+								onpointermove={move_image_editor_drag}
+								onpointerup={end_image_editor_drag}
+								onpointercancel={end_image_editor_drag}
+							>
+								<img
+									src={image_editor.src}
+									alt="Selected cover preview"
+									class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
+									style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
+									draggable="false"
+								/>
+								{#if image_editor_drag_hint_visible}
+									<div
+										class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center"
+									>
+										<span aria-hidden="true">Drag</span>
+									</div>
+								{/if}
+								<div
+									class="editor-stage-frame pointer-events-none absolute inset-0 border-6 md:border-12"
+								></div>
+							</div>
+						{:else if image_editor.mode === 'post'}
+							<div class="flex min-h-0 w-full items-center justify-center md:min-h-115">
 								<div
 									bind:this={image_editor_stage}
-									class="editor-stage relative mx-auto aspect-16/6 w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.45rem]"
+									class="editor-stage editor-post-stage relative w-full overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.75rem]"
 									role="presentation"
-									style="touch-action:none;"
+									style={`touch-action:none;aspect-ratio:${image_editor_frame_ratio};--post-editor-mobile-max-width:${image_editor_frame_ratio * 34}dvh;--post-editor-max-width:${image_editor.natural_width >= image_editor.natural_height ? '640px' : `min(100%, ${image_editor_frame_ratio * 82}dvh)`};`}
 									onpointerdown={begin_image_editor_drag}
 									onpointermove={move_image_editor_drag}
 									onpointerup={end_image_editor_drag}
@@ -2290,7 +3064,7 @@
 								>
 									<img
 										src={image_editor.src}
-										alt="Selected cover preview"
+										alt="Selected post preview"
 										class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
 										style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
 										draggable="false"
@@ -2303,76 +3077,96 @@
 										</div>
 									{/if}
 									<div
-										class="editor-stage-frame pointer-events-none absolute inset-0 border-6 md:border-12"
+										class="editor-stage-frame pointer-events-none absolute inset-0 rounded-2xl border-6 md:rounded-[1.75rem] md:border-12"
 									></div>
 								</div>
-							{:else if image_editor.mode === 'post'}
-								<div class="flex min-h-0 w-full items-center justify-center md:min-h-115">
-									<div
-										bind:this={image_editor_stage}
-										class="editor-stage editor-post-stage relative w-full overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.75rem]"
-										role="presentation"
-										style={`touch-action:none;aspect-ratio:${image_editor_frame_ratio};--post-editor-mobile-max-width:${image_editor_frame_ratio * 34}dvh;--post-editor-max-width:${image_editor.natural_width >= image_editor.natural_height ? '640px' : '380px'};`}
-										onpointerdown={begin_image_editor_drag}
-										onpointermove={move_image_editor_drag}
-										onpointerup={end_image_editor_drag}
-										onpointercancel={end_image_editor_drag}
-									>
-										<img
-											src={image_editor.src}
-											alt="Selected post preview"
-											class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
-											style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
-											draggable="false"
-										/>
-										{#if image_editor_drag_hint_visible}
-											<div
-												class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center"
-											>
-												<span aria-hidden="true">Drag</span>
-											</div>
-										{/if}
-										<div
-											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-2xl border-6 md:rounded-[1.75rem] md:border-12"
-										></div>
-									</div>
+							</div>
+						{:else if image_editor.mode === 'video-post'}
+							<div
+								class="editor-video-preview-wrap flex min-h-0 w-full items-center justify-center"
+							>
+								<div
+									class="editor-stage editor-post-stage editor-video-stage relative w-full overflow-hidden rounded-2xl border border-white/10 md:rounded-[1.75rem]"
+									role="presentation"
+									style={`aspect-ratio:${image_editor_frame_ratio};--post-editor-mobile-max-width:${image_editor_frame_ratio * 22}dvh;--post-editor-max-width:${image_editor.natural_width >= image_editor.natural_height ? '100%' : `min(100%, ${image_editor_frame_ratio * 82}dvh)`};--post-editor-video-max-width:${image_editor.natural_width >= image_editor.natural_height ? '100%' : `min(100%, ${image_editor_frame_ratio * 82}dvh)`};--post-editor-video-max-height:${image_editor.natural_width >= image_editor.natural_height ? 'min(32dvh, calc(100dvh - 21rem))' : '82dvh'};`}
+								>
+									<!-- svelte-ignore a11y_media_has_caption -->
+									<video
+										bind:this={video_editor_preview_element}
+										src={image_editor.src}
+										controls
+										playsinline
+										preload="metadata"
+										onloadedmetadata={() => {
+											sync_video_trim_preview(video_trim_preview_focus);
+										}}
+										class="h-full w-full object-contain"
+									></video>
 								</div>
-							{:else}
-								<div class="flex min-h-0 w-full items-center justify-center md:min-h-105">
-									<div
-										bind:this={image_editor_stage}
-										class="editor-stage relative aspect-square w-full max-w-42 overflow-hidden rounded-full border border-white/10 min-[390px]:max-w-46 min-[480px]:max-w-52 md:max-w-105"
-										role="presentation"
-										style="touch-action:none;"
-										onpointerdown={begin_image_editor_drag}
-										onpointermove={move_image_editor_drag}
-										onpointerup={end_image_editor_drag}
-										onpointercancel={end_image_editor_drag}
-									>
-										<img
-											src={image_editor.src}
-											alt="Selected profile preview"
-											class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
-											style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
-											draggable="false"
-										/>
-										{#if image_editor_drag_hint_visible}
-											<div
-												class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center rounded-full"
-											>
-												<span aria-hidden="true">Drag</span>
-											</div>
-										{/if}
+							</div>
+						{:else}
+							<div class="flex min-h-0 w-full items-center justify-center md:min-h-105">
+								<div
+									bind:this={image_editor_stage}
+									class="editor-stage relative aspect-square w-full max-w-42 overflow-hidden rounded-full border border-white/10 min-[390px]:max-w-46 min-[480px]:max-w-52 md:max-w-105"
+									role="presentation"
+									style="touch-action:none;"
+									onpointerdown={begin_image_editor_drag}
+									onpointermove={move_image_editor_drag}
+									onpointerup={end_image_editor_drag}
+									onpointercancel={end_image_editor_drag}
+								>
+									<img
+										src={image_editor.src}
+										alt="Selected profile preview"
+										class="absolute top-1/2 left-1/2 max-w-none object-cover select-none"
+										style={`width:${image_editor.natural_width * (get_image_editor_scale() ?? 1)}px;height:${image_editor.natural_height * (get_image_editor_scale() ?? 1)}px;transform:translate(calc(-50% + ${image_editor_offset_x}px), calc(-50% + ${image_editor_offset_y}px));`}
+										draggable="false"
+									/>
+									{#if image_editor_drag_hint_visible}
 										<div
-											class="editor-stage-frame pointer-events-none absolute inset-0 rounded-full border-6 md:border-12"
-										></div>
-									</div>
+											class="editor-drag-hint pointer-events-none absolute inset-0 grid place-items-center rounded-full"
+										>
+											<span aria-hidden="true">Drag</span>
+										</div>
+									{/if}
+									<div
+										class="editor-stage-frame pointer-events-none absolute inset-0 rounded-full border-6 md:border-12"
+									></div>
 								</div>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					</div>
 				</div>
 			</div>
+		</div>
+		{#if is_applying_image_editor}
+			<div
+				class="absolute inset-0 z-80 grid cursor-wait place-items-center bg-black/38 backdrop-blur-[2px]"
+				aria-live="polite"
+			>
+				<div
+					class="flex items-center gap-3 rounded-full border border-white/12 bg-[rgba(8,7,24,0.86)] px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_60px_rgba(0,0,0,0.38)]"
+				>
+					<span class="editor-processing-spinner" aria-hidden="true"></span>
+					<span>{image_editor.mode === 'video-post' ? 'Applying trim...' : 'Saving...'}</span>
+				</div>
+			</div>
+		{/if}
+	</div>
+{/if}
+
+{#if is_saving_profile_media}
+	<div
+		class="fixed inset-0 z-90 grid cursor-wait place-items-center bg-black/45 backdrop-blur-[2px]"
+		role="status"
+		aria-live="polite"
+	>
+		<div
+			class="flex items-center gap-3 rounded-full border border-white/12 bg-[rgba(8,7,24,0.9)] px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_60px_rgba(0,0,0,0.38)]"
+		>
+			<span class="editor-processing-spinner" aria-hidden="true"></span>
+			<span>Updating...</span>
 		</div>
 	</div>
 {/if}

@@ -11,8 +11,14 @@ import { follows, media, post_media, posts, profiles } from '$lib/server/db/sche
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { delete_image_by_public_id, upload_image_from_file } from '$lib/server/cloudinary';
+import {
+	delete_image_by_public_id,
+	delete_video_by_public_id,
+	upload_image_from_file,
+	upload_video_from_file
+} from '$lib/server/cloudinary';
 import { validate_uploaded_image } from '$lib/server/image-validation';
+import { validate_uploaded_video } from '$lib/server/video-validation';
 import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 import {
 	format_profile_phone,
@@ -71,10 +77,18 @@ const has_recent_duplicate_caption = async (
 const get_retry_message = (seconds: number, noun: string): string =>
 	`Too many ${noun}. Please try again in ${seconds} seconds.`;
 
-const get_missing_post_image_message = (caption: string): string =>
+const MAX_POST_VIDEO_DURATION_SECONDS = 60;
+const MAX_POST_VIDEO_OUTPUT_BYTES = 40 * 1024 * 1024;
+const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
+
+const get_missing_post_media_message = (caption: string, media_type: 'image' | 'video'): string =>
 	caption
-		? 'Add a photo before posting. Captions need an image.'
-		: 'Please choose a photo to upload.';
+		? media_type === 'video'
+			? 'Add a video before posting. Captions need a video.'
+			: 'Add a photo before posting. Captions need an image.'
+		: media_type === 'video'
+			? 'Please choose a video to upload.'
+			: 'Please choose a photo to upload.';
 
 const get_form_string = (form_data: FormData, key: string): string => {
 	const value = form_data.get(key);
@@ -193,10 +207,7 @@ const validate_profile_details_form = (
 
 	if (!is_valid_profile_email(form.email)) {
 		return fail(400, {
-			message: localize_profile_validation_message(
-				'Please enter a valid email address.',
-				locale
-			)
+			message: localize_profile_validation_message('Please enter a valid email address.', locale)
 		});
 	}
 
@@ -308,13 +319,15 @@ const validate_follow_action = async (params: {
 
 const rollback_failed_post_creation = async (params: {
 	db: ReturnType<typeof get_db>;
+	media_type: 'image' | 'video';
 	media_id: string;
 	post_id: string;
 	ismedia_created: boolean;
 	ispost_created: boolean;
 	uploaded_public_id: string;
 }): Promise<void> => {
-	const { db, media_id, post_id, ismedia_created, ispost_created, uploaded_public_id } = params;
+	const { db, media_id, media_type, post_id, ismedia_created, ispost_created, uploaded_public_id } =
+		params;
 
 	if (ismedia_created) {
 		await db.delete(media).where(eq(media.id, media_id));
@@ -325,10 +338,215 @@ const rollback_failed_post_creation = async (params: {
 	}
 
 	try {
+		if (media_type === 'video') {
+			await delete_video_by_public_id(uploaded_public_id);
+			return;
+		}
+
 		await delete_image_by_public_id(uploaded_public_id);
 	} catch {
-		console.error('Failed to clean up Cloudinary image after post creation failure');
+		console.error(`Failed to clean up Cloudinary ${media_type} after post creation failure`);
 	}
+};
+
+const validate_post_caption_submission = async (params: {
+	caption: string;
+	event: RequestEvent;
+	user_id: string;
+}): Promise<string | undefined> => {
+	const { caption, event, user_id } = params;
+
+	if (caption.length > 1000) {
+		return 'Caption must be 1000 characters or less.';
+	}
+
+	if (await has_recent_duplicate_caption(user_id, caption)) {
+		await record_security_event({
+			category: 'duplicate_caption',
+			details: 'recent-caption-match',
+			event
+		});
+		return 'You already used that caption recently. Please change it before posting again.';
+	}
+
+	return undefined;
+};
+
+const validate_post_media_selection = async (params: {
+	file: File;
+	media_type: 'image' | 'video';
+	video_duration_seconds: number | undefined;
+	trim_end_seconds: number | undefined;
+	trim_start_seconds: number;
+}): Promise<string | undefined> => {
+	const { file, media_type, trim_end_seconds, trim_start_seconds, video_duration_seconds } = params;
+
+	if (media_type === 'image') {
+		const post_image_validation = await validate_uploaded_image({
+			file,
+			max_bytes: 10 * 1024 * 1024,
+			size_message: 'Photo must be 10MB or smaller.',
+			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed.'
+		});
+		return post_image_validation.is_valid ? undefined : post_image_validation.message;
+	}
+
+	const post_video_validation = await validate_uploaded_video({
+		file,
+		max_bytes: MAX_POST_VIDEO_SOURCE_BYTES,
+		size_message: 'Video source must be 200MB or smaller before trimming.',
+		type_message: 'Only MP4, MOV, and WebM videos are allowed.'
+	});
+	if (!post_video_validation.is_valid) {
+		return post_video_validation.message;
+	}
+
+	if (
+		!Number.isFinite(trim_start_seconds) ||
+		trim_start_seconds < 0 ||
+		trim_end_seconds === undefined ||
+		!Number.isFinite(trim_end_seconds) ||
+		trim_end_seconds <= trim_start_seconds
+	) {
+		return 'Choose a valid video trim range before posting.';
+	}
+
+	if (trim_end_seconds - trim_start_seconds > MAX_POST_VIDEO_DURATION_SECONDS) {
+		return `Video clips must be ${MAX_POST_VIDEO_DURATION_SECONDS} seconds or shorter after trimming.`;
+	}
+
+	if (
+		video_duration_seconds === undefined ||
+		!Number.isFinite(video_duration_seconds) ||
+		video_duration_seconds <= 0
+	) {
+		return 'Video metadata could not be verified. Please choose the video again.';
+	}
+
+	const estimated_trimmed_bytes =
+		(file.size * (trim_end_seconds - trim_start_seconds)) / video_duration_seconds;
+	if (estimated_trimmed_bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
+		return 'Trim more to get the estimated clip size down to 40MB or less before posting.';
+	}
+
+	return undefined;
+};
+
+const prepare_post_media_upload = async (params: {
+	caption: string;
+	event: RequestEvent;
+	file: File;
+	user_id: string;
+	media_type: 'image' | 'video';
+	video_duration_seconds: number | undefined;
+	trim_end_seconds: number | undefined;
+	trim_start_seconds: number;
+}): Promise<
+	| {
+			error_message: string;
+	  }
+	| {
+			image_hash_to_record: string | undefined;
+			uploaded: { publicId: string; secureUrl: string };
+	  }
+> => {
+	const {
+		caption,
+		event,
+		file,
+		media_type,
+		trim_end_seconds,
+		trim_start_seconds,
+		user_id,
+		video_duration_seconds
+	} = params;
+
+	const media_selection_error = await validate_post_media_selection({
+		file,
+		media_type,
+		video_duration_seconds,
+		trim_end_seconds,
+		trim_start_seconds
+	});
+	if (media_selection_error) {
+		return { error_message: media_selection_error };
+	}
+
+	const caption_error = await validate_post_caption_submission({
+		caption,
+		event,
+		user_id
+	});
+	if (caption_error) {
+		return {
+			error_message: caption_error
+		};
+	}
+
+	let image_hash_to_record: string | undefined;
+	if (media_type === 'image') {
+		const image_duplicate_check = await reject_recent_duplicate_image({
+			author_id: user_id,
+			event,
+			file
+		});
+		if ('error_message' in image_duplicate_check) {
+			return { error_message: image_duplicate_check.error_message };
+		}
+
+		image_hash_to_record = image_duplicate_check.image_hash;
+	}
+
+	try {
+		const uploaded =
+			media_type === 'video'
+				? await upload_video_from_file(file, {
+						...(trim_end_seconds !== undefined ? { endOffset: trim_end_seconds } : {}),
+						folder: `posts/${user_id}`,
+						startOffset: trim_start_seconds
+					})
+				: await upload_image_from_file(file, {
+						folder: `posts/${user_id}`
+					});
+
+		return { image_hash_to_record, uploaded };
+	} catch (error) {
+		console.error('Post media upload failed', {
+			error,
+			file_size: file.size,
+			media_type,
+			trim_end_seconds,
+			trim_start_seconds,
+			user_id
+		});
+		return { error_message: 'Upload failed. Please try again.' };
+	}
+};
+
+const parse_post_submission = (
+	form_data: FormData
+): {
+	caption: string;
+	media_file: FormDataEntryValue | null;
+	media_type: 'image' | 'video';
+	trim_end_seconds: number | undefined;
+	trim_start_seconds: number;
+	video_duration_seconds: number | undefined;
+} => {
+	const media_type_raw = form_data.get('media_type');
+	const caption_raw = form_data.get('caption');
+	const trim_start_raw = get_form_string(form_data, 'trim_start_seconds');
+	const trim_end_raw = get_form_string(form_data, 'trim_end_seconds');
+	const video_duration_raw = get_form_string(form_data, 'video_duration_seconds');
+
+	return {
+		caption: typeof caption_raw === 'string' ? caption_raw.trim() : '',
+		media_file: form_data.get('media'),
+		media_type: media_type_raw === 'video' ? 'video' : 'image',
+		trim_end_seconds: trim_end_raw ? Number(trim_end_raw) : undefined,
+		trim_start_seconds: trim_start_raw ? Number(trim_start_raw) : 0,
+		video_duration_seconds: video_duration_raw ? Number(video_duration_raw) : undefined
+	};
 };
 
 export const load = (async ({ params, locals }) => {
@@ -561,58 +779,34 @@ export const actions = {
 			});
 		}
 
-		const form_data = await request.formData();
-		const image_file = form_data.get('image');
-		const caption_raw = form_data.get('caption');
-		const caption = typeof caption_raw === 'string' ? caption_raw.trim() : '';
+		const {
+			caption,
+			media_file,
+			media_type,
+			trim_end_seconds,
+			trim_start_seconds,
+			video_duration_seconds
+		} = parse_post_submission(await request.formData());
 
-		if (!(image_file instanceof File) || image_file.size === 0) {
-			return fail(400, { message: get_missing_post_image_message(caption) });
+		if (!(media_file instanceof File) || media_file.size === 0) {
+			return fail(400, { message: get_missing_post_media_message(caption, media_type) });
 		}
 
-		const post_image_validation = await validate_uploaded_image({
-			file: image_file,
-			max_bytes: 10 * 1024 * 1024,
-			size_message: 'Photo must be 10MB or smaller.',
-			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed.'
-		});
-		if (!post_image_validation.is_valid) {
-			return fail(400, { message: post_image_validation.message });
-		}
-
-		if (caption.length > 1000) {
-			return fail(400, { message: 'Caption must be 1000 characters or less.' });
-		}
-
-		if (await has_recent_duplicate_caption(locals.user.id, caption)) {
-			await record_security_event({
-				category: 'duplicate_caption',
-				details: 'recent-caption-match',
-				event
-			});
-			return fail(400, {
-				message: 'You already used that caption recently. Please change it before posting again.'
-			});
-		}
-
-		const image_duplicate_check = await reject_recent_duplicate_image({
-			author_id: locals.user.id,
+		const prepared_media = await prepare_post_media_upload({
+			caption,
 			event,
-			file: image_file
+			file: media_file,
+			media_type,
+			video_duration_seconds,
+			trim_end_seconds,
+			trim_start_seconds,
+			user_id: locals.user.id
 		});
-		if ('error_message' in image_duplicate_check) {
-			return fail(400, { message: image_duplicate_check.error_message });
+		if ('error_message' in prepared_media) {
+			return fail(400, { message: prepared_media.error_message });
 		}
 
-		let uploaded: { secureUrl: string; publicId: string };
-
-		try {
-			uploaded = await upload_image_from_file(image_file, {
-				folder: `posts/${locals.user.id}`
-			});
-		} catch {
-			return fail(500, { message: 'Upload failed. Please try again.' });
-		}
+		const { image_hash_to_record, uploaded } = prepared_media;
 
 		const db = get_db();
 		const post_id = randomUUID();
@@ -632,7 +826,7 @@ export const actions = {
 				id: media_id,
 				owner_id: locals.user.id,
 				url: uploaded.secureUrl,
-				type: 'image'
+				type: media_type
 			});
 			ismedia_created = true;
 
@@ -644,6 +838,7 @@ export const actions = {
 		} catch {
 			await rollback_failed_post_creation({
 				db,
+				media_type,
 				media_id,
 				post_id,
 				ismedia_created,
@@ -658,7 +853,9 @@ export const actions = {
 			profile_user_id: locals.user.id,
 			username: params.username
 		});
-		await record_post_image_fingerprint(locals.user.id, image_duplicate_check.image_hash);
+		if (image_hash_to_record) {
+			await record_post_image_fingerprint(locals.user.id, image_hash_to_record);
+		}
 
 		throw redirect(303, `/profile/${params.username}`);
 	},

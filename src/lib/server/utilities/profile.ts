@@ -237,6 +237,7 @@ type ProfilePageData = {
 	};
 	photo_posts: Array<{ id: string; image_url: string }>;
 	photo_urls: string[];
+	video_posts: Array<{ id: string; video_url: string }>;
 };
 
 const get_relationship = async (
@@ -276,7 +277,7 @@ const load_profile_page_data = async (
 		return undefined;
 	}
 
-	const [counts, photo_rows, relationship] = await Promise.all([
+	const [counts, photo_rows, video_rows, relationship] = await Promise.all([
 		Promise.all([
 			db
 				.select({ value: count() })
@@ -295,12 +296,23 @@ const load_profile_page_data = async (
 			)
 			.orderBy(desc(posts.created_at), post_media.sort_order)
 			.limit(30),
+		db
+			.select({ id: posts.id, url: media.url })
+			.from(posts)
+			.innerJoin(post_media, eq(post_media.post_id, posts.id))
+			.innerJoin(media, eq(media.id, post_media.media_id))
+			.where(
+				and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at), eq(media.type, 'video'))
+			)
+			.orderBy(desc(posts.created_at), post_media.sort_order)
+			.limit(30),
 		get_relationship(viewer_user_id, profile.user_id)
 	]);
 
 	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
 	const photo_urls = photo_posts.map((row) => row.image_url);
+	const video_posts = video_rows.map((row) => ({ id: row.id, video_url: row.url }));
 	const visible_email: string | null = profile.email_visible
 		? profile.email
 		: // eslint-disable-next-line unicorn/no-null
@@ -322,7 +334,8 @@ const load_profile_page_data = async (
 		},
 		relationship,
 		photo_posts,
-		photo_urls
+		photo_urls,
+		video_posts
 	};
 };
 
