@@ -86,8 +86,9 @@ const emit_console_alert = (
 	event_count: number,
 	details?: string
 ): void => {
+	const details_suffix = details ? `, details=${details}` : '';
 	console.warn(
-		`Security alert: ${category} threshold reached for ${actor_key} (count=${event_count}${details ? `, details=${details}` : ''})`
+		`Security alert: ${category} threshold reached for ${actor_key} (count=${event_count}${details_suffix})`
 	);
 };
 
