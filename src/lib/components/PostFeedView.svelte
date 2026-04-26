@@ -16,7 +16,7 @@
 	import PostDetailModal from '$lib/components/PostDetailModal.svelte';
 
 	type BackPath = '/profile' | `/profile/${string}`;
-	type PostPath = `/profile/${string}/posts/${string}`;
+	type PostPath = `/profile/${string}/posts/${string}` | `/profile/${string}/shared/${string}`;
 	const last_home_state_storage_key = 'post-feed-last-home-state';
 
 	type Props = {
@@ -115,6 +115,11 @@
 	let scroll_persist_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let load_more_observer = $state<IntersectionObserver | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
+	let like_counts = $state<Record<string, number>>({});
+	let like_requests_in_flight = $state<Record<string, boolean>>({});
+	let shared_posts = $state<Record<string, boolean>>({});
+	let share_counts = $state<Record<string, number>>({});
+	let share_requests_in_flight = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
 	let comment_counts = $state<Record<string, number>>({});
 	// eslint-disable-next-line @typescript-eslint/naming-convention
@@ -1070,12 +1075,154 @@
 		(event.currentTarget as HTMLElement | null)?.releasePointerCapture(event.pointerId);
 	}
 
-	function toggle_like(post_id: string | number) {
+	function get_is_liked(post: PostFeedPost): boolean {
+		const post_id = String(post.id);
+		return liked_posts[post_id] ?? post.has_liked;
+	}
+
+	function get_like_count(post: PostFeedPost): number {
+		const post_id = String(post.id);
+		return like_counts[post_id] ?? post.like_count;
+	}
+
+	function get_is_shared(post: PostFeedPost): boolean {
+		const post_id = String(post.id);
+		return shared_posts[post_id] ?? post.has_shared;
+	}
+
+	function get_share_count(post: PostFeedPost): number {
+		const post_id = String(post.id);
+		return share_counts[post_id] ?? post.share_count;
+	}
+
+	async function toggle_like(post_id: string | number) {
 		const key = String(post_id);
+
+		if (like_requests_in_flight[key]) {
+			return;
+		}
+
+		const post = posts.find((candidate) => String(candidate.id) === key);
+		if (!post) {
+			return;
+		}
+
+		const previous_is_liked = get_is_liked(post);
+		const previous_like_count = get_like_count(post);
+		const next_is_liked = !previous_is_liked;
+		const next_like_count = Math.max(0, previous_like_count + (next_is_liked ? 1 : -1));
+
+		like_requests_in_flight = {
+			...like_requests_in_flight,
+			[key]: true
+		};
 		liked_posts = {
 			...liked_posts,
-			[key]: !liked_posts[key]
+			[key]: next_is_liked
 		};
+		like_counts = {
+			...like_counts,
+			[key]: next_like_count
+		};
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/like`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to toggle like');
+			}
+
+			const payload = (await response.json()) as { liked: boolean; like_count: number };
+			liked_posts = {
+				...liked_posts,
+				[key]: payload.liked
+			};
+			like_counts = {
+				...like_counts,
+				[key]: payload.like_count
+			};
+		} catch {
+			liked_posts = {
+				...liked_posts,
+				[key]: previous_is_liked
+			};
+			like_counts = {
+				...like_counts,
+				[key]: previous_like_count
+			};
+		} finally {
+			like_requests_in_flight = {
+				...like_requests_in_flight,
+				[key]: false
+			};
+		}
+	}
+
+	async function toggle_share(post_id: string | number) {
+		const key = String(post_id);
+
+		if (share_requests_in_flight[key]) {
+			return;
+		}
+
+		const post = posts.find((candidate) => String(candidate.id) === key);
+		if (!post) {
+			return;
+		}
+
+		const previous_is_shared = get_is_shared(post);
+		const previous_share_count = get_share_count(post);
+		const next_is_shared = !previous_is_shared;
+		const next_share_count = Math.max(0, previous_share_count + (next_is_shared ? 1 : -1));
+
+		share_requests_in_flight = {
+			...share_requests_in_flight,
+			[key]: true
+		};
+		shared_posts = {
+			...shared_posts,
+			[key]: next_is_shared
+		};
+		share_counts = {
+			...share_counts,
+			[key]: next_share_count
+		};
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/share`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to toggle share');
+			}
+
+			const payload = (await response.json()) as { shared: boolean; share_count: number };
+			shared_posts = {
+				...shared_posts,
+				[key]: payload.shared
+			};
+			share_counts = {
+				...share_counts,
+				[key]: payload.share_count
+			};
+		} catch {
+			shared_posts = {
+				...shared_posts,
+				[key]: previous_is_shared
+			};
+			share_counts = {
+				...share_counts,
+				[key]: previous_share_count
+			};
+		} finally {
+			share_requests_in_flight = {
+				...share_requests_in_flight,
+				[key]: false
+			};
+		}
 	}
 
 	function mark_image_loaded(post_id: string | number) {
@@ -1431,6 +1578,40 @@
 		});
 	});
 
+	$effect(() => {
+		for (const post of posts) {
+			const key = String(post.id);
+
+			if (liked_posts[key] === undefined) {
+				liked_posts = {
+					...liked_posts,
+					[key]: post.has_liked
+				};
+			}
+
+			if (like_counts[key] === undefined) {
+				like_counts = {
+					...like_counts,
+					[key]: post.like_count
+				};
+			}
+
+			if (shared_posts[key] === undefined) {
+				shared_posts = {
+					...shared_posts,
+					[key]: post.has_shared
+				};
+			}
+
+			if (share_counts[key] === undefined) {
+				share_counts = {
+					...share_counts,
+					[key]: post.share_count
+				};
+			}
+		}
+	});
+
 	afterNavigate(() => {
 		void tick().then(() => {
 			refresh_load_more_observer();
@@ -1700,51 +1881,77 @@
 							<div
 								class="2xl:pt:6 mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6"
 							>
-								<button
-									type="button"
-									class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-									onclick={() => toggle_like(post.id)}
-									aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
-								>
-									<img
-										src="/images/home-screen/unliked-state.avif"
-										alt=""
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-75 opacity-0'
-											: 'scale-100 opacity-100'}"
-									/>
-									<img
-										src="/images/home-screen/liked-state.avif"
-										alt="like"
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-100 opacity-100'
-											: 'scale-125 opacity-0'}"
-									/>
-								</button>
-								<button
-									type="button"
-									class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-									onclick={() => open_post_detail(post)}
-									aria-label="View comments"
-									><img
-										src="/images/home-screen/comment-icon.avif"
-										alt="comment"
-										class="h-6 w-auto"
-									/>{#if get_post_comment_count(post) > 0}<span
-											class="text-xs font-medium text-white/60">{get_post_comment_count(post)}</span
-										>{/if}</button
-								>
-								<button class="transition-opacity hover:opacity-70"
-									><img
-										src="/images/home-screen/share-post-icon.avif"
-										alt="share"
-										class="h-6 w-auto"
-									/></button
-								>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+										onclick={() => {
+											void toggle_like(post.id);
+										}}
+										aria-label={get_is_liked(post) ? 'Unlike post' : 'Like post'}
+									>
+										<img
+											src="/images/home-screen/unliked-state.avif"
+											alt=""
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-75 opacity-0'
+												: 'scale-100 opacity-100'}"
+										/>
+										<img
+											src="/images/home-screen/liked-state.avif"
+											alt="like"
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-100 opacity-100'
+												: 'scale-125 opacity-0'}"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_is_liked(post) ? 'text-rose-400' : 'text-white/70'}`}
+										>{get_like_count(post)}</span
+									>
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class="transition-opacity hover:opacity-70"
+										onclick={() => open_post_detail(post)}
+										aria-label="View comments"
+									>
+										<img
+											src="/images/home-screen/comment-icon.avif"
+											alt="comment"
+											class="h-6 w-auto"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_post_comment_count(post) > 0 ? 'text-yellow-400' : 'text-white/70'}`}
+										>{get_post_comment_count(post)}</span
+									>
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class={`cursor-pointer transition-opacity hover:opacity-70 ${get_is_shared(post) ? 'opacity-100' : 'opacity-80'}`}
+										onclick={() => {
+											void toggle_share(post.id);
+										}}
+										aria-label={get_is_shared(post) ? 'Unshare post' : 'Share post'}
+									>
+										<img
+											src="/images/home-screen/share-post-icon.avif"
+											alt="share"
+											class="h-6 w-auto"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_is_shared(post) ? 'text-green-400' : 'text-white/70'}`}
+										>{get_share_count(post)}</span
+									>
+								</div>
 							</div>
 						</div>
 
@@ -1935,51 +2142,77 @@
 							<div
 								class="mx-2 flex items-center gap-5 px-4 py-5 md:gap-6 md:px-5 2xl:pt-6 2xl:pb-6"
 							>
-								<button
-									type="button"
-									class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-									onclick={() => toggle_like(post.id)}
-									aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
-								>
-									<img
-										src="/images/home-screen/unliked-state.avif"
-										alt=""
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-75 opacity-0'
-											: 'scale-100 opacity-100'}"
-									/>
-									<img
-										src="/images/home-screen/liked-state.avif"
-										alt="like"
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-100 opacity-100'
-											: 'scale-125 opacity-0'}"
-									/>
-								</button>
-								<button
-									type="button"
-									class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-									onclick={() => open_post_detail(post)}
-									aria-label="View comments"
-									><img
-										src="/images/home-screen/comment-icon.avif"
-										alt="comment"
-										class="h-6 w-auto"
-									/>{#if get_post_comment_count(post) > 0}<span
-											class="text-xs font-medium text-white/60">{get_post_comment_count(post)}</span
-										>{/if}</button
-								>
-								<button class="transition-opacity hover:opacity-70"
-									><img
-										src="/images/home-screen/share-post-icon.avif"
-										alt="share"
-										class="h-6 w-auto"
-									/></button
-								>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+										onclick={() => {
+											void toggle_like(post.id);
+										}}
+										aria-label={get_is_liked(post) ? 'Unlike post' : 'Like post'}
+									>
+										<img
+											src="/images/home-screen/unliked-state.avif"
+											alt=""
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-75 opacity-0'
+												: 'scale-100 opacity-100'}"
+										/>
+										<img
+											src="/images/home-screen/liked-state.avif"
+											alt="like"
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-100 opacity-100'
+												: 'scale-125 opacity-0'}"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_is_liked(post) ? 'text-rose-400' : 'text-white/70'}`}
+										>{get_like_count(post)}</span
+									>
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class="transition-opacity hover:opacity-70"
+										onclick={() => open_post_detail(post)}
+										aria-label="View comments"
+									>
+										<img
+											src="/images/home-screen/comment-icon.avif"
+											alt="comment"
+											class="h-6 w-auto"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_post_comment_count(post) > 0 ? 'text-yellow-400' : 'text-white/70'}`}
+										>{get_post_comment_count(post)}</span
+									>
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class={`cursor-pointer transition-opacity hover:opacity-70 ${get_is_shared(post) ? 'opacity-100' : 'opacity-80'}`}
+										onclick={() => {
+											void toggle_share(post.id);
+										}}
+										aria-label={get_is_shared(post) ? 'Unshare post' : 'Share post'}
+									>
+										<img
+											src="/images/home-screen/share-post-icon.avif"
+											alt="share"
+											class="h-6 w-auto"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_is_shared(post) ? 'text-green-400' : 'text-white/70'}`}
+										>{get_share_count(post)}</span
+									>
+								</div>
 							</div>
 						</div>
 
@@ -2085,11 +2318,15 @@
 {#if detail_post}
 	<PostDetailModal
 		post={detail_post}
-		liked={liked_posts[String(detail_post.id)] ?? false}
+		liked={get_is_liked(detail_post)}
+		like_count={get_like_count(detail_post)}
+		shared={get_is_shared(detail_post)}
+		share_count={get_share_count(detail_post)}
 		on_close={close_post_detail}
 		on_comment_count_change={(next_count) =>
 			handle_post_comment_count_change(detail_post!.id, next_count)}
 		on_like={() => toggle_like(detail_post!.id)}
+		on_share={() => toggle_share(detail_post!.id)}
 		on_video_preview={(src, alt) => open_video_preview(src, alt)}
 	/>
 {/if}
