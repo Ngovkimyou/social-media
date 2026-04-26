@@ -565,6 +565,10 @@
 	}
 
 	function reopen_post_image_editor() {
+		if (submitting_post) {
+			return;
+		}
+
 		if (!post_editor_source_file) {
 			return;
 		}
@@ -2059,7 +2063,8 @@
 								<button
 									type="button"
 									onclick={reopen_post_image_editor}
-									class="mt-2 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-2 text-xs font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99] md:mt-3 md:py-3 md:text-sm"
+									class="mt-2 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-2 text-xs font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 md:mt-3 md:py-3 md:text-sm"
+									disabled={submitting_post}
 								>
 									Edit photo
 								</button>
@@ -2076,11 +2081,11 @@
 
 							<button
 								type="submit"
-								class="mt-3 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!selected_image ||
+								class="mt-3 w-full rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!selected_image ||
 								caption.length > 1000 ||
 								submitting_post
 									? 'cursor-not-allowed opacity-50'
-									: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
+									: 'cursor-pointer shadow-[0_0_10px_rgba(255,179,201,25)]'}"
 								disabled={!selected_image || caption.length > 1000 || submitting_post}
 							>
 								{submitting_post ? 'Posting...' : 'Post'}
