@@ -1,10 +1,10 @@
 import { HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 import { get_db } from '$lib/server/db';
-import { media, post_media, posts, profiles, user } from '$lib/server/db/schema';
+import { comments, media, post_media, posts, profiles, user } from '$lib/server/db/schema';
 import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 import { build_responsive_image_source } from '$lib/utilities/responsive-image';
-import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 
 type HomeFeedCursor = {
 	created_at: string;
@@ -104,20 +104,27 @@ export async function get_home_feed_page(
 	const visible_rows = page_rows.slice(0, normalized_limit);
 	const post_ids = visible_rows.map((row) => row.id);
 
-	const media_rows =
+	const [media_rows, comment_count_rows] =
 		post_ids.length === 0
-			? []
-			: await db
-					.select({
-						post_id: post_media.post_id,
-						media_url: media.url,
-						media_type: media.type,
-						sort_order: post_media.sort_order
-					})
-					.from(post_media)
-					.innerJoin(media, eq(post_media.media_id, media.id))
-					.where(inArray(post_media.post_id, post_ids))
-					.orderBy(asc(post_media.sort_order));
+			? [[], []]
+			: await Promise.all([
+					db
+						.select({
+							post_id: post_media.post_id,
+							media_url: media.url,
+							media_type: media.type,
+							sort_order: post_media.sort_order
+						})
+						.from(post_media)
+						.innerJoin(media, eq(post_media.media_id, media.id))
+						.where(inArray(post_media.post_id, post_ids))
+						.orderBy(asc(post_media.sort_order)),
+					db
+						.select({ post_id: comments.post_id, comment_count: count() })
+						.from(comments)
+						.where(and(inArray(comments.post_id, post_ids), isNull(comments.deleted_at)))
+						.groupBy(comments.post_id)
+				]);
 
 	const first_media_by_post = new Map<
 		string,
@@ -136,6 +143,11 @@ export async function get_home_feed_page(
 			media_url: row.media_url,
 			media_type: row.media_type
 		});
+	}
+
+	const comment_count_by_post = new Map<string, number>();
+	for (const row of comment_count_rows) {
+		comment_count_by_post.set(row.post_id, row.comment_count);
 	}
 
 	const feed_posts: PostFeedPost[] = visible_rows.map((row) => {
@@ -159,7 +171,8 @@ export async function get_home_feed_page(
 			media_display_srcset: responsive_media?.srcset,
 			media_display_url: responsive_media?.src,
 			media_url: post_media_row?.media_url,
-			media_type: post_media_row?.media_type
+			media_type: post_media_row?.media_type,
+			comment_count: comment_count_by_post.get(row.id) ?? 0
 		};
 	});
 

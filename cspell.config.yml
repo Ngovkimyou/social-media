@@ -22,6 +22,7 @@ words:
   - Bento
   - bigserial
   - canrun
+  - commentable
   - cooldown
   - cooldowns
   - dbname

@@ -9,4 +9,5 @@ export type PostFeedPost = {
 	media_display_url: string | undefined;
 	media_url: string | null | undefined;
 	media_type: 'image' | 'video' | null | undefined;
+	comment_count: number;
 };

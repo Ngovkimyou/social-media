@@ -10,6 +10,7 @@ export const load = (async ({ locals }) => {
 	const profile_username = await get_profile_username_by_user_id(locals.user.id);
 
 	return {
-		profile_username: profile_username ?? ''
+		profile_username: profile_username ?? '',
+		current_user_id: locals.user.id
 	};
 }) satisfies LayoutServerLoad;

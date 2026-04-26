@@ -90,46 +90,47 @@ export const create_windowed_rate_limit_store = (params: {
 		max_attempts: number
 	): Promise<WindowedRateLimitResult> => {
 		const db = get_db();
-		const existing_rows = await db.execute<{
+		const rows = await db.execute<{
 			attempt_count: number;
 			expires_at: Date;
+			is_allowed: boolean;
 		}>(sql`
-			select attempt_count, expires_at
-			from ${sql.raw(table_name)}
-			where bucket_key = ${bucket_key}
-			limit 1
+			insert into ${sql.raw(table_name)} (bucket_key, attempt_count, expires_at)
+			values (
+				${bucket_key},
+				1,
+				now() + (${window_seconds} * interval '1 second')
+			)
+			on conflict (bucket_key)
+			do update set
+				attempt_count = case
+					when ${sql.raw(table_name)}.expires_at <= now() then 1
+					when ${sql.raw(table_name)}.attempt_count < ${max_attempts}
+						then ${sql.raw(table_name)}.attempt_count + 1
+					else ${sql.raw(table_name)}.attempt_count
+				end,
+				expires_at = case
+					when ${sql.raw(table_name)}.expires_at <= now()
+						then now() + (${window_seconds} * interval '1 second')
+					else ${sql.raw(table_name)}.expires_at
+				end
+			returning
+				attempt_count,
+				expires_at,
+				attempt_count <= ${max_attempts} as is_allowed
 		`);
-		const current_bucket = existing_rows.rows[0];
-		const now = Date.now();
 
-		if (!current_bucket || get_epoch_ms(current_bucket.expires_at) <= now) {
-			await db.execute(sql`
-				insert into ${sql.raw(table_name)} (bucket_key, attempt_count, expires_at)
-				values (
-					${bucket_key},
-					1,
-					now() + (${window_seconds} * interval '1 second')
-				)
-				on conflict (bucket_key)
-				do update set
-					attempt_count = 1,
-					expires_at = now() + (${window_seconds} * interval '1 second')
-			`);
+		const bucket = rows.rows[0];
+		if (!bucket) {
 			return { is_allowed: true };
 		}
 
-		if (current_bucket.attempt_count >= max_attempts) {
+		if (!bucket.is_allowed) {
 			return {
 				is_allowed: false,
-				retry_after_seconds: get_retry_after_seconds(get_epoch_ms(current_bucket.expires_at), now)
+				retry_after_seconds: get_retry_after_seconds(get_epoch_ms(bucket.expires_at), Date.now())
 			};
 		}
-
-		await db.execute(sql`
-			update ${sql.raw(table_name)}
-			set attempt_count = attempt_count + 1
-			where bucket_key = ${bucket_key}
-		`);
 
 		return { is_allowed: true };
 	};

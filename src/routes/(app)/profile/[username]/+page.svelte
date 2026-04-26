@@ -2497,7 +2497,7 @@
 						<button
 							type="button"
 							onclick={close_upload_modal}
-							class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-[#3a3b3c] text-sm text-white hover:bg-[#4e4f50] md:h-8 md:w-8 md:text-base"
+							class="editor-remove-action grid h-8 w-8 cursor-pointer place-items-center rounded-full text-base md:h-10 md:w-10 md:text-lg"
 							disabled={submitting_post}
 						>
 							✕
