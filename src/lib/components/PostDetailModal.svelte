@@ -9,14 +9,28 @@
 	type Props = {
 		post: PostFeedPost;
 		liked: boolean;
+		like_count: number;
+		shared: boolean;
+		share_count: number;
 		on_close: () => void;
 		on_comment_count_change?: (count: number) => void;
 		on_like: () => void;
+		on_share: () => void;
 		on_video_preview?: (src: string, alt: string) => void;
 	};
 
-	const { post, liked, on_close, on_comment_count_change, on_like, on_video_preview }: Props =
-		$props();
+	const {
+		post,
+		liked,
+		like_count,
+		shared,
+		share_count,
+		on_close,
+		on_comment_count_change,
+		on_like,
+		on_share,
+		on_video_preview
+	}: Props = $props();
 
 	const current_user_id = $derived(
 		(page.data as { current_user_id?: string }).current_user_id ?? ''
@@ -1457,39 +1471,54 @@
 				class="fixed right-0 bottom-0 left-0 z-50 shrink-0 border-t border-white/10 bg-[#0d0921] px-4 pt-3 pb-[calc(1.65rem+env(safe-area-inset-bottom))] shadow-[0_-18px_36px_rgba(13,9,33,0.98)] md:static md:bg-transparent md:py-4 md:shadow-none"
 			>
 				<div class="flex items-center gap-4">
-					<button
-						type="button"
-						class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-						onclick={on_like}
-						aria-label={liked ? 'Unlike post' : 'Like post'}
-					>
-						<img
-							src="/images/home-screen/unliked-state.avif"
-							alt=""
-							class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked
-								? 'scale-75 opacity-0'
-								: 'scale-100 opacity-100'}"
-						/>
-						<img
-							src="/images/home-screen/liked-state.avif"
-							alt="like"
-							class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked
-								? 'scale-100 opacity-100'
-								: 'scale-125 opacity-0'}"
-						/>
-					</button>
-					<button
-						type="button"
-						class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-					>
-						<img src="/images/home-screen/comment-icon.avif" alt="comment" class="h-6 w-auto" />
-						{#if comment_count > 0}
-							<span class="text-xs font-medium text-white/60">{comment_count}</span>
-						{/if}
-					</button>
-					<button type="button" class="transition-opacity hover:opacity-70">
-						<img src="/images/home-screen/share-post-icon.avif" alt="share" class="h-6 w-auto" />
-					</button>
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+							onclick={on_like}
+							aria-label={liked ? 'Unlike post' : 'Like post'}
+						>
+							<img
+								src="/images/home-screen/unliked-state.avif"
+								alt=""
+								class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked
+									? 'scale-75 opacity-0'
+									: 'scale-100 opacity-100'}"
+							/>
+							<img
+								src="/images/home-screen/liked-state.avif"
+								alt="like"
+								class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked
+									? 'scale-100 opacity-100'
+									: 'scale-125 opacity-0'}"
+							/>
+						</button>
+						<span class={`min-w-5 text-xs ${liked ? 'text-rose-400' : 'text-white/70'}`}
+							>{like_count}</span
+						>
+					</div>
+					<div class="flex items-center gap-2">
+						<button type="button" class="transition-opacity hover:opacity-70">
+							<img src="/images/home-screen/comment-icon.avif" alt="comment" class="h-6 w-auto" />
+						</button>
+						<span
+							class={`min-w-5 text-xs ${comment_count > 0 ? 'text-yellow-400' : 'text-white/70'}`}
+							>{comment_count}</span
+						>
+					</div>
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							class={`cursor-pointer transition-opacity hover:opacity-70 ${shared ? 'opacity-100' : 'opacity-80'}`}
+							onclick={on_share}
+							aria-label={shared ? 'Unshare post' : 'Share post'}
+						>
+							<img src="/images/home-screen/share-post-icon.avif" alt="share" class="h-6 w-auto" />
+						</button>
+						<span class={`min-w-5 text-xs ${shared ? 'text-green-400' : 'text-white/70'}`}
+							>{share_count}</span
+						>
+					</div>
 				</div>
 
 				<form

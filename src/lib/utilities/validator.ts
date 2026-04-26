@@ -11,6 +11,7 @@ const MAX_NAME_LENGTH = 15;
 const MAX_PROFILE_BIO_LENGTH = 200;
 const MAX_PROFILE_LOCATION_LENGTH = 80;
 const MAX_PROFILE_PHONE_LENGTH = 32;
+const EMOJI_ZERO_WIDTH_JOINER = '\u200D';
 
 const normalize_name = (name: string): string => name.normalize('NFKC').trim();
 
@@ -246,7 +247,7 @@ export const profile_bio_validator = (bio: string): ValidatorOutput => {
 	}
 
 	const disallowed_control_character = [...normalized_bio].some((character) => {
-		if (character === '\n' || character === '\t') {
+		if (character === '\n' || character === '\t' || character === EMOJI_ZERO_WIDTH_JOINER) {
 			return false;
 		}
 

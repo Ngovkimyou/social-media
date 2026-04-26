@@ -180,6 +180,17 @@
 		}))
 	);
 	const video_tiles = $derived(data['video_posts'] as Array<{ id: string; video_url: string }>);
+	const shared_post_tiles = $derived.by(() =>
+		data['shared_posts'].map((post) => ({
+			id: post.id,
+			image: build_responsive_image_source(post.media_display_url ?? post.media_url ?? '', {
+				widths: [360, 540, 720, 960, 1200],
+				height: 'match-width',
+				fit: 'lfill',
+				quality: 100
+			})
+		}))
+	);
 
 	const success_message = $derived(
 		(form as { success?: boolean } | null | undefined)?.success === true
@@ -274,6 +285,24 @@
 		if (scroll_container) {
 			scroll_container.scrollTop = current_scroll;
 		}
+	}
+
+	async function set_active_profile_tab(next_tab: 'posts' | 'videos' | 'shared') {
+		if (active_tab === next_tab) {
+			return;
+		}
+
+		const scroll_container = document.querySelector('.profile-scroll');
+		const current_scroll = scroll_container?.scrollTop ?? 0;
+
+		active_tab = next_tab;
+		await tick();
+
+		requestAnimationFrame(() => {
+			if (scroll_container) {
+				scroll_container.scrollTop = current_scroll;
+			}
+		});
 	}
 
 	function cancel_profile_editing() {
@@ -2321,7 +2350,10 @@
 				class="mt-4 flex items-center gap-1 rounded-full border-[3px] border-[#535060] bg-[#474555] p-1 text-xs font-bold md:mt-6 md:gap-2 md:border-[6px] md:p-1.5 md:text-sm"
 			>
 				<button
-					onclick={() => (active_tab = 'posts')}
+					type="button"
+					onclick={() => {
+						void set_active_profile_tab('posts');
+					}}
 					class="flex-1 cursor-pointer rounded-full border py-2 text-center text-white opacity-85 transition-all hover:opacity-100 md:border-2 md:py-3 {active_tab ===
 					'posts'
 						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
@@ -2330,7 +2362,10 @@
 					Posts
 				</button>
 				<button
-					onclick={() => (active_tab = 'videos')}
+					type="button"
+					onclick={() => {
+						void set_active_profile_tab('videos');
+					}}
 					class="flex-1 cursor-pointer rounded-full border py-2 text-center text-white opacity-85 transition-all hover:opacity-100 md:border-2 md:py-3 {active_tab ===
 					'videos'
 						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
@@ -2339,7 +2374,10 @@
 					Videos
 				</button>
 				<button
-					onclick={() => (active_tab = 'shared')}
+					type="button"
+					onclick={() => {
+						void set_active_profile_tab('shared');
+					}}
 					class="flex-1 cursor-pointer rounded-full border py-2 text-center text-white opacity-85 transition-all hover:opacity-100 md:border-2 md:py-3 {active_tab ===
 					'shared'
 						? 'border-[#E9A0F8] bg-linear-to-r from-[#62218D] via-[#62218D] to-[#E1B4FF] shadow-[0_0_15px_rgba(255,0,229,25)]'
@@ -2351,10 +2389,7 @@
 		{/if}
 
 		{#if !is_editing_profile && active_tab === 'posts'}
-			<div
-				class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8"
-				style="content-visibility:auto; contain-intrinsic-size: 720px;"
-			>
+			<div class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8">
 				{#if data['relationship'].is_own_profile}
 					<button
 						type="button"
@@ -2416,6 +2451,32 @@
 							playsinline
 							preload="metadata"
 						></video>
+					</a>
+				{/each}
+			</div>
+		{/if}
+
+		{#if !is_editing_profile && active_tab === 'shared'}
+			<div class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8">
+				{#each shared_post_tiles as post (post.id)}
+					<a
+						href={resolve(
+							`/profile/${encodeURIComponent(data['profile'].username)}/shared/${post.id}`
+						)}
+						class="block aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+						aria-label="Open shared post"
+					>
+						<ProgressiveImage
+							src={post.image.src}
+							srcset={post.image.srcset}
+							sizes="(max-width: 768px) 33vw, (max-width: 1280px) 30vw, 360px"
+							alt="Shared post"
+							wrapper_class="h-full w-full"
+							img_class="h-full w-full object-cover"
+							skeleton_class="rounded-xl md:rounded-2xl"
+							loading="lazy"
+							decoding="async"
+						/>
 					</a>
 				{/each}
 			</div>
@@ -2619,7 +2680,7 @@
 								<button
 									type="button"
 									onclick={reopen_post_image_editor}
-									class="mt-2 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-2 text-xs font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99] md:mt-3 md:py-3 md:text-sm"
+									class="mt-2 w-full rounded-xl bg-[linear-gradient(90deg,rgba(125,212,255,0.34)_0%,rgba(125,212,255,0.18)_52%,rgba(185,232,255,0.28)_100%)] px-4 py-2 text-xs font-semibold text-[#7DD4FF] shadow-[inset_1px_-1px_18px_0px_rgba(125,212,255,0.34),inset_0.5px_-0.5px_8px_0px_rgba(185,232,255,0.22),0_0_18px_rgba(125,212,255,0.24),0_12px_28px_rgba(0,0,0,0.24)] transition-transform hover:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 md:mt-3 md:py-3 md:text-sm"
 									disabled={submitting_post}
 								>
 									{upload_media_type === 'video' ? 'Edit video' : 'Edit photo'}
