@@ -63,6 +63,8 @@
 	let scroll_persist_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let load_more_observer = $state<IntersectionObserver | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
+	let like_counts = $state<Record<string, number>>({});
+	let like_requests_in_flight = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
 	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
 		{}
@@ -184,12 +186,79 @@
 		};
 	}
 
-	function toggle_like(post_id: string | number) {
+	function get_is_liked(post: PostFeedPost): boolean {
+		const post_id = String(post.id);
+		return liked_posts[post_id] ?? post.has_liked;
+	}
+
+	function get_like_count(post: PostFeedPost): number {
+		const post_id = String(post.id);
+		return like_counts[post_id] ?? post.like_count;
+	}
+
+	async function toggle_like(post_id: string | number) {
 		const key = String(post_id);
+
+		if (like_requests_in_flight[key]) {
+			return;
+		}
+
+		const post = posts.find((candidate) => String(candidate.id) === key);
+		if (!post) {
+			return;
+		}
+
+		const previous_is_liked = get_is_liked(post);
+		const previous_like_count = get_like_count(post);
+		const next_is_liked = !previous_is_liked;
+		const next_like_count = Math.max(0, previous_like_count + (next_is_liked ? 1 : -1));
+
+		like_requests_in_flight = {
+			...like_requests_in_flight,
+			[key]: true
+		};
 		liked_posts = {
 			...liked_posts,
-			[key]: !liked_posts[key]
+			[key]: next_is_liked
 		};
+		like_counts = {
+			...like_counts,
+			[key]: next_like_count
+		};
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/like`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to toggle like');
+			}
+
+			const payload = (await response.json()) as { liked: boolean; like_count: number };
+			liked_posts = {
+				...liked_posts,
+				[key]: payload.liked
+			};
+			like_counts = {
+				...like_counts,
+				[key]: payload.like_count
+			};
+		} catch {
+			liked_posts = {
+				...liked_posts,
+				[key]: previous_is_liked
+			};
+			like_counts = {
+				...like_counts,
+				[key]: previous_like_count
+			};
+		} finally {
+			like_requests_in_flight = {
+				...like_requests_in_flight,
+				[key]: false
+			};
+		}
 	}
 
 	function mark_image_loaded(post_id: string | number) {
@@ -534,6 +603,26 @@
 		});
 	});
 
+	$effect(() => {
+		for (const post of posts) {
+			const key = String(post.id);
+
+			if (liked_posts[key] === undefined) {
+				liked_posts = {
+					...liked_posts,
+					[key]: post.has_liked
+				};
+			}
+
+			if (like_counts[key] === undefined) {
+				like_counts = {
+					...like_counts,
+					[key]: post.like_count
+				};
+			}
+		}
+	});
+
 	afterNavigate(() => {
 		void tick().then(() => {
 			refresh_load_more_observer();
@@ -712,7 +801,7 @@
 										}}
 										ondblclick={() => {
 											clear_pending_preview(post.id);
-											toggle_like(post.id);
+											void toggle_like(post.id);
 										}}
 										aria-label={`Preview ${post.author_name}'s post image`}
 									>
@@ -794,31 +883,36 @@
 							<div
 								class="2xl:pt:6 mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6"
 							>
-								<button
-									type="button"
-									class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-									onclick={() => toggle_like(post.id)}
-									aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
-								>
-									<img
-										src="/images/home-screen/unliked-state.avif"
-										alt=""
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-75 opacity-0'
-											: 'scale-100 opacity-100'}"
-									/>
-									<img
-										src="/images/home-screen/liked-state.avif"
-										alt="like"
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-100 opacity-100'
-											: 'scale-125 opacity-0'}"
-									/>
-								</button>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+										onclick={() => {
+											void toggle_like(post.id);
+										}}
+										aria-label={get_is_liked(post) ? 'Unlike post' : 'Like post'}
+									>
+										<img
+											src="/images/home-screen/unliked-state.avif"
+											alt=""
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-75 opacity-0'
+												: 'scale-100 opacity-100'}"
+										/>
+										<img
+											src="/images/home-screen/liked-state.avif"
+											alt="like"
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-100 opacity-100'
+												: 'scale-125 opacity-0'}"
+										/>
+									</button>
+									<span class="min-w-5 text-xs text-white/70">{get_like_count(post)}</span>
+								</div>
 								<button class="transition-opacity hover:opacity-70"
 									><img
 										src="/images/home-screen/comment-icon.avif"
@@ -932,7 +1026,7 @@
 										}}
 										ondblclick={() => {
 											clear_pending_preview(post.id);
-											toggle_like(post.id);
+											void toggle_like(post.id);
 										}}
 										aria-label={`Preview ${post.author_name}'s post image`}
 									>
@@ -1014,31 +1108,36 @@
 							<div
 								class="mx-2 flex items-center gap-5 px-4 py-5 md:gap-6 md:px-5 2xl:pt-6 2xl:pb-6"
 							>
-								<button
-									type="button"
-									class="group relative h-6 w-6 transition-opacity hover:opacity-70"
-									onclick={() => toggle_like(post.id)}
-									aria-label={liked_posts[String(post.id)] ? 'Unlike post' : 'Like post'}
-								>
-									<img
-										src="/images/home-screen/unliked-state.avif"
-										alt=""
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-75 opacity-0'
-											: 'scale-100 opacity-100'}"
-									/>
-									<img
-										src="/images/home-screen/liked-state.avif"
-										alt="like"
-										class="absolute inset-0 h-6 w-auto origin-center object-contain transition-all duration-250 ease-out {liked_posts[
-											String(post.id)
-										]
-											? 'scale-100 opacity-100'
-											: 'scale-125 opacity-0'}"
-									/>
-								</button>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class="group relative h-6 w-6 transition-opacity hover:opacity-70"
+										onclick={() => {
+											void toggle_like(post.id);
+										}}
+										aria-label={get_is_liked(post) ? 'Unlike post' : 'Like post'}
+									>
+										<img
+											src="/images/home-screen/unliked-state.avif"
+											alt=""
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-75 opacity-0'
+												: 'scale-100 opacity-100'}"
+										/>
+										<img
+											src="/images/home-screen/liked-state.avif"
+											alt="like"
+											class="absolute inset-0 h-6 w-auto origin-center cursor-pointer object-contain transition-all duration-250 ease-out {get_is_liked(
+												post
+											)
+												? 'scale-100 opacity-100'
+												: 'scale-125 opacity-0'}"
+										/>
+									</button>
+									<span class="min-w-5 text-xs text-white/70">{get_like_count(post)}</span>
+								</div>
 								<button class="transition-opacity hover:opacity-70"
 									><img
 										src="/images/home-screen/comment-icon.avif"

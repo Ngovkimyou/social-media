@@ -1,7 +1,7 @@
-import { and, count, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { get_db } from '$lib/server/db';
-import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
+import { follows, likes, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import {
 	get_or_set_short_ttl_cache,
 	invalidate_short_ttl_cache_key,
@@ -353,7 +353,8 @@ export const invalidate_profile_cache = (params: {
 
 export const get_profile_posts_by_username = async (
 	username: string,
-	selected_post_id?: string
+	selected_post_id?: string,
+	viewer_user_id?: string
 ): Promise<PostFeedPost[] | undefined> => {
 	const profile = await get_profile_by_username(username);
 
@@ -384,10 +385,42 @@ export const get_profile_posts_by_username = async (
 		return true;
 	});
 
+	const post_ids = unique_posts.map((row) => row.id);
+
+	const like_count_rows =
+		post_ids.length === 0
+			? []
+			: await db
+					.select({
+						post_id: likes.post_id,
+						like_count: count()
+					})
+					.from(likes)
+					.where(inArray(likes.post_id, post_ids))
+					.groupBy(likes.post_id);
+
+	const liked_rows =
+		post_ids.length === 0 || !viewer_user_id
+			? []
+			: await db
+					.select({ post_id: likes.post_id })
+					.from(likes)
+					.where(and(inArray(likes.post_id, post_ids), eq(likes.user_id, viewer_user_id)));
+
+	const like_count_by_post = new Map<string, number>();
+
+	for (const row of like_count_rows) {
+		like_count_by_post.set(row.post_id, row.like_count);
+	}
+
+	const liked_post_ids = new Set(liked_rows.map((row) => row.post_id));
+
 	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
 		id: row.id,
 		content: row.content,
 		created_at: row.created_at,
+		like_count: like_count_by_post.get(row.id) ?? 0,
+		has_liked: liked_post_ids.has(row.id),
 		author_name: profile.name ?? profile.username,
 		author_username: profile.username,
 		author_avatar: profile.image,

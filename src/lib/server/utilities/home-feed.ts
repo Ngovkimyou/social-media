@@ -1,10 +1,10 @@
 import { HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 import { get_db } from '$lib/server/db';
-import { media, post_media, posts, profiles, user } from '$lib/server/db/schema';
+import { likes, media, post_media, posts, profiles, user } from '$lib/server/db/schema';
 import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 import { build_responsive_image_source } from '$lib/utilities/responsive-image';
-import { and, asc, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 
 type HomeFeedCursor = {
 	created_at: string;
@@ -46,7 +46,8 @@ function decode_home_feed_cursor(cursor?: string): HomeFeedCursor | undefined {
 
 export async function get_home_feed_page(
 	limit = HOME_FEED_PAGE_SIZE,
-	cursor?: string
+	cursor?: string,
+	viewer_user_id?: string
 ): Promise<HomeFeedPage> {
 	const db = get_db();
 	const normalized_limit = Math.max(1, Math.min(limit, 30));
@@ -119,6 +120,26 @@ export async function get_home_feed_page(
 					.where(inArray(post_media.post_id, post_ids))
 					.orderBy(asc(post_media.sort_order));
 
+	const like_count_rows =
+		post_ids.length === 0
+			? []
+			: await db
+					.select({
+						post_id: likes.post_id,
+						like_count: count()
+					})
+					.from(likes)
+					.where(inArray(likes.post_id, post_ids))
+					.groupBy(likes.post_id);
+
+	const liked_rows =
+		post_ids.length === 0 || !viewer_user_id
+			? []
+			: await db
+					.select({ post_id: likes.post_id })
+					.from(likes)
+					.where(and(inArray(likes.post_id, post_ids), eq(likes.user_id, viewer_user_id)));
+
 	const first_media_by_post = new Map<
 		string,
 		{
@@ -138,6 +159,14 @@ export async function get_home_feed_page(
 		});
 	}
 
+	const like_count_by_post = new Map<string, number>();
+
+	for (const row of like_count_rows) {
+		like_count_by_post.set(row.post_id, row.like_count);
+	}
+
+	const liked_post_ids = new Set(liked_rows.map((row) => row.post_id));
+
 	const feed_posts: PostFeedPost[] = visible_rows.map((row) => {
 		const post_media_row = first_media_by_post.get(row.id);
 		const responsive_media =
@@ -153,6 +182,8 @@ export async function get_home_feed_page(
 			id: row.id,
 			content: row.content,
 			created_at: row.created_at,
+			like_count: like_count_by_post.get(row.id) ?? 0,
+			has_liked: liked_post_ids.has(row.id),
 			author_name: row.author_name,
 			author_username: row.author_username ?? ensured_usernames.get(row.author_id) ?? 'user',
 			author_avatar: row.author_avatar,

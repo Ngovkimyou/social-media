@@ -2,6 +2,8 @@ export type PostFeedPost = {
 	id: string;
 	content: string;
 	created_at: Date;
+	like_count: number;
+	has_liked: boolean;
 	author_name: string;
 	author_username: string;
 	author_avatar: string | null;

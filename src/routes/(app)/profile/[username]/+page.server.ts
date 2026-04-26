@@ -193,10 +193,7 @@ const validate_profile_details_form = (
 
 	if (!is_valid_profile_email(form.email)) {
 		return fail(400, {
-			message: localize_profile_validation_message(
-				'Please enter a valid email address.',
-				locale
-			)
+			message: localize_profile_validation_message('Please enter a valid email address.', locale)
 		});
 	}
 
