@@ -81,14 +81,21 @@ const MAX_POST_VIDEO_DURATION_SECONDS = 60;
 const MAX_POST_VIDEO_OUTPUT_BYTES = 40 * 1024 * 1024;
 const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
 
-const get_missing_post_media_message = (caption: string, media_type: 'image' | 'video'): string =>
-	caption
-		? media_type === 'video'
-			? 'Add a video before posting. Captions need a video.'
-			: 'Add a photo before posting. Captions need an image.'
-		: media_type === 'video'
-			? 'Please choose a video to upload.'
-			: 'Please choose a photo to upload.';
+const get_missing_post_media_message = (caption: string, media_type: 'image' | 'video'): string => {
+	if (caption && media_type === 'video') {
+		return 'Add a video before posting. Captions need a video.';
+	}
+
+	if (caption) {
+		return 'Add a photo before posting. Captions need an image.';
+	}
+
+	if (media_type === 'video') {
+		return 'Please choose a video to upload.';
+	}
+
+	return 'Please choose a photo to upload.';
+};
 
 const get_form_string = (form_data: FormData, key: string): string => {
 	const value = form_data.get(key);
@@ -501,7 +508,7 @@ const prepare_post_media_upload = async (params: {
 		const uploaded =
 			media_type === 'video'
 				? await upload_video_from_file(file, {
-						...(trim_end_seconds !== undefined ? { endOffset: trim_end_seconds } : {}),
+						...(typeof trim_end_seconds === 'number' ? { endOffset: trim_end_seconds } : {}),
 						folder: `posts/${user_id}`,
 						startOffset: trim_start_seconds
 					})

@@ -585,8 +585,7 @@
 	backdrop-filter: blur(6px);
 }
 
-.editor-drag-hint span::before,
-.editor-drag-hint span::after {
+:where(.editor-drag-hint span::before, .editor-drag-hint span::after) {
 	position: absolute;
 	top: 50%;
 	color: rgba(4, 3, 13, 0.72);
@@ -622,16 +621,7 @@
 	transform: translateX(-50%) rotate(90deg);
 }
 
-.editor-drag-hint span::before {
-	content: '\2190';
-}
-
-.editor-drag-hint span::after {
-	content: '\2192';
-}
-
-.editor-drag-hint::before,
-.editor-drag-hint::after {
+:where(.editor-drag-hint::before, .editor-drag-hint::after) {
 	position: absolute;
 	color: rgba(4, 3, 13, 0.72);
 	font-size: 1rem;
@@ -639,16 +629,6 @@
 	text-shadow:
 		0 0 8px rgba(255, 255, 255, 0.32),
 		0 0 14px rgba(4, 3, 13, 0.32);
-}
-
-.editor-drag-hint::before {
-	content: '\2191';
-	transform: translateX(-50%);
-}
-
-.editor-drag-hint::after {
-	content: '\2193';
-	transform: translateX(-50%);
 }
 
 @keyframes editor-drag-hint-pulse {

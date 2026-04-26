@@ -144,8 +144,8 @@ export async function upload_video_from_file(
 			allowed_formats: options.allowedFormats ?? [...ALLOWED_VIDEO_FORMATS],
 			folder: options.folder,
 			...(options.publicId ? { public_id: options.publicId } : {}),
-			...(options.startOffset !== undefined ? { start_offset: options.startOffset } : {}),
-			...(options.endOffset !== undefined ? { end_offset: options.endOffset } : {})
+			...('startOffset' in options ? { start_offset: options.startOffset } : {}),
+			...('endOffset' in options ? { end_offset: options.endOffset } : {})
 		},
 		resource_type: 'video'
 	});
