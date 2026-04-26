@@ -142,6 +142,17 @@
 			})
 		}))
 	);
+	const shared_post_tiles = $derived.by(() =>
+		data['shared_posts'].map((post) => ({
+			id: post.id,
+			image: build_responsive_image_source(post.media_display_url ?? post.media_url ?? '', {
+				widths: [360, 540, 720, 960, 1200],
+				height: 'match-width',
+				fit: 'lfill',
+				quality: 100
+			})
+		}))
+	);
 
 	const success_message = $derived(
 		(form as { success?: boolean } | null | undefined)?.success === true
@@ -1873,6 +1884,35 @@
 						<span class="text-5xl font-light text-white/70">+</span>
 					</button>
 				{/if}
+			</div>
+		{/if}
+
+		{#if !is_editing_profile && active_tab === 'shared'}
+			<div
+				class="mx-2 mt-2 grid grid-cols-3 gap-1 pb-10 md:gap-3 md:pb-8"
+				style="content-visibility:auto; contain-intrinsic-size: 720px;"
+			>
+				{#each shared_post_tiles as post (post.id)}
+					<a
+						href={resolve(
+							`/profile/${encodeURIComponent(data['profile'].username)}/shared/${post.id}`
+						)}
+						class="block aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+						aria-label="Open shared post"
+					>
+						<ProgressiveImage
+							src={post.image.src}
+							srcset={post.image.srcset}
+							sizes="(max-width: 768px) 33vw, (max-width: 1280px) 30vw, 360px"
+							alt="Shared post"
+							wrapper_class="h-full w-full"
+							img_class="h-full w-full object-cover"
+							skeleton_class="rounded-xl md:rounded-2xl"
+							loading="lazy"
+							decoding="async"
+						/>
+					</a>
+				{/each}
 			</div>
 		{/if}
 

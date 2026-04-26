@@ -11,6 +11,7 @@ type SecurityEventCategory =
 	| 'rate_limit_post'
 	| 'rate_limit_follow'
 	| 'rate_limit_like'
+	| 'rate_limit_share'
 	| 'rate_limit_home_feed'
 	| 'duplicate_caption'
 	| 'duplicate_image'
@@ -25,6 +26,7 @@ const ALERT_THRESHOLDS = new Map<SecurityEventCategory, number>([
 	['rate_limit_post', 10],
 	['rate_limit_follow', 10],
 	['rate_limit_like', 20],
+	['rate_limit_share', 20],
 	['rate_limit_home_feed', 25],
 	['duplicate_caption', 5],
 	['duplicate_image', 5],

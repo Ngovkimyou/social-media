@@ -1,7 +1,16 @@
+import { alias } from 'drizzle-orm/pg-core';
 import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { get_db } from '$lib/server/db';
-import { follows, likes, media, post_media, posts, profiles } from '$lib/server/db/schema';
+import {
+	follows,
+	likes,
+	media,
+	post_media,
+	post_shares,
+	posts,
+	profiles
+} from '$lib/server/db/schema';
 import {
 	get_or_set_short_ttl_cache,
 	invalidate_short_ttl_cache_key,
@@ -237,6 +246,7 @@ type ProfilePageData = {
 	};
 	photo_posts: Array<{ id: string; image_url: string }>;
 	photo_urls: string[];
+	shared_posts: PostFeedPost[];
 };
 
 const get_relationship = async (
@@ -276,7 +286,7 @@ const load_profile_page_data = async (
 		return undefined;
 	}
 
-	const [counts, photo_rows, relationship] = await Promise.all([
+	const [counts, photo_rows, relationship, shared_posts] = await Promise.all([
 		Promise.all([
 			db
 				.select({ value: count() })
@@ -295,7 +305,8 @@ const load_profile_page_data = async (
 			)
 			.orderBy(desc(posts.created_at), post_media.sort_order)
 			.limit(30),
-		get_relationship(viewer_user_id, profile.user_id)
+		get_relationship(viewer_user_id, profile.user_id),
+		get_shared_posts_by_user_id(profile.user_id, viewer_user_id)
 	]);
 
 	const [post_count_row, followers_count_row, following_count_row] = counts;
@@ -322,8 +333,117 @@ const load_profile_page_data = async (
 		},
 		relationship,
 		photo_posts,
-		photo_urls
+		photo_urls,
+		shared_posts
 	};
+};
+
+const get_shared_posts_by_user_id = async (
+	shared_by_user_id: string,
+	viewer_user_id?: string
+): Promise<PostFeedPost[]> => {
+	const db = get_db();
+	const post_author_profiles = alias(profiles, 'post_author_profile');
+	const rows = await db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			created_at: posts.created_at,
+			media_url: media.url,
+			media_type: media.type,
+			author_name: auth_user.name,
+			author_username: post_author_profiles.username,
+			author_avatar: auth_user.image,
+			shared_at: post_shares.created_at
+		})
+		.from(post_shares)
+		.innerJoin(posts, eq(post_shares.post_id, posts.id))
+		.innerJoin(auth_user, eq(posts.author_id, auth_user.id))
+		.leftJoin(post_author_profiles, eq(post_author_profiles.user_id, auth_user.id))
+		.leftJoin(post_media, eq(posts.id, post_media.post_id))
+		.leftJoin(media, eq(post_media.media_id, media.id))
+		.where(and(eq(post_shares.user_id, shared_by_user_id), isNull(posts.deleted_at)))
+		.orderBy(desc(post_shares.created_at), desc(posts.created_at), post_media.sort_order)
+		.limit(120);
+
+	const seen = new Set<string>();
+	const unique_posts = rows.filter((row) => {
+		if (seen.has(row.id)) {
+			return false;
+		}
+
+		seen.add(row.id);
+		return true;
+	});
+
+	const post_ids = unique_posts.map((row) => row.id);
+
+	const [like_count_rows, liked_rows, share_count_rows, shared_rows] = await Promise.all([
+		post_ids.length === 0
+			? Promise.resolve([])
+			: db
+					.select({
+						post_id: likes.post_id,
+						like_count: count()
+					})
+					.from(likes)
+					.where(inArray(likes.post_id, post_ids))
+					.groupBy(likes.post_id),
+		post_ids.length === 0 || !viewer_user_id
+			? Promise.resolve([])
+			: db
+					.select({ post_id: likes.post_id })
+					.from(likes)
+					.where(and(inArray(likes.post_id, post_ids), eq(likes.user_id, viewer_user_id))),
+		post_ids.length === 0
+			? Promise.resolve([])
+			: db
+					.select({
+						post_id: post_shares.post_id,
+						share_count: count()
+					})
+					.from(post_shares)
+					.where(inArray(post_shares.post_id, post_ids))
+					.groupBy(post_shares.post_id),
+		post_ids.length === 0 || !viewer_user_id
+			? Promise.resolve([])
+			: db
+					.select({ post_id: post_shares.post_id })
+					.from(post_shares)
+					.where(
+						and(inArray(post_shares.post_id, post_ids), eq(post_shares.user_id, viewer_user_id))
+					)
+	]);
+
+	const like_count_by_post = new Map<string, number>();
+	for (const row of like_count_rows) {
+		like_count_by_post.set(row.post_id, row.like_count);
+	}
+
+	const share_count_by_post = new Map<string, number>();
+	for (const row of share_count_rows) {
+		share_count_by_post.set(row.post_id, row.share_count);
+	}
+
+	const liked_post_ids = new Set(liked_rows.map((row) => row.post_id));
+	const shared_post_ids = new Set(shared_rows.map((row) => row.post_id));
+
+	return unique_posts.map((row) => ({
+		id: row.id,
+		content: row.content,
+		created_at: row.created_at,
+		like_count: like_count_by_post.get(row.id) ?? 0,
+		has_liked: liked_post_ids.has(row.id),
+		share_count: share_count_by_post.get(row.id) ?? 0,
+		has_shared: shared_post_ids.has(row.id),
+		author_name: row.author_name ?? row.author_username ?? 'user',
+		author_username: row.author_username ?? 'user',
+		author_avatar: row.author_avatar,
+		media_display_srcset: undefined,
+		media_display_url: undefined,
+		media_url: row.media_url,
+		media_type: row.media_type
+	}));
 };
 
 export const get_profile_page_data = async (
@@ -407,6 +527,28 @@ export const get_profile_posts_by_username = async (
 					.from(likes)
 					.where(and(inArray(likes.post_id, post_ids), eq(likes.user_id, viewer_user_id)));
 
+	const share_count_rows =
+		post_ids.length === 0
+			? []
+			: await db
+					.select({
+						post_id: post_shares.post_id,
+						share_count: count()
+					})
+					.from(post_shares)
+					.where(inArray(post_shares.post_id, post_ids))
+					.groupBy(post_shares.post_id);
+
+	const shared_rows =
+		post_ids.length === 0 || !viewer_user_id
+			? []
+			: await db
+					.select({ post_id: post_shares.post_id })
+					.from(post_shares)
+					.where(
+						and(inArray(post_shares.post_id, post_ids), eq(post_shares.user_id, viewer_user_id))
+					);
+
 	const like_count_by_post = new Map<string, number>();
 
 	for (const row of like_count_rows) {
@@ -414,6 +556,13 @@ export const get_profile_posts_by_username = async (
 	}
 
 	const liked_post_ids = new Set(liked_rows.map((row) => row.post_id));
+	const share_count_by_post = new Map<string, number>();
+
+	for (const row of share_count_rows) {
+		share_count_by_post.set(row.post_id, row.share_count);
+	}
+
+	const shared_post_ids = new Set(shared_rows.map((row) => row.post_id));
 
 	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
 		id: row.id,
@@ -421,6 +570,8 @@ export const get_profile_posts_by_username = async (
 		created_at: row.created_at,
 		like_count: like_count_by_post.get(row.id) ?? 0,
 		has_liked: liked_post_ids.has(row.id),
+		share_count: share_count_by_post.get(row.id) ?? 0,
+		has_shared: shared_post_ids.has(row.id),
 		author_name: profile.name ?? profile.username,
 		author_username: profile.username,
 		author_avatar: profile.image,

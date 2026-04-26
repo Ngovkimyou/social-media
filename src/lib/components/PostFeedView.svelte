@@ -15,7 +15,7 @@
 	import type { PostFeedPost } from '$lib/types/post-feed';
 
 	type BackPath = '/profile' | `/profile/${string}`;
-	type PostPath = `/profile/${string}/posts/${string}`;
+	type PostPath = `/profile/${string}/posts/${string}` | `/profile/${string}/shared/${string}`;
 	const last_home_state_storage_key = 'post-feed-last-home-state';
 
 	type Props = {
@@ -65,6 +65,9 @@
 	let liked_posts = $state<Record<string, boolean>>({});
 	let like_counts = $state<Record<string, number>>({});
 	let like_requests_in_flight = $state<Record<string, boolean>>({});
+	let shared_posts = $state<Record<string, boolean>>({});
+	let share_counts = $state<Record<string, number>>({});
+	let share_requests_in_flight = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
 	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
 		{}
@@ -196,6 +199,16 @@
 		return like_counts[post_id] ?? post.like_count;
 	}
 
+	function get_is_shared(post: PostFeedPost): boolean {
+		const post_id = String(post.id);
+		return shared_posts[post_id] ?? post.has_shared;
+	}
+
+	function get_share_count(post: PostFeedPost): number {
+		const post_id = String(post.id);
+		return share_counts[post_id] ?? post.share_count;
+	}
+
 	async function toggle_like(post_id: string | number) {
 		const key = String(post_id);
 
@@ -256,6 +269,71 @@
 		} finally {
 			like_requests_in_flight = {
 				...like_requests_in_flight,
+				[key]: false
+			};
+		}
+	}
+
+	async function toggle_share(post_id: string | number) {
+		const key = String(post_id);
+
+		if (share_requests_in_flight[key]) {
+			return;
+		}
+
+		const post = posts.find((candidate) => String(candidate.id) === key);
+		if (!post) {
+			return;
+		}
+
+		const previous_is_shared = get_is_shared(post);
+		const previous_share_count = get_share_count(post);
+		const next_is_shared = !previous_is_shared;
+		const next_share_count = Math.max(0, previous_share_count + (next_is_shared ? 1 : -1));
+
+		share_requests_in_flight = {
+			...share_requests_in_flight,
+			[key]: true
+		};
+		shared_posts = {
+			...shared_posts,
+			[key]: next_is_shared
+		};
+		share_counts = {
+			...share_counts,
+			[key]: next_share_count
+		};
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/share`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to toggle share');
+			}
+
+			const payload = (await response.json()) as { shared: boolean; share_count: number };
+			shared_posts = {
+				...shared_posts,
+				[key]: payload.shared
+			};
+			share_counts = {
+				...share_counts,
+				[key]: payload.share_count
+			};
+		} catch {
+			shared_posts = {
+				...shared_posts,
+				[key]: previous_is_shared
+			};
+			share_counts = {
+				...share_counts,
+				[key]: previous_share_count
+			};
+		} finally {
+			share_requests_in_flight = {
+				...share_requests_in_flight,
 				[key]: false
 			};
 		}
@@ -620,6 +698,20 @@
 					[key]: post.like_count
 				};
 			}
+
+			if (shared_posts[key] === undefined) {
+				shared_posts = {
+					...shared_posts,
+					[key]: post.has_shared
+				};
+			}
+
+			if (share_counts[key] === undefined) {
+				share_counts = {
+					...share_counts,
+					[key]: post.share_count
+				};
+			}
 		}
 	});
 
@@ -911,7 +1003,10 @@
 												: 'scale-125 opacity-0'}"
 										/>
 									</button>
-									<span class="min-w-5 text-xs text-white/70">{get_like_count(post)}</span>
+									<span
+										class={`min-w-5 text-xs ${get_is_liked(post) ? 'text-rose-400' : 'text-white/70'}`}
+										>{get_like_count(post)}</span
+									>
 								</div>
 								<button class="transition-opacity hover:opacity-70"
 									><img
@@ -920,13 +1015,26 @@
 										class="h-6 w-auto"
 									/></button
 								>
-								<button class="transition-opacity hover:opacity-70"
-									><img
-										src="/images/home-screen/share-post-icon.avif"
-										alt="share"
-										class="h-6 w-auto"
-									/></button
-								>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class={`cursor-pointer transition-opacity hover:opacity-70 ${get_is_shared(post) ? 'opacity-100' : 'opacity-80'}`}
+										onclick={() => {
+											void toggle_share(post.id);
+										}}
+										aria-label={get_is_shared(post) ? 'Unshare post' : 'Share post'}
+									>
+										<img
+											src="/images/home-screen/share-post-icon.avif"
+											alt="share"
+											class="h-6 w-auto"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_is_shared(post) ? 'text-green-400' : 'text-white/70'}`}
+										>{get_share_count(post)}</span
+									>
+								</div>
 							</div>
 						</div>
 
@@ -1136,7 +1244,10 @@
 												: 'scale-125 opacity-0'}"
 										/>
 									</button>
-									<span class="min-w-5 text-xs text-white/70">{get_like_count(post)}</span>
+									<span
+										class={`min-w-5 text-xs ${get_is_liked(post) ? 'text-rose-400' : 'text-white/70'}`}
+										>{get_like_count(post)}</span
+									>
 								</div>
 								<button class="transition-opacity hover:opacity-70"
 									><img
@@ -1145,13 +1256,26 @@
 										class="h-6 w-auto"
 									/></button
 								>
-								<button class="transition-opacity hover:opacity-70"
-									><img
-										src="/images/home-screen/share-post-icon.avif"
-										alt="share"
-										class="h-6 w-auto"
-									/></button
-								>
+								<div class="flex items-center gap-2">
+									<button
+										type="button"
+										class={`cursor-pointer transition-opacity hover:opacity-70 ${get_is_shared(post) ? 'opacity-100' : 'opacity-80'}`}
+										onclick={() => {
+											void toggle_share(post.id);
+										}}
+										aria-label={get_is_shared(post) ? 'Unshare post' : 'Share post'}
+									>
+										<img
+											src="/images/home-screen/share-post-icon.avif"
+											alt="share"
+											class="h-6 w-auto"
+										/>
+									</button>
+									<span
+										class={`min-w-5 text-xs ${get_is_shared(post) ? 'text-green-400' : 'text-white/70'}`}
+										>{get_share_count(post)}</span
+									>
+								</div>
 							</div>
 						</div>
 

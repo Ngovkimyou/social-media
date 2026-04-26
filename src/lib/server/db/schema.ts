@@ -190,6 +190,24 @@ export const shares = pgTable(
 	]
 );
 
+export const post_shares = pgTable(
+	'post_share',
+	{
+		post_id: text('post_id')
+			.notNull()
+			.references(() => posts.id, { onDelete: 'cascade' }),
+		user_id: text('user_id')
+			.notNull()
+			.references(() => auth_user.id, { onDelete: 'cascade' }),
+		created_at: timestamp('created_at').defaultNow().notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.post_id, table.user_id] }),
+		index('post_share_post_id_idx').on(table.post_id),
+		index('post_share_user_id_idx').on(table.user_id)
+	]
+);
+
 export const profiles = pgTable(
 	'profile',
 	{
