@@ -1,7 +1,7 @@
-import { and, count, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { user as auth_user } from '$lib/server/db/auth.schema';
 import { get_db } from '$lib/server/db';
-import { follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
+import { comments, follows, media, post_media, posts, profiles } from '$lib/server/db/schema';
 import {
 	get_or_set_short_ttl_cache,
 	invalidate_short_ttl_cache_key,
@@ -237,6 +237,7 @@ type ProfilePageData = {
 	};
 	photo_posts: Array<{ id: string; image_url: string }>;
 	photo_urls: string[];
+	video_posts: Array<{ id: string; video_url: string }>;
 };
 
 const get_relationship = async (
@@ -276,7 +277,7 @@ const load_profile_page_data = async (
 		return undefined;
 	}
 
-	const [counts, photo_rows, relationship] = await Promise.all([
+	const [counts, photo_rows, video_rows, relationship] = await Promise.all([
 		Promise.all([
 			db
 				.select({ value: count() })
@@ -295,12 +296,23 @@ const load_profile_page_data = async (
 			)
 			.orderBy(desc(posts.created_at), post_media.sort_order)
 			.limit(30),
+		db
+			.select({ id: posts.id, url: media.url })
+			.from(posts)
+			.innerJoin(post_media, eq(post_media.post_id, posts.id))
+			.innerJoin(media, eq(media.id, post_media.media_id))
+			.where(
+				and(eq(posts.author_id, profile.user_id), isNull(posts.deleted_at), eq(media.type, 'video'))
+			)
+			.orderBy(desc(posts.created_at), post_media.sort_order)
+			.limit(30),
 		get_relationship(viewer_user_id, profile.user_id)
 	]);
 
 	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
 	const photo_urls = photo_posts.map((row) => row.image_url);
+	const video_posts = video_rows.map((row) => ({ id: row.id, video_url: row.url }));
 	const visible_email: string | null = profile.email_visible
 		? profile.email
 		: // eslint-disable-next-line unicorn/no-null
@@ -322,7 +334,8 @@ const load_profile_page_data = async (
 		},
 		relationship,
 		photo_posts,
-		photo_urls
+		photo_urls,
+		video_posts
 	};
 };
 
@@ -384,6 +397,21 @@ export const get_profile_posts_by_username = async (
 		return true;
 	});
 
+	const post_ids = unique_posts.map((row) => row.id);
+	const comment_count_rows =
+		post_ids.length === 0
+			? []
+			: await db
+					.select({ post_id: comments.post_id, comment_count: count() })
+					.from(comments)
+					.where(and(inArray(comments.post_id, post_ids), isNull(comments.deleted_at)))
+					.groupBy(comments.post_id);
+
+	const comment_count_by_post = new Map<string, number>();
+	for (const row of comment_count_rows) {
+		comment_count_by_post.set(row.post_id, row.comment_count);
+	}
+
 	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
 		id: row.id,
 		content: row.content,
@@ -394,7 +422,8 @@ export const get_profile_posts_by_username = async (
 		media_display_srcset: undefined,
 		media_display_url: undefined,
 		media_url: row.media_url,
-		media_type: row.media_type
+		media_type: row.media_type,
+		comment_count: comment_count_by_post.get(row.id) ?? 0
 	}));
 
 	if (!selected_post_id) {

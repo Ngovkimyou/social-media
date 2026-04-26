@@ -13,6 +13,7 @@
 		type HomeFeedState
 	} from '$lib/state/home-feed-state';
 	import type { PostFeedPost } from '$lib/types/post-feed';
+	import PostDetailModal from '$lib/components/PostDetailModal.svelte';
 
 	type BackPath = '/profile' | `/profile/${string}`;
 	type PostPath = `/profile/${string}/posts/${string}`;
@@ -50,12 +51,63 @@
 	let root_container = $state<HTMLDivElement | undefined>();
 	let scroll_container = $state<HTMLDivElement | undefined>();
 	let mounted_scroll_storage_key = $state('');
-	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
+	let video_preview_backdrop = $state<HTMLDivElement | undefined>();
+	let video_preview_element = $state<HTMLVideoElement | undefined>();
 	let load_more_sentinel = $state<HTMLDivElement | undefined>();
-	let image_preview = $state<
+	let detail_post = $state<PostFeedPost | undefined>();
+	let video_preview = $state<
 		| {
 				src: string;
 				alt: string;
+		  }
+		| undefined
+	>();
+	let video_preview_current_time = $state(0);
+	let video_preview_duration = $state(0);
+	let video_preview_is_playing = $state(false);
+	let video_preview_is_buffering = $state(false);
+	let video_preview_volume = $state(100);
+	let video_preview_brightness = $state(100);
+	let active_video_preview_panel = $state<'brightness' | 'volume' | undefined>();
+	let video_preview_controls_visible = $state(true);
+	let video_preview_controls_region_active = $state(false);
+	let is_compact_video_preview = $state(false);
+	let video_preview_controls_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
+	let video_preview_click_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
+	let video_preview_time_frame = $state<number | undefined>();
+	let video_preview_seek_pointer_id = $state<number | undefined>();
+	let video_preview_seek_grab_offset_x = $state(0);
+	let video_preview_drag_offset_x = $state(0);
+	let video_preview_drag_offset_y = $state(0);
+	let video_preview_should_ignore_next_click = $state(false);
+	let video_preview_touch_setting_panel = $state<'brightness' | 'volume' | undefined>();
+	let video_preview_setting_drag_state = $state<
+		| {
+				has_moved: boolean;
+				panel: 'brightness' | 'volume';
+				pointer_id: number;
+				start_value: number;
+				start_x: number;
+				start_y: number;
+				target: HTMLElement;
+		  }
+		| undefined
+	>();
+	let video_preview_drag_hold_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
+	let video_preview_drag_pending_state = $state<
+		| {
+				pointer_id: number;
+				start_x: number;
+				start_y: number;
+				target: HTMLElement;
+		  }
+		| undefined
+	>();
+	let video_preview_drag_state = $state<
+		| {
+				pointer_id: number;
+				start_x: number;
+				start_y: number;
 		  }
 		| undefined
 	>();
@@ -64,9 +116,7 @@
 	let load_more_observer = $state<IntersectionObserver | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
-	let pending_preview_timers = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>(
-		{}
-	);
+	let comment_counts = $state<Record<string, number>>({});
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
@@ -75,6 +125,14 @@
 	const focus_post_id = $derived(page.url.searchParams.get('focusPost')?.trim() ?? '');
 	const has_infinite_feed = $derived(Boolean(on_load_more));
 	const grid_loading_placeholders = Array.from({ length: 6 }, (_, index) => index);
+	const video_preview_controls_hide_delay_ms = 1000;
+	const video_preview_mobile_tap_controls_hide_delay_ms = 5000;
+	const video_preview_start_display_snap_seconds = 0.05;
+	const video_preview_end_display_snap_seconds = 0.05;
+	const video_preview_drag_click_suppression_distance = 12;
+	const video_preview_setting_drag_sensitivity = 0.65;
+	const video_preview_drag_hold_delay_ms = 260;
+	const video_preview_close_drag_distance = 110;
 
 	function caption_key(view: 'grid' | 'feed', post_id: string | number) {
 		return `${view}-${String(post_id)}`;
@@ -151,37 +209,865 @@
 		return root_container;
 	}
 
-	function open_image_preview(src: string, alt: string) {
-		image_preview = { src, alt };
+	function open_post_detail(post: PostFeedPost) {
+		detail_post = post;
 	}
 
-	function close_image_preview() {
-		image_preview = undefined;
+	function close_post_detail() {
+		detail_post = undefined;
 	}
 
-	function clear_pending_preview(post_id: string | number) {
-		const timer = pending_preview_timers[String(post_id)];
+	function get_post_comment_count(post: PostFeedPost) {
+		return comment_counts[String(post.id)] ?? post.comment_count;
+	}
 
-		if (!timer) {
+	function handle_post_comment_count_change(post_id: string | number, next_count: number) {
+		const key = String(post_id);
+		comment_counts = {
+			...comment_counts,
+			[key]: next_count
+		};
+
+		if (detail_post?.id === post_id) {
+			detail_post = {
+				...detail_post,
+				comment_count: next_count
+			};
+		}
+	}
+
+	function format_media_time(seconds: number) {
+		const normalized = Math.max(0, Math.floor(seconds));
+		const minutes = Math.floor(normalized / 60);
+		const remaining_seconds = normalized % 60;
+
+		return `${minutes}:${String(remaining_seconds).padStart(2, '0')}`;
+	}
+
+	function sync_video_preview_viewport() {
+		if (typeof window === 'undefined') {
 			return;
 		}
 
-		clearTimeout(timer);
-		pending_preview_timers = {
-			...pending_preview_timers,
-			[String(post_id)]: undefined
-		};
+		is_compact_video_preview = window.matchMedia('(max-width: 767px)').matches;
 	}
 
-	function schedule_image_preview(post_id: string | number, src: string, alt: string) {
-		clear_pending_preview(post_id);
-		pending_preview_timers = {
-			...pending_preview_timers,
-			[String(post_id)]: setTimeout(() => {
-				open_image_preview(src, alt);
-				clear_pending_preview(post_id);
-			}, 220)
+	function clear_video_preview_controls_timeout() {
+		if (!video_preview_controls_timeout) {
+			return;
+		}
+
+		clearTimeout(video_preview_controls_timeout);
+		video_preview_controls_timeout = undefined;
+	}
+
+	function schedule_video_preview_controls_hide(delay_ms = video_preview_controls_hide_delay_ms) {
+		clear_video_preview_controls_timeout();
+
+		if (!video_preview || video_preview_controls_region_active) {
+			return;
+		}
+
+		video_preview_controls_timeout = setTimeout(() => {
+			video_preview_controls_timeout = undefined;
+
+			if (video_preview_controls_region_active) {
+				return;
+			}
+
+			video_preview_controls_visible = false;
+		}, delay_ms);
+	}
+
+	function show_video_preview_controls() {
+		video_preview_controls_visible = true;
+		schedule_video_preview_controls_hide();
+	}
+
+	function toggle_video_preview_controls() {
+		clear_video_preview_controls_timeout();
+		video_preview_controls_region_active = false;
+
+		if (video_preview_controls_visible) {
+			video_preview_controls_visible = false;
+			return;
+		}
+
+		video_preview_controls_visible = true;
+		schedule_video_preview_controls_hide(
+			is_compact_video_preview
+				? video_preview_mobile_tap_controls_hide_delay_ms
+				: video_preview_controls_hide_delay_ms
+		);
+	}
+
+	function set_video_preview_controls_region_active(is_active: boolean) {
+		video_preview_controls_region_active = is_active;
+
+		if (is_active) {
+			video_preview_controls_visible = true;
+			clear_video_preview_controls_timeout();
+			return;
+		}
+
+		schedule_video_preview_controls_hide();
+	}
+
+	function release_video_preview_controls_region_for_touch(event: PointerEvent) {
+		if (event.pointerType === 'mouse') {
+			return;
+		}
+
+		set_video_preview_controls_region_active(false);
+	}
+
+	function clear_video_preview_click_timeout() {
+		if (!video_preview_click_timeout) {
+			return;
+		}
+
+		clearTimeout(video_preview_click_timeout);
+		video_preview_click_timeout = undefined;
+	}
+
+	function clear_video_preview_drag_hold() {
+		if (video_preview_drag_hold_timeout) {
+			clearTimeout(video_preview_drag_hold_timeout);
+			video_preview_drag_hold_timeout = undefined;
+		}
+
+		video_preview_drag_pending_state = undefined;
+	}
+
+	function apply_video_preview_media_settings() {
+		if (!video_preview_element) {
+			return;
+		}
+
+		video_preview_element.volume = Math.max(0, Math.min(video_preview_volume / 100, 1));
+	}
+
+	function stop_video_preview_time_loop() {
+		if (video_preview_time_frame === undefined) {
+			return;
+		}
+
+		cancelAnimationFrame(video_preview_time_frame);
+		video_preview_time_frame = undefined;
+	}
+
+	function sync_video_preview_time_from_element() {
+		if (!video_preview_element) {
+			return;
+		}
+
+		const next_duration = Number.isFinite(video_preview_element.duration)
+			? video_preview_element.duration
+			: 0;
+		const next_current_time =
+			next_duration > 0 && next_duration - video_preview_element.currentTime <= 0.05
+				? next_duration
+				: video_preview_element.currentTime;
+
+		video_preview_current_time = next_current_time;
+		video_preview_duration = next_duration;
+		video_preview_is_playing = !video_preview_element.paused;
+	}
+
+	function start_video_preview_time_loop() {
+		if (video_preview_time_frame !== undefined || typeof window === 'undefined') {
+			return;
+		}
+
+		const update = () => {
+			sync_video_preview_time_from_element();
+
+			if (!video_preview_element || video_preview_element.paused || video_preview_element.ended) {
+				video_preview_time_frame = undefined;
+				return;
+			}
+
+			video_preview_time_frame = requestAnimationFrame(update);
 		};
+
+		video_preview_time_frame = requestAnimationFrame(update);
+	}
+
+	function get_video_preview_seek_value() {
+		if (video_preview_duration <= 0) {
+			return 0;
+		}
+
+		const clamped_current_time = Math.min(video_preview_current_time, video_preview_duration);
+		const remaining = video_preview_duration - clamped_current_time;
+
+		if (clamped_current_time < video_preview_start_display_snap_seconds) {
+			return 0;
+		}
+
+		if (remaining <= video_preview_end_display_snap_seconds) {
+			return video_preview_duration;
+		}
+
+		return clamped_current_time;
+	}
+
+	function get_video_preview_seek_percent() {
+		if (video_preview_duration <= 0) {
+			return 0;
+		}
+
+		return Math.max(
+			0,
+			Math.min((get_video_preview_seek_value() / video_preview_duration) * 100, 100)
+		);
+	}
+
+	function get_video_preview_seek_ratio() {
+		return get_video_preview_seek_percent() / 100;
+	}
+
+	function open_video_preview(src: string, alt: string) {
+		video_preview = { src, alt };
+		video_preview_current_time = 0;
+		video_preview_duration = 0;
+		video_preview_is_playing = false;
+		video_preview_is_buffering = true;
+		video_preview_volume = 100;
+		video_preview_brightness = 100;
+		active_video_preview_panel = undefined;
+		video_preview_touch_setting_panel = undefined;
+		video_preview_setting_drag_state = undefined;
+		video_preview_controls_visible = true;
+		video_preview_controls_region_active = false;
+		video_preview_drag_offset_x = 0;
+		video_preview_drag_offset_y = 0;
+		video_preview_should_ignore_next_click = false;
+		clear_video_preview_drag_hold();
+		video_preview_drag_state = undefined;
+		video_preview_seek_pointer_id = undefined;
+		video_preview_seek_grab_offset_x = 0;
+		sync_video_preview_viewport();
+		schedule_video_preview_controls_hide();
+
+		void tick().then(() => {
+			if (video_preview?.src !== src || !video_preview_element) {
+				return;
+			}
+
+			void video_preview_element.play().catch(() => {
+				video_preview_is_playing = false;
+			});
+		});
+	}
+
+	function close_video_preview() {
+		video_preview_element?.pause();
+		stop_video_preview_time_loop();
+		clear_video_preview_controls_timeout();
+		clear_video_preview_click_timeout();
+		clear_video_preview_drag_hold();
+		video_preview = undefined;
+		video_preview_is_playing = false;
+		video_preview_is_buffering = false;
+		video_preview_current_time = 0;
+		video_preview_duration = 0;
+		active_video_preview_panel = undefined;
+		video_preview_touch_setting_panel = undefined;
+		video_preview_setting_drag_state = undefined;
+		video_preview_controls_visible = true;
+		video_preview_controls_region_active = false;
+		video_preview_drag_offset_x = 0;
+		video_preview_drag_offset_y = 0;
+		video_preview_should_ignore_next_click = false;
+		video_preview_drag_state = undefined;
+		video_preview_seek_pointer_id = undefined;
+		video_preview_seek_grab_offset_x = 0;
+	}
+
+	function sync_video_preview_time(event: Event) {
+		const video = event.currentTarget as HTMLVideoElement;
+		apply_video_preview_media_settings();
+		sync_video_preview_time_from_element();
+		video_preview_is_buffering = false;
+
+		if (video.paused) {
+			stop_video_preview_time_loop();
+			return;
+		}
+
+		start_video_preview_time_loop();
+	}
+
+	function show_video_preview_buffering() {
+		if (!video_preview) {
+			return;
+		}
+
+		video_preview_is_buffering = true;
+	}
+
+	function hide_video_preview_buffering() {
+		video_preview_is_buffering = false;
+		sync_video_preview_time_from_element();
+	}
+
+	function toggle_video_preview_playback(options?: { force?: 'play' | 'pause' }) {
+		if (!video_preview_element) {
+			return;
+		}
+
+		const next_action = options?.force ?? (video_preview_element.paused ? 'play' : 'pause');
+
+		if (next_action === 'play') {
+			void video_preview_element.play();
+			return;
+		}
+
+		video_preview_element.pause();
+	}
+
+	function seek_video_preview(delta_seconds: number) {
+		if (!video_preview_element) {
+			return;
+		}
+
+		const current_seek_value = get_video_preview_seek_value();
+		const duration = video_preview_element.duration || video_preview_duration || 0;
+
+		if (delta_seconds < 0 && current_seek_value <= 0) {
+			video_preview_element.currentTime = 0;
+			video_preview_current_time = 0;
+			video_preview_seek_grab_offset_x = 0;
+			return;
+		}
+
+		if (delta_seconds > 0 && duration > 0 && current_seek_value >= duration) {
+			video_preview_element.currentTime = duration;
+			video_preview_current_time = duration;
+			video_preview_seek_grab_offset_x = 0;
+			return;
+		}
+
+		const next_time = Math.max(
+			0,
+			Math.min(video_preview_element.currentTime + delta_seconds, duration)
+		);
+		video_preview_element.currentTime = next_time;
+		video_preview_current_time = next_time;
+	}
+
+	function seek_video_preview_to_time(next_time: number) {
+		if (!video_preview_element) {
+			return;
+		}
+
+		const duration = video_preview_element.duration || video_preview_duration || 0;
+		const clamped_time = Math.max(0, Math.min(next_time, duration));
+		video_preview_element.currentTime = clamped_time;
+		video_preview_current_time = clamped_time;
+		video_preview_duration = Number.isFinite(video_preview_element.duration)
+			? video_preview_element.duration
+			: video_preview_duration;
+		show_video_preview_controls();
+	}
+
+	function seek_video_preview_from_pointer(event: PointerEvent) {
+		if (!video_preview_element || video_preview_duration <= 0) {
+			return;
+		}
+
+		const slider = event.currentTarget as HTMLElement;
+		const bounds = slider.getBoundingClientRect();
+		const adjusted_x = event.clientX - video_preview_seek_grab_offset_x;
+		const ratio = Math.max(0, Math.min((adjusted_x - bounds.left) / bounds.width, 1));
+		const next_time = ratio * video_preview_duration;
+		seek_video_preview_to_time(
+			next_time <= video_preview_start_display_snap_seconds ? 0 : next_time
+		);
+	}
+
+	function begin_video_preview_seek_drag(event: PointerEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		active_video_preview_panel = undefined;
+		video_preview_seek_pointer_id = event.pointerId;
+		const slider = event.currentTarget as HTMLElement;
+		const bounds = slider.getBoundingClientRect();
+		const thumb_center_x = bounds.left + get_video_preview_seek_ratio() * bounds.width;
+		const thumb_radius = bounds.height / 2;
+		video_preview_seek_grab_offset_x =
+			Math.abs(event.clientX - thumb_center_x) <= thumb_radius * 1.35
+				? event.clientX - thumb_center_x
+				: 0;
+		slider.setPointerCapture(event.pointerId);
+		seek_video_preview_from_pointer(event);
+	}
+
+	function move_video_preview_seek_drag(event: PointerEvent) {
+		if (video_preview_seek_pointer_id !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		seek_video_preview_from_pointer(event);
+	}
+
+	function end_video_preview_seek_drag(event: PointerEvent) {
+		if (video_preview_seek_pointer_id !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		video_preview_seek_pointer_id = undefined;
+		(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+		seek_video_preview_from_pointer(event);
+		video_preview_seek_grab_offset_x = 0;
+	}
+
+	function handle_video_preview_seek(event: Event) {
+		if (!video_preview_element) {
+			return;
+		}
+
+		const next_time = Number((event.currentTarget as HTMLInputElement).value);
+		seek_video_preview_to_time(next_time);
+	}
+
+	function handle_video_preview_pointer_move(event: PointerEvent) {
+		move_video_preview_drag(event);
+	}
+
+	function handle_video_preview_stage_click(event: Event) {
+		if ((event.target as HTMLElement | null)?.closest('[data-video-preview-control="true"]')) {
+			return;
+		}
+
+		if (video_preview_should_ignore_next_click) {
+			video_preview_should_ignore_next_click = false;
+			clear_video_preview_click_timeout();
+			return;
+		}
+
+		active_video_preview_panel = undefined;
+		clear_video_preview_click_timeout();
+		video_preview_click_timeout = setTimeout(() => {
+			if (is_compact_video_preview) {
+				toggle_video_preview_controls();
+				video_preview_click_timeout = undefined;
+				return;
+			}
+
+			toggle_video_preview_playback();
+			video_preview_click_timeout = undefined;
+		}, 220);
+	}
+
+	function get_video_preview_display_bounds() {
+		if (!video_preview_element) {
+			return;
+		}
+
+		const bounds = video_preview_element.getBoundingClientRect();
+		const media_width = video_preview_element.videoWidth;
+		const media_height = video_preview_element.videoHeight;
+
+		if (media_width <= 0 || media_height <= 0 || bounds.width <= 0 || bounds.height <= 0) {
+			return bounds;
+		}
+
+		const scale = Math.min(bounds.width / media_width, bounds.height / media_height);
+		const width = media_width * scale;
+		const height = media_height * scale;
+		const left = bounds.left + (bounds.width - width) / 2;
+		const top = bounds.top + (bounds.height - height) / 2;
+
+		return new DOMRect(left, top, width, height);
+	}
+
+	function get_video_preview_setting_panel_from_point(event: PointerEvent) {
+		const media_bounds = get_video_preview_display_bounds();
+
+		if (!media_bounds) {
+			return;
+		}
+
+		const is_inside_media =
+			event.clientX >= media_bounds.left &&
+			event.clientX <= media_bounds.right &&
+			event.clientY >= media_bounds.top &&
+			event.clientY <= media_bounds.bottom;
+
+		if (!is_inside_media) {
+			return;
+		}
+
+		return event.clientX < media_bounds.left + media_bounds.width / 2 ? 'brightness' : 'volume';
+	}
+
+	function update_video_preview_setting_from_drag(event: PointerEvent) {
+		if (!video_preview_setting_drag_state) {
+			return;
+		}
+
+		const delta_y = video_preview_setting_drag_state.start_y - event.clientY;
+		const next_value =
+			video_preview_setting_drag_state.start_value +
+			delta_y * video_preview_setting_drag_sensitivity;
+
+		if (video_preview_setting_drag_state.panel === 'brightness') {
+			video_preview_brightness = Math.round(Math.max(40, Math.min(next_value, 160)));
+			return;
+		}
+
+		video_preview_volume = Math.round(Math.max(0, Math.min(next_value, 100)));
+		apply_video_preview_media_settings();
+	}
+
+	function handle_video_preview_stage_double_click(event: MouseEvent) {
+		if ((event.target as HTMLElement | null)?.closest('[data-video-preview-control="true"]')) {
+			return;
+		}
+
+		clear_video_preview_click_timeout();
+
+		if (is_compact_video_preview) {
+			const media_bounds = get_video_preview_display_bounds();
+
+			if (!media_bounds) {
+				return;
+			}
+
+			const is_inside_media =
+				event.clientX >= media_bounds.left &&
+				event.clientX <= media_bounds.right &&
+				event.clientY >= media_bounds.top &&
+				event.clientY <= media_bounds.bottom;
+
+			if (!is_inside_media) {
+				return;
+			}
+
+			seek_video_preview(event.clientX < media_bounds.left + media_bounds.width / 2 ? -5 : 5);
+			return;
+		}
+
+		if (!(event.currentTarget instanceof HTMLElement)) {
+			return;
+		}
+
+		const bounds = event.currentTarget.getBoundingClientRect();
+		const relative_x = event.clientX - bounds.left;
+
+		if (relative_x < bounds.width * 0.35) {
+			seek_video_preview(-5);
+			return;
+		}
+
+		if (relative_x > bounds.width * 0.65) {
+			seek_video_preview(5);
+			return;
+		}
+
+		toggle_video_preview_playback();
+	}
+
+	function handle_video_preview_keydown(event: KeyboardEvent) {
+		if (!video_preview) {
+			return;
+		}
+
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			if (active_video_preview_panel) {
+				active_video_preview_panel = undefined;
+				return;
+			}
+			close_video_preview();
+			return;
+		}
+
+		if (event.key === ' ' || event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			toggle_video_preview_playback();
+			return;
+		}
+
+		if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'j') {
+			event.preventDefault();
+			seek_video_preview(-5);
+			return;
+		}
+
+		if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'l') {
+			event.preventDefault();
+			seek_video_preview(5);
+		}
+	}
+
+	function toggle_video_preview_panel(panel: 'brightness' | 'volume') {
+		active_video_preview_panel = active_video_preview_panel === panel ? undefined : panel;
+		show_video_preview_controls();
+	}
+
+	function handle_video_preview_volume_input(event: Event) {
+		video_preview_volume = Number((event.currentTarget as HTMLInputElement).value);
+		apply_video_preview_media_settings();
+		show_video_preview_controls();
+	}
+
+	function handle_video_preview_brightness_input(event: Event) {
+		video_preview_brightness = Number((event.currentTarget as HTMLInputElement).value);
+		show_video_preview_controls();
+	}
+
+	function handle_video_preview_ended(event: Event) {
+		const video = event.currentTarget as HTMLVideoElement;
+		stop_video_preview_time_loop();
+		video_preview_current_time = Number.isFinite(video.duration)
+			? video.duration
+			: video.currentTime;
+		video_preview_duration = Number.isFinite(video.duration)
+			? video.duration
+			: video_preview_duration;
+		video_preview_is_playing = false;
+		video_preview_is_buffering = false;
+	}
+
+	function get_video_preview_setting_fill_percent(panel: 'brightness' | 'volume') {
+		if (panel === 'brightness') {
+			return ((video_preview_brightness - 40) / (160 - 40)) * 100;
+		}
+
+		return video_preview_volume;
+	}
+
+	function begin_video_preview_drag(event: PointerEvent) {
+		if ((event.target as HTMLElement | null)?.closest('[data-video-preview-control="true"]')) {
+			return;
+		}
+
+		video_preview_should_ignore_next_click = false;
+		const setting_panel = get_video_preview_setting_panel_from_point(event);
+		if (setting_panel) {
+			video_preview_setting_drag_state = {
+				has_moved: false,
+				panel: setting_panel,
+				pointer_id: event.pointerId,
+				start_value:
+					setting_panel === 'brightness' ? video_preview_brightness : video_preview_volume,
+				start_x: event.clientX,
+				start_y: event.clientY,
+				target: event.currentTarget as HTMLElement
+			};
+		}
+
+		if (!is_compact_video_preview) {
+			return;
+		}
+
+		clear_video_preview_drag_hold();
+		video_preview_drag_pending_state = {
+			pointer_id: event.pointerId,
+			start_x: event.clientX,
+			start_y: event.clientY,
+			target: event.currentTarget as HTMLElement
+		};
+
+		video_preview_drag_hold_timeout = setTimeout(() => {
+			const pending_state = video_preview_drag_pending_state;
+			video_preview_drag_hold_timeout = undefined;
+
+			if (!pending_state || pending_state.pointer_id !== event.pointerId) {
+				return;
+			}
+
+			video_preview_should_ignore_next_click = true;
+			video_preview_setting_drag_state = undefined;
+			video_preview_touch_setting_panel = undefined;
+			video_preview_drag_state = {
+				pointer_id: pending_state.pointer_id,
+				start_x: pending_state.start_x,
+				start_y: pending_state.start_y
+			};
+			video_preview_drag_pending_state = undefined;
+			pending_state.target.setPointerCapture(pending_state.pointer_id);
+		}, video_preview_drag_hold_delay_ms);
+	}
+
+	function start_video_preview_setting_drag(event: PointerEvent) {
+		const setting_drag_state = video_preview_setting_drag_state;
+
+		if (!setting_drag_state || setting_drag_state.pointer_id !== event.pointerId) {
+			return false;
+		}
+
+		if (setting_drag_state.has_moved) {
+			return true;
+		}
+
+		const horizontal_distance = Math.abs(event.clientX - setting_drag_state.start_x);
+		const vertical_distance = Math.abs(event.clientY - setting_drag_state.start_y);
+
+		if (
+			vertical_distance <= video_preview_drag_click_suppression_distance ||
+			vertical_distance <= horizontal_distance
+		) {
+			return false;
+		}
+
+		setting_drag_state.has_moved = true;
+		video_preview_touch_setting_panel = setting_drag_state.panel;
+		active_video_preview_panel = undefined;
+		video_preview_controls_visible = false;
+		video_preview_should_ignore_next_click = true;
+		clear_video_preview_click_timeout();
+		clear_video_preview_controls_timeout();
+		clear_video_preview_drag_hold();
+		setting_drag_state.target.setPointerCapture(event.pointerId);
+
+		return true;
+	}
+
+	function move_video_preview_setting_drag(event: PointerEvent) {
+		if (!start_video_preview_setting_drag(event)) {
+			return false;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		update_video_preview_setting_from_drag(event);
+
+		return true;
+	}
+
+	function clear_pending_video_preview_drag_after_move(event: PointerEvent) {
+		const pending_state = video_preview_drag_pending_state;
+
+		if (!pending_state || pending_state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		const pending_distance = Math.hypot(
+			event.clientX - pending_state.start_x,
+			event.clientY - pending_state.start_y
+		);
+
+		if (pending_distance > video_preview_drag_click_suppression_distance) {
+			clear_video_preview_drag_hold();
+		}
+	}
+
+	function release_video_preview_setting_drag_capture(event: PointerEvent) {
+		const setting_drag_state = video_preview_setting_drag_state;
+
+		if (!setting_drag_state?.has_moved) {
+			return;
+		}
+
+		if (setting_drag_state.target.hasPointerCapture(event.pointerId)) {
+			setting_drag_state.target.releasePointerCapture(event.pointerId);
+		}
+	}
+
+	function clear_video_preview_setting_drag() {
+		video_preview_setting_drag_state = undefined;
+		video_preview_touch_setting_panel = undefined;
+	}
+
+	function move_video_preview_drag(event: PointerEvent) {
+		if (move_video_preview_setting_drag(event)) {
+			return;
+		}
+
+		clear_pending_video_preview_drag_after_move(event);
+
+		if (!video_preview_drag_state || video_preview_drag_state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		video_preview_drag_offset_x = event.clientX - video_preview_drag_state.start_x;
+		video_preview_drag_offset_y = event.clientY - video_preview_drag_state.start_y;
+
+		if (
+			Math.hypot(video_preview_drag_offset_x, video_preview_drag_offset_y) >
+			video_preview_drag_click_suppression_distance
+		) {
+			video_preview_should_ignore_next_click = true;
+		}
+	}
+
+	function end_video_preview_drag(event: PointerEvent) {
+		if (
+			video_preview_setting_drag_state &&
+			video_preview_setting_drag_state.pointer_id === event.pointerId
+		) {
+			if (video_preview_setting_drag_state.has_moved) {
+				event.preventDefault();
+				event.stopPropagation();
+				video_preview_should_ignore_next_click = true;
+				release_video_preview_setting_drag_capture(event);
+			}
+
+			clear_video_preview_setting_drag();
+		}
+
+		if (
+			video_preview_drag_pending_state &&
+			video_preview_drag_pending_state.pointer_id === event.pointerId
+		) {
+			clear_video_preview_drag_hold();
+			return;
+		}
+
+		if (!video_preview_drag_state || video_preview_drag_state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		const distance = Math.hypot(video_preview_drag_offset_x, video_preview_drag_offset_y);
+		video_preview_drag_state = undefined;
+		(event.currentTarget as HTMLElement | null)?.releasePointerCapture(event.pointerId);
+
+		if (distance > video_preview_drag_click_suppression_distance) {
+			video_preview_should_ignore_next_click = true;
+		}
+
+		if (distance > video_preview_close_drag_distance) {
+			close_video_preview();
+			return;
+		}
+
+		video_preview_drag_offset_x = 0;
+		video_preview_drag_offset_y = 0;
+	}
+
+	function cancel_video_preview_drag(event: PointerEvent) {
+		if (
+			video_preview_setting_drag_state &&
+			video_preview_setting_drag_state.pointer_id === event.pointerId
+		) {
+			release_video_preview_setting_drag_capture(event);
+			clear_video_preview_setting_drag();
+		}
+
+		if (
+			video_preview_drag_pending_state &&
+			video_preview_drag_pending_state.pointer_id === event.pointerId
+		) {
+			clear_video_preview_drag_hold();
+			return;
+		}
+
+		if (!video_preview_drag_state || video_preview_drag_state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		video_preview_drag_state = undefined;
+		video_preview_drag_offset_x = 0;
+		video_preview_drag_offset_y = 0;
+		(event.currentTarget as HTMLElement | null)?.releasePointerCapture(event.pointerId);
 	}
 
 	function toggle_like(post_id: string | number) {
@@ -496,6 +1382,7 @@
 
 	onMount(() => {
 		mounted_scroll_storage_key = `post-feed-scroll:${page.url.pathname}${page.url.search}`;
+		sync_video_preview_viewport();
 
 		void tick().then(() => {
 			refresh_load_more_observer();
@@ -512,6 +1399,16 @@
 			restore_scroll_position();
 			maybe_load_more();
 		});
+
+		if (typeof window === 'undefined') {
+			return;
+		}
+
+		window.addEventListener('resize', sync_video_preview_viewport);
+
+		return () => {
+			window.removeEventListener('resize', sync_video_preview_viewport);
+		};
 	});
 
 	$effect(() => {
@@ -551,12 +1448,13 @@
 	});
 
 	$effect(() => {
-		if (!image_preview) {
+		if (!video_preview) {
 			return;
 		}
 
 		void tick().then(() => {
-			image_preview_backdrop?.focus();
+			video_preview_backdrop?.focus();
+			show_video_preview_controls();
 		});
 	});
 
@@ -569,12 +1467,11 @@
 
 		clear_scroll_persist_timeout();
 
-		for (const timer of Object.values(pending_preview_timers)) {
-			if (timer) {
-				clearTimeout(timer);
-			}
-		}
-
+		clear_video_preview_controls_timeout();
+		clear_video_preview_click_timeout();
+		clear_video_preview_drag_hold();
+		stop_video_preview_time_loop();
+		video_preview_element?.pause();
 		persist_scroll_position();
 	});
 </script>
@@ -702,19 +1599,9 @@
 								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="absolute inset-0 z-15 cursor-zoom-in"
-										onclick={() => {
-											schedule_image_preview(
-												post.id,
-												post.media_url ?? '',
-												`${post.author_name}'s post`
-											);
-										}}
-										ondblclick={() => {
-											clear_pending_preview(post.id);
-											toggle_like(post.id);
-										}}
-										aria-label={`Preview ${post.author_name}'s post image`}
+										class="absolute inset-0 z-15 cursor-pointer"
+										onclick={() => open_post_detail(post)}
+										aria-label={`View ${post.author_name}'s post`}
 									>
 										<ProgressiveImage
 											src={post.media_display_url ?? post.media_url}
@@ -730,6 +1617,25 @@
 											on_load={() => mark_image_loaded(post.id)}
 											on_error={() => mark_image_loaded(post.id)}
 										/>
+									</button>
+								{:else if post.media_url && post.media_type === 'video'}
+									<button
+										type="button"
+										class="absolute inset-0 z-15 cursor-zoom-in"
+										onclick={() => {
+											open_video_preview(post.media_url ?? '', `${post.author_name}'s post video`);
+										}}
+										aria-label={`Preview ${post.author_name}'s post video`}
+									>
+										<video
+											src={post.media_url}
+											class="h-full w-full object-cover"
+											autoplay
+											loop
+											muted
+											playsinline
+											preload="metadata"
+										></video>
 									</button>
 								{/if}
 								{#if post.content}
@@ -819,12 +1725,18 @@
 											: 'scale-125 opacity-0'}"
 									/>
 								</button>
-								<button class="transition-opacity hover:opacity-70"
+								<button
+									type="button"
+									class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+									onclick={() => open_post_detail(post)}
+									aria-label="View comments"
 									><img
 										src="/images/home-screen/comment-icon.avif"
 										alt="comment"
 										class="h-6 w-auto"
-									/></button
+									/>{#if get_post_comment_count(post) > 0}<span
+											class="text-xs font-medium text-white/60">{get_post_comment_count(post)}</span
+										>{/if}</button
 								>
 								<button class="transition-opacity hover:opacity-70"
 									><img
@@ -922,19 +1834,9 @@
 								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="flex h-full w-full cursor-zoom-in items-center justify-center"
-										onclick={() => {
-											schedule_image_preview(
-												post.id,
-												post.media_url ?? '',
-												`${post.author_name}'s post`
-											);
-										}}
-										ondblclick={() => {
-											clear_pending_preview(post.id);
-											toggle_like(post.id);
-										}}
-										aria-label={`Preview ${post.author_name}'s post image`}
+										class="flex h-full w-full cursor-pointer items-center justify-center"
+										onclick={() => open_post_detail(post)}
+										aria-label={`View ${post.author_name}'s post`}
 									>
 										<ProgressiveImage
 											src={post.media_display_url ?? post.media_url}
@@ -950,6 +1852,25 @@
 											on_load={() => mark_image_loaded(post.id)}
 											on_error={() => mark_image_loaded(post.id)}
 										/>
+									</button>
+								{:else if post.media_url && post.media_type === 'video'}
+									<button
+										type="button"
+										class="flex h-full w-full cursor-zoom-in items-center justify-center"
+										onclick={() => {
+											open_video_preview(post.media_url ?? '', `${post.author_name}'s post video`);
+										}}
+										aria-label={`Preview ${post.author_name}'s post video`}
+									>
+										<video
+											src={post.media_url}
+											class="h-full w-full object-contain"
+											autoplay
+											loop
+											muted
+											playsinline
+											preload="metadata"
+										></video>
 									</button>
 								{/if}
 								{#if post.content}
@@ -1039,12 +1960,18 @@
 											: 'scale-125 opacity-0'}"
 									/>
 								</button>
-								<button class="transition-opacity hover:opacity-70"
+								<button
+									type="button"
+									class="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+									onclick={() => open_post_detail(post)}
+									aria-label="View comments"
 									><img
 										src="/images/home-screen/comment-icon.avif"
 										alt="comment"
 										class="h-6 w-auto"
-									/></button
+									/>{#if get_post_comment_count(post) > 0}<span
+											class="text-xs font-medium text-white/60">{get_post_comment_count(post)}</span
+										>{/if}</button
 								>
 								<button class="transition-opacity hover:opacity-70"
 									><img
@@ -1155,29 +2082,390 @@
 	</div>
 </div>
 
-{#if image_preview}
+{#if detail_post}
+	<PostDetailModal
+		post={detail_post}
+		liked={liked_posts[String(detail_post.id)] ?? false}
+		on_close={close_post_detail}
+		on_comment_count_change={(next_count) =>
+			handle_post_comment_count_change(detail_post!.id, next_count)}
+		on_like={() => toggle_like(detail_post!.id)}
+		on_video_preview={(src, alt) => open_video_preview(src, alt)}
+	/>
+{/if}
+
+{#if video_preview}
 	<div
-		class="fixed inset-0 z-80 flex cursor-zoom-out items-center justify-center bg-black/90 px-4 py-6 backdrop-blur-md"
+		class="video-preview-overlay fixed inset-0 z-160 overflow-hidden bg-black"
 		role="dialog"
 		aria-modal="true"
-		aria-label="Post image preview"
+		aria-label="Video preview"
 		tabindex="0"
-		bind:this={image_preview_backdrop}
-		onclick={close_image_preview}
+		bind:this={video_preview_backdrop}
 		transition:fade={{ duration: 180 }}
-		onkeydown={(event) => {
-			if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-				close_image_preview();
-			}
-		}}
+		onkeydown={handle_video_preview_keydown}
+		onpointerdown={begin_video_preview_drag}
+		onpointermove={handle_video_preview_pointer_move}
+		onpointerup={end_video_preview_drag}
+		onpointercancel={cancel_video_preview_drag}
 	>
-		<img
-			src={image_preview.src}
-			alt={image_preview.alt}
-			class="max-h-[92vh] max-w-[96vw] rounded-3xl object-contain shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
-			decoding="async"
-			transition:scale={{ duration: 220, start: 0.92, opacity: 0.55 }}
-		/>
+		<div
+			class="video-preview-stage relative flex h-full w-full items-center justify-center"
+			role="button"
+			tabindex="0"
+			onclick={handle_video_preview_stage_click}
+			ondblclick={handle_video_preview_stage_double_click}
+			onkeydown={(event) => {
+				if (event.key === 'Enter') {
+					event.preventDefault();
+					event.stopPropagation();
+					handle_video_preview_stage_click(event);
+				}
+			}}
+			style={`transform: translate3d(${video_preview_drag_offset_x}px, ${video_preview_drag_offset_y}px, 0) scale(${video_preview_drag_state ? 0.96 : 1}); opacity: ${video_preview_drag_state ? 0.88 : 1};`}
+			transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
+		>
+			<div class="video-preview-backdrop-glow" aria-hidden="true"></div>
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video
+				bind:this={video_preview_element}
+				src={video_preview.src}
+				class="video-preview-media max-h-full max-w-full bg-black object-contain"
+				style={`filter:brightness(${video_preview_brightness}%);`}
+				autoplay
+				playsinline
+				preload="metadata"
+				onloadstart={show_video_preview_buffering}
+				onloadedmetadata={sync_video_preview_time}
+				onloadeddata={hide_video_preview_buffering}
+				oncanplay={hide_video_preview_buffering}
+				oncanplaythrough={hide_video_preview_buffering}
+				ontimeupdate={sync_video_preview_time}
+				onplay={sync_video_preview_time}
+				onplaying={hide_video_preview_buffering}
+				onpause={sync_video_preview_time}
+				onwaiting={show_video_preview_buffering}
+				onstalled={show_video_preview_buffering}
+				onsuspend={hide_video_preview_buffering}
+				onended={handle_video_preview_ended}
+			></video>
+
+			{#if video_preview_is_buffering}
+				<div
+					class="video-preview-loading pointer-events-none absolute inset-0 z-10 grid place-items-center"
+				>
+					<div class="video-preview-loading-pill" role="status" aria-live="polite">
+						<span class="video-preview-loading-spinner" aria-hidden="true"></span>
+						<span>Loading</span>
+					</div>
+				</div>
+			{/if}
+
+			{#if video_preview_touch_setting_panel}
+				<div
+					class="video-preview-gesture-setting-panel pointer-events-none absolute top-1/2 z-30 -translate-y-1/2 {video_preview_touch_setting_panel ===
+					'brightness'
+						? 'left-[max(1rem,env(safe-area-inset-left))] md:left-8'
+						: 'right-[max(1rem,env(safe-area-inset-right))] md:right-8'}"
+					aria-hidden="true"
+				>
+					<div class="video-preview-setting-track">
+						<div
+							class="video-preview-setting-fill"
+							style={`height:${get_video_preview_setting_fill_percent(video_preview_touch_setting_panel)}%;`}
+						></div>
+						<span class="video-preview-setting-value">
+							{video_preview_touch_setting_panel === 'brightness'
+								? video_preview_brightness
+								: video_preview_volume}%
+						</span>
+						<span class="video-preview-gesture-setting-icon">
+							{#if video_preview_touch_setting_panel === 'brightness'}
+								<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+									<circle
+										cx="12"
+										cy="12"
+										r="3.2"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.8"
+									/>
+									<path
+										d="M12 2.5v2.3M12 19.2v2.3M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"
+										fill="none"
+										stroke="currentColor"
+										stroke-linecap="round"
+										stroke-width="1.8"
+									/>
+								</svg>
+							{:else}
+								<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+									<path
+										d="M4.5 14.5h3.8l4.2 3.2V6.3L8.3 9.5H4.5z"
+										fill="none"
+										stroke="currentColor"
+										stroke-linejoin="round"
+										stroke-width="1.8"
+									/>
+									<path
+										d="M16.2 9.2a4 4 0 0 1 0 5.6M18.8 6.8a7.3 7.3 0 0 1 0 10.4"
+										fill="none"
+										stroke="currentColor"
+										stroke-linecap="round"
+										stroke-width="1.8"
+									/>
+								</svg>
+							{/if}
+						</span>
+					</div>
+				</div>
+			{/if}
+
+			<div
+				class="video-preview-close-hover-zone absolute top-0 left-0 z-19"
+				aria-hidden="true"
+				onpointerenter={() => set_video_preview_controls_region_active(true)}
+				onpointermove={() => set_video_preview_controls_region_active(true)}
+				onpointerleave={() => set_video_preview_controls_region_active(false)}
+				onpointerdown={() => {
+					set_video_preview_controls_region_active(true);
+				}}
+				onpointerup={release_video_preview_controls_region_for_touch}
+				onpointercancel={release_video_preview_controls_region_for_touch}
+			></div>
+
+			<div
+				class="video-preview-bottom-hover-zone absolute inset-x-0 bottom-0 z-19"
+				aria-hidden="true"
+				onpointerenter={() => set_video_preview_controls_region_active(true)}
+				onpointermove={() => set_video_preview_controls_region_active(true)}
+				onpointerleave={() => set_video_preview_controls_region_active(false)}
+				onpointerdown={() => {
+					set_video_preview_controls_region_active(true);
+				}}
+				onpointerup={release_video_preview_controls_region_for_touch}
+				onpointercancel={release_video_preview_controls_region_for_touch}
+			></div>
+
+			<div
+				class={`video-preview-chrome pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-4 transition-all duration-220 md:p-6 ${video_preview_controls_visible ? 'translate-y-0 opacity-100' : '-translate-y-2.5 opacity-0'}`}
+			>
+				<button
+					type="button"
+					class="video-preview-close pointer-events-auto"
+					data-video-preview-control="true"
+					onclick={close_video_preview}
+					onpointerenter={() => set_video_preview_controls_region_active(true)}
+					onpointermove={() => set_video_preview_controls_region_active(true)}
+					onpointerleave={() => set_video_preview_controls_region_active(false)}
+					onpointerup={release_video_preview_controls_region_for_touch}
+					onpointercancel={release_video_preview_controls_region_for_touch}
+					aria-label="Close video preview"
+				>
+					<span aria-hidden="true">×</span>
+				</button>
+			</div>
+
+			<div
+				class={`video-preview-chrome video-preview-bottom-gradient pointer-events-none absolute inset-x-0 bottom-0 z-20 p-4 transition-all duration-220 md:p-6 ${video_preview_controls_visible ? 'translate-y-0 opacity-100' : 'translate-y-3.5 opacity-0'}`}
+			>
+				<div
+					class="video-preview-bottom-shell pointer-events-auto"
+					role="presentation"
+					data-video-preview-control="true"
+					onpointerenter={() => set_video_preview_controls_region_active(true)}
+					onpointermove={() => set_video_preview_controls_region_active(true)}
+					onpointerleave={() => set_video_preview_controls_region_active(false)}
+					onpointerup={release_video_preview_controls_region_for_touch}
+					onpointercancel={release_video_preview_controls_region_for_touch}
+				>
+					<div class="video-preview-control-icons">
+						<div class="video-preview-icon-stack">
+							{#if active_video_preview_panel === 'brightness'}
+								<div class="video-preview-setting-panel">
+									<div class="video-preview-setting-track">
+										<div
+											class="video-preview-setting-fill"
+											style={`height:${get_video_preview_setting_fill_percent('brightness')}%;`}
+										></div>
+										<span class="video-preview-setting-value">{video_preview_brightness}%</span>
+									</div>
+									<input
+										type="range"
+										min="40"
+										max="160"
+										step="1"
+										value={video_preview_brightness}
+										oninput={handle_video_preview_brightness_input}
+										class="video-preview-setting-slider"
+										aria-label="Adjust brightness"
+									/>
+								</div>
+							{/if}
+							<button
+								type="button"
+								class="video-preview-icon-button"
+								data-video-preview-control="true"
+								onclick={() => toggle_video_preview_panel('brightness')}
+								aria-label="Adjust brightness"
+								aria-pressed={active_video_preview_panel === 'brightness'}
+							>
+								<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+									<circle
+										cx="12"
+										cy="12"
+										r="3.2"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.8"
+									/>
+									<path
+										d="M12 2.5v2.3M12 19.2v2.3M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"
+										fill="none"
+										stroke="currentColor"
+										stroke-linecap="round"
+										stroke-width="1.8"
+									/>
+								</svg>
+							</button>
+						</div>
+						<button
+							type="button"
+							class="video-preview-icon-button"
+							data-video-preview-control="true"
+							onclick={() => seek_video_preview(-5)}
+							aria-label="Go back 5 seconds"
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+								<path
+									d="M11.5 7 4.5 12l7 5V7ZM19.5 7l-7 5 7 5V7Z"
+									fill="none"
+									stroke="currentColor"
+									stroke-linejoin="round"
+									stroke-width="1.8"
+								/>
+							</svg>
+						</button>
+						<button
+							type="button"
+							class="video-preview-icon-button video-preview-icon-button-play"
+							data-video-preview-control="true"
+							onclick={() => toggle_video_preview_playback()}
+							aria-label={video_preview_is_playing ? 'Pause video' : 'Play video'}
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+								{#if video_preview_is_playing}
+									<path d="M8.5 6.5h2.8v11H8.5zm4.2 0h2.8v11h-2.8z" fill="currentColor" />
+								{:else}
+									<path
+										d="M8 6.2 17.5 12 8 17.8V6.2Z"
+										fill="none"
+										stroke="currentColor"
+										stroke-linejoin="round"
+										stroke-width="1.8"
+									/>
+								{/if}
+							</svg>
+						</button>
+						<button
+							type="button"
+							class="video-preview-icon-button"
+							data-video-preview-control="true"
+							onclick={() => seek_video_preview(5)}
+							aria-label="Go forward 5 seconds"
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+								<path
+									d="m12.5 7 7 5-7 5V7ZM4.5 7l7 5-7 5V7Z"
+									fill="none"
+									stroke="currentColor"
+									stroke-linejoin="round"
+									stroke-width="1.8"
+								/>
+							</svg>
+						</button>
+						<div class="video-preview-icon-stack">
+							{#if active_video_preview_panel === 'volume'}
+								<div class="video-preview-setting-panel">
+									<div class="video-preview-setting-track">
+										<div
+											class="video-preview-setting-fill"
+											style={`height:${get_video_preview_setting_fill_percent('volume')}%;`}
+										></div>
+										<span class="video-preview-setting-value">{video_preview_volume}%</span>
+									</div>
+									<input
+										type="range"
+										min="0"
+										max="100"
+										step="1"
+										value={video_preview_volume}
+										oninput={handle_video_preview_volume_input}
+										class="video-preview-setting-slider"
+										aria-label="Adjust volume"
+									/>
+								</div>
+							{/if}
+							<button
+								type="button"
+								class="video-preview-icon-button"
+								data-video-preview-control="true"
+								onclick={() => toggle_video_preview_panel('volume')}
+								aria-label="Adjust volume"
+								aria-pressed={active_video_preview_panel === 'volume'}
+							>
+								<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-svg">
+									<path
+										d="M4.5 14.5h3.8l4.2 3.2V6.3L8.3 9.5H4.5z"
+										fill="none"
+										stroke="currentColor"
+										stroke-linejoin="round"
+										stroke-width="1.8"
+									/>
+									<path
+										d="M16.2 9.2a4 4 0 0 1 0 5.6M18.8 6.8a7.3 7.3 0 0 1 0 10.4"
+										fill="none"
+										stroke="currentColor"
+										stroke-linecap="round"
+										stroke-width="1.8"
+									/>
+								</svg>
+							</button>
+						</div>
+					</div>
+					<div class="video-preview-track-column mt-4">
+						<div class="video-preview-time-row">
+							<span class="video-preview-time">{format_media_time(video_preview_current_time)}</span
+							>
+							<span class="video-preview-time">{format_media_time(video_preview_duration)}</span>
+						</div>
+						<div
+							class="video-preview-slider-shell"
+							role="presentation"
+							data-video-preview-control="true"
+							style={`--video-preview-progress-ratio:${get_video_preview_seek_ratio()};`}
+							onpointerdown={begin_video_preview_seek_drag}
+							onpointermove={move_video_preview_seek_drag}
+							onpointerup={end_video_preview_seek_drag}
+							onpointercancel={end_video_preview_seek_drag}
+						>
+							<div class="video-preview-slider-track" aria-hidden="true"></div>
+							<div class="video-preview-slider-progress" aria-hidden="true"></div>
+							<div class="video-preview-slider-thumb" aria-hidden="true"></div>
+							<input
+								type="range"
+								min="0"
+								max={Math.max(video_preview_duration, 0.1)}
+								step="any"
+								value={get_video_preview_seek_value()}
+								oninput={handle_video_preview_seek}
+								class="video-preview-slider w-full"
+								aria-label="Seek video"
+							/>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
 	</div>
 {/if}

@@ -1,6 +1,9 @@
 import { env } from '$env/dynamic/private';
 import { v2 as cloudinary } from 'cloudinary';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { ALLOWED_IMAGE_FORMATS } from './image-validation';
+import { ALLOWED_VIDEO_FORMATS } from './video-validation';
 
 let iscloudinary_configured = false;
 
@@ -34,7 +37,20 @@ export type UploadImageOptions = {
 	publicId?: string;
 };
 
+export type UploadVideoOptions = {
+	allowedFormats?: string[];
+	endOffset?: number;
+	folder: string;
+	publicId?: string;
+	startOffset?: number;
+};
+
 type UploadedImage = {
+	secureUrl: string;
+	publicId: string;
+};
+
+type UploadedVideo = {
 	secureUrl: string;
 	publicId: string;
 };
@@ -47,27 +63,47 @@ function as_error(error: unknown): Error {
 	return new Error('Cloudinary upload failed');
 }
 
-export async function upload_image_from_file(
+async function pipe_file_to_cloudinary_stream(
 	file: File,
-	options: UploadImageOptions
-): Promise<UploadedImage> {
-	ensure_cloudinary_configured();
-	const bytes = Buffer.from(await file.arrayBuffer());
+	stream: NodeJS.WritableStream
+): Promise<void> {
+	const source_stream = Readable.fromWeb(file.stream() as never);
 
-	return new Promise<UploadedImage>((resolve, reject) => {
+	await pipeline(source_stream, stream);
+}
+
+async function upload_file_from_stream(params: {
+	file: File;
+	options: Record<string, string | number | string[] | undefined>;
+	resource_type: 'image' | 'video';
+}): Promise<{ publicId: string; secureUrl: string }> {
+	return new Promise<{ publicId: string; secureUrl: string }>((resolve, reject) => {
+		let settled = false;
+		const reject_once = (error: unknown): void => {
+			if (settled) {
+				return;
+			}
+
+			settled = true;
+			reject(as_error(error));
+		};
+
 		const stream = cloudinary.uploader.upload_stream(
 			{
-				allowed_formats: options.allowedFormats ?? [...ALLOWED_IMAGE_FORMATS],
-				folder: options.folder,
-				...(options.publicId ? { public_id: options.publicId } : {}),
-				resource_type: 'image'
+				...params.options,
+				resource_type: params.resource_type
 			},
 			(error, result) => {
 				if (error || !result) {
-					reject(as_error(error));
+					reject_once(error);
 					return;
 				}
 
+				if (settled) {
+					return;
+				}
+
+				settled = true;
 				resolve({
 					secureUrl: result.secure_url,
 					publicId: result.public_id
@@ -75,7 +111,43 @@ export async function upload_image_from_file(
 			}
 		);
 
-		stream.end(bytes);
+		void pipe_file_to_cloudinary_stream(params.file, stream).catch(reject_once);
+	});
+}
+
+export async function upload_image_from_file(
+	file: File,
+	options: UploadImageOptions
+): Promise<UploadedImage> {
+	ensure_cloudinary_configured();
+
+	return upload_file_from_stream({
+		file,
+		options: {
+			allowed_formats: options.allowedFormats ?? [...ALLOWED_IMAGE_FORMATS],
+			folder: options.folder,
+			...(options.publicId ? { public_id: options.publicId } : {})
+		},
+		resource_type: 'image'
+	});
+}
+
+export async function upload_video_from_file(
+	file: File,
+	options: UploadVideoOptions
+): Promise<UploadedVideo> {
+	ensure_cloudinary_configured();
+
+	return upload_file_from_stream({
+		file,
+		options: {
+			allowed_formats: options.allowedFormats ?? [...ALLOWED_VIDEO_FORMATS],
+			folder: options.folder,
+			...(options.publicId ? { public_id: options.publicId } : {}),
+			...('startOffset' in options ? { start_offset: options.startOffset } : {}),
+			...('endOffset' in options ? { end_offset: options.endOffset } : {})
+		},
+		resource_type: 'video'
 	});
 }
 
@@ -91,5 +163,12 @@ export async function delete_image_by_public_id(public_id: string): Promise<void
 	ensure_cloudinary_configured();
 	await cloudinary.uploader.destroy(public_id, {
 		resource_type: 'image'
+	});
+}
+
+export async function delete_video_by_public_id(public_id: string): Promise<void> {
+	ensure_cloudinary_configured();
+	await cloudinary.uploader.destroy(public_id, {
+		resource_type: 'video'
 	});
 }

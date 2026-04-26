@@ -19,13 +19,15 @@ words:
   - ASUS
   - authschema
   - autodocs
-  - bigserial
   - Bento
+  - bigserial
   - canrun
+  - commentable
   - cooldown
   - cooldowns
   - dbname
   - drizzle
+  - EBML
   - esbuild
   - eslint
   - FTYP
@@ -40,6 +42,7 @@ words:
   - ismedia
   - isnavigating
   - isnext
+  - isom
   - ison
   - ispost
   - isrelationship
@@ -48,6 +51,7 @@ words:
   - lfill
   - mdsvex
   - MOUYHEANG
+  - msnv
   - neondatabase
   - nosniff
   - OneDrive
@@ -58,6 +62,8 @@ words:
   - plpgsql
   - pooler
   - prettierrc
+  - quicktime
+  - remoteip
   - sonarjs
   - sslmode
   - storybook
@@ -70,4 +76,3 @@ words:
   - upserted
   - vitest
   - wght
-  - remoteip

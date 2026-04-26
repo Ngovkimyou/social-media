@@ -121,7 +121,13 @@ export const comments = pgTable(
 	},
 	(table) => [
 		index('comment_post_id_idx').on(table.post_id),
-		index('comment_author_id_idx').on(table.author_id)
+		index('comment_author_id_idx').on(table.author_id),
+		index('comment_post_deleted_created_id_idx').on(
+			table.post_id,
+			table.deleted_at,
+			table.created_at.desc(),
+			table.id.desc()
+		)
 	]
 );
 

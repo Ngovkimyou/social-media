@@ -34,6 +34,7 @@
 	}: Props = $props();
 
 	let isloaded_state = $state(false);
+	let did_notify_load = $state(false);
 	let previous_src = '';
 	let image_element = $state<HTMLImageElement | undefined>();
 
@@ -41,13 +42,32 @@
 		if (src !== previous_src) {
 			previous_src = src;
 			isloaded_state = false;
+			did_notify_load = false;
 		}
 	});
+
+	function mark_loaded() {
+		isloaded_state = true;
+		if (did_notify_load) return;
+		did_notify_load = true;
+		on_load?.();
+	}
+
+	function mark_errored() {
+		isloaded_state = true;
+		if (did_notify_load) return;
+		did_notify_load = true;
+		on_error?.();
+	}
 
 	$effect(() => {
 		void tick().then(() => {
 			if (image_element?.complete) {
-				isloaded_state = true;
+				if (image_element.naturalWidth > 0) {
+					mark_loaded();
+				} else {
+					mark_errored();
+				}
 			}
 		});
 	});
@@ -68,12 +88,10 @@
 		{decoding}
 		{fetchpriority}
 		onload={() => {
-			isloaded_state = true;
-			on_load?.();
+			mark_loaded();
 		}}
 		onerror={() => {
-			isloaded_state = true;
-			on_error?.();
+			mark_errored();
 		}}
 		class={`${img_class} transition-opacity duration-300 ${isloaded_state ? 'opacity-100' : 'opacity-0'}`}
 	/>
