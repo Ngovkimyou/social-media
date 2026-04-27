@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import {
 	delete_image_by_public_id,
 	delete_video_by_public_id,
+	get_uploaded_video_resource,
 	upload_image_from_file,
 	upload_video_from_file
 } from '$lib/server/cloudinary';
@@ -78,8 +79,10 @@ const get_retry_message = (seconds: number, noun: string): string =>
 	`Too many ${noun}. Please try again in ${seconds} seconds.`;
 
 const MAX_POST_VIDEO_DURATION_SECONDS = 60;
-const MAX_POST_VIDEO_OUTPUT_BYTES = 40 * 1024 * 1024;
+const SERVER_FUNCTION_UPLOAD_SAFE_BYTES = 4 * 1024 * 1024;
+const MAX_POST_VIDEO_OUTPUT_BYTES = SERVER_FUNCTION_UPLOAD_SAFE_BYTES;
 const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
+const ALLOWED_DIRECT_VIDEO_FORMATS = new Set(['mp4', 'mov', 'webm']);
 
 const get_missing_post_media_message = (caption: string, media_type: 'image' | 'video'): string => {
 	if (caption && media_type === 'video') {
@@ -391,8 +394,8 @@ const validate_post_media_selection = async (params: {
 	if (media_type === 'image') {
 		const post_image_validation = await validate_uploaded_image({
 			file,
-			max_bytes: 10 * 1024 * 1024,
-			size_message: 'Photo must be 10MB or smaller.',
+			max_bytes: SERVER_FUNCTION_UPLOAD_SAFE_BYTES,
+			size_message: 'Photo must be 4MB or smaller.',
 			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed.'
 		});
 		return post_image_validation.is_valid ? undefined : post_image_validation.message;
@@ -433,10 +436,89 @@ const validate_post_media_selection = async (params: {
 	const estimated_trimmed_bytes =
 		(file.size * (trim_end_seconds - trim_start_seconds)) / video_duration_seconds;
 	if (estimated_trimmed_bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
-		return 'Trim more to get the estimated clip size down to 40MB or less before posting.';
+		return 'Trim more to get the estimated clip size down to 4MB or less before posting.';
 	}
 
 	return undefined;
+};
+
+const validate_post_video_trim_submission = (params: {
+	trim_end_seconds: number | undefined;
+	trim_start_seconds: number;
+	video_duration_seconds: number | undefined;
+}): string | undefined => {
+	const { trim_end_seconds, trim_start_seconds, video_duration_seconds } = params;
+
+	if (
+		!Number.isFinite(trim_start_seconds) ||
+		trim_start_seconds < 0 ||
+		trim_end_seconds === undefined ||
+		!Number.isFinite(trim_end_seconds) ||
+		trim_end_seconds <= trim_start_seconds
+	) {
+		return 'Choose a valid video trim range before posting.';
+	}
+
+	if (trim_end_seconds - trim_start_seconds > MAX_POST_VIDEO_DURATION_SECONDS) {
+		return `Video clips must be ${MAX_POST_VIDEO_DURATION_SECONDS} seconds or shorter after trimming.`;
+	}
+
+	if (
+		video_duration_seconds === undefined ||
+		!Number.isFinite(video_duration_seconds) ||
+		video_duration_seconds <= 0 ||
+		trim_end_seconds > video_duration_seconds + 0.25
+	) {
+		return 'Video metadata could not be verified. Please choose the video again.';
+	}
+
+	return undefined;
+};
+
+const get_direct_video_upload = async (params: {
+	public_id: string;
+	secure_url: string;
+	user_id: string;
+}): Promise<
+	| {
+			error_message: string;
+	  }
+	| {
+			uploaded: { publicId: string; secureUrl: string };
+	  }
+> => {
+	const public_id = params.public_id.trim();
+	const secure_url = params.secure_url.trim();
+	const expected_prefix = `posts/${params.user_id}/`;
+
+	if (
+		!public_id.startsWith(expected_prefix) ||
+		!secure_url.startsWith('https://res.cloudinary.com/')
+	) {
+		return { error_message: 'Video upload could not be verified. Please choose it again.' };
+	}
+
+	try {
+		const resource = await get_uploaded_video_resource(public_id);
+
+		if (
+			resource.publicId !== public_id ||
+			resource.secureUrl !== secure_url ||
+			resource.bytes > MAX_POST_VIDEO_OUTPUT_BYTES ||
+			!ALLOWED_DIRECT_VIDEO_FORMATS.has(resource.format.toLowerCase())
+		) {
+			return { error_message: 'Video upload could not be verified. Please choose it again.' };
+		}
+
+		return {
+			uploaded: {
+				publicId: resource.publicId,
+				secureUrl: resource.secureUrl
+			}
+		};
+	} catch {
+		return { error_message: 'Video upload could not be verified. Please choose it again.' };
+	}
 };
 
 const prepare_post_media_upload = async (params: {
@@ -535,6 +617,8 @@ const parse_post_submission = (
 ): {
 	caption: string;
 	media_file: FormDataEntryValue | null;
+	media_public_id: string;
+	media_secure_url: string;
 	media_type: 'image' | 'video';
 	trim_end_seconds: number | undefined;
 	trim_start_seconds: number;
@@ -549,10 +633,93 @@ const parse_post_submission = (
 	return {
 		caption: typeof caption_raw === 'string' ? caption_raw.trim() : '',
 		media_file: form_data.get('media'),
+		media_public_id: get_form_string(form_data, 'media_public_id'),
+		media_secure_url: get_form_string(form_data, 'media_secure_url'),
 		media_type: media_type_raw === 'video' ? 'video' : 'image',
 		trim_end_seconds: trim_end_raw ? Number(trim_end_raw) : undefined,
 		trim_start_seconds: trim_start_raw ? Number(trim_start_raw) : 0,
 		video_duration_seconds: video_duration_raw ? Number(video_duration_raw) : undefined
+	};
+};
+
+const resolve_post_media_upload = async (params: {
+	caption: string;
+	event: RequestEvent;
+	media_file: FormDataEntryValue | null;
+	media_public_id: string;
+	media_secure_url: string;
+	media_type: 'image' | 'video';
+	trim_end_seconds: number | undefined;
+	trim_start_seconds: number;
+	user_id: string;
+	video_duration_seconds: number | undefined;
+}): Promise<
+	| {
+			error_message: string;
+	  }
+	| {
+			image_hash_to_record: string | undefined;
+			uploaded: { publicId: string; secureUrl: string };
+	  }
+> => {
+	const {
+		caption,
+		event,
+		media_file,
+		media_public_id,
+		media_secure_url,
+		media_type,
+		trim_end_seconds,
+		trim_start_seconds,
+		user_id,
+		video_duration_seconds
+	} = params;
+	const has_direct_video_upload =
+		media_type === 'video' && media_public_id.length > 0 && media_secure_url.length > 0;
+
+	if (!has_direct_video_upload) {
+		return prepare_post_media_upload({
+			caption,
+			event,
+			file: media_file as File,
+			media_type,
+			video_duration_seconds,
+			trim_end_seconds,
+			trim_start_seconds,
+			user_id
+		});
+	}
+
+	const caption_error = await validate_post_caption_submission({
+		caption,
+		event,
+		user_id
+	});
+	if (caption_error) {
+		return { error_message: caption_error };
+	}
+
+	const trim_error = validate_post_video_trim_submission({
+		trim_end_seconds,
+		trim_start_seconds,
+		video_duration_seconds
+	});
+	if (trim_error) {
+		return { error_message: trim_error };
+	}
+
+	const direct_upload = await get_direct_video_upload({
+		public_id: media_public_id,
+		secure_url: media_secure_url,
+		user_id
+	});
+	if ('error_message' in direct_upload) {
+		return { error_message: direct_upload.error_message };
+	}
+
+	return {
+		image_hash_to_record: undefined,
+		uploaded: direct_upload.uploaded
 	};
 };
 
@@ -667,8 +834,8 @@ export const actions = {
 
 		const cover_validation = await validate_uploaded_image({
 			file: cover_file,
-			max_bytes: 10 * 1024 * 1024,
-			size_message: 'Cover photo must be 10MB or smaller.',
+			max_bytes: SERVER_FUNCTION_UPLOAD_SAFE_BYTES,
+			size_message: 'Cover photo must be 4MB or smaller.',
 			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed for cover photos.'
 		});
 		if (!cover_validation.is_valid) {
@@ -725,8 +892,8 @@ export const actions = {
 
 		const avatar_validation = await validate_uploaded_image({
 			file: avatar_file,
-			max_bytes: 5 * 1024 * 1024,
-			size_message: 'Profile photo must be 5MB or smaller.',
+			max_bytes: SERVER_FUNCTION_UPLOAD_SAFE_BYTES,
+			size_message: 'Profile photo must be 4MB or smaller.',
 			type_message: 'Only JPG, PNG, GIF, WebP, and AVIF images are allowed for profile photos.'
 		});
 		if (!avatar_validation.is_valid) {
@@ -789,20 +956,27 @@ export const actions = {
 		const {
 			caption,
 			media_file,
+			media_public_id,
+			media_secure_url,
 			media_type,
 			trim_end_seconds,
 			trim_start_seconds,
 			video_duration_seconds
 		} = parse_post_submission(await request.formData());
 
-		if (!(media_file instanceof File) || media_file.size === 0) {
+		const has_direct_video_upload =
+			media_type === 'video' && media_public_id.length > 0 && media_secure_url.length > 0;
+
+		if (!has_direct_video_upload && (!(media_file instanceof File) || media_file.size === 0)) {
 			return fail(400, { message: get_missing_post_media_message(caption, media_type) });
 		}
 
-		const prepared_media = await prepare_post_media_upload({
+		const prepared_media = await resolve_post_media_upload({
 			caption,
 			event,
-			file: media_file,
+			media_file,
+			media_public_id,
+			media_secure_url,
 			media_type,
 			video_duration_seconds,
 			trim_end_seconds,
@@ -814,7 +988,6 @@ export const actions = {
 		}
 
 		const { image_hash_to_record, uploaded } = prepared_media;
-
 		const db = get_db();
 		const post_id = randomUUID();
 		const media_id = randomUUID();

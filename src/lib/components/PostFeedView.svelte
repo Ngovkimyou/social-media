@@ -116,9 +116,13 @@
 	let load_more_observer = $state<IntersectionObserver | undefined>();
 	let liked_posts = $state<Record<string, boolean>>({});
 	let like_counts = $state<Record<string, number>>({});
+	let confirmed_liked_posts = $state<Record<string, boolean>>({});
+	let confirmed_like_counts = $state<Record<string, number>>({});
 	let like_requests_in_flight = $state<Record<string, boolean>>({});
 	let shared_posts = $state<Record<string, boolean>>({});
 	let share_counts = $state<Record<string, number>>({});
+	let confirmed_shared_posts = $state<Record<string, boolean>>({});
+	let confirmed_share_counts = $state<Record<string, number>>({});
 	let share_requests_in_flight = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
 	let comment_counts = $state<Record<string, number>>({});
@@ -138,6 +142,9 @@
 	const video_preview_setting_drag_sensitivity = 0.65;
 	const video_preview_drag_hold_delay_ms = 260;
 	const video_preview_close_drag_distance = 110;
+	const post_action_sync_delay_ms = 320;
+	const like_sync_timeouts = new SvelteMap<string, ReturnType<typeof setTimeout>>();
+	const share_sync_timeouts = new SvelteMap<string, ReturnType<typeof setTimeout>>();
 
 	function caption_key(view: 'grid' | 'feed', post_id: string | number) {
 		return `${view}-${String(post_id)}`;
@@ -1080,9 +1087,19 @@
 		return liked_posts[post_id] ?? post.has_liked;
 	}
 
+	function get_confirmed_is_liked(post: PostFeedPost): boolean {
+		const post_id = String(post.id);
+		return confirmed_liked_posts[post_id] ?? post.has_liked;
+	}
+
 	function get_like_count(post: PostFeedPost): number {
 		const post_id = String(post.id);
 		return like_counts[post_id] ?? post.like_count;
+	}
+
+	function get_confirmed_like_count(post: PostFeedPost): number {
+		const post_id = String(post.id);
+		return confirmed_like_counts[post_id] ?? post.like_count;
 	}
 
 	function get_is_shared(post: PostFeedPost): boolean {
@@ -1090,15 +1107,87 @@
 		return shared_posts[post_id] ?? post.has_shared;
 	}
 
+	function get_confirmed_is_shared(post: PostFeedPost): boolean {
+		const post_id = String(post.id);
+		return confirmed_shared_posts[post_id] ?? post.has_shared;
+	}
+
 	function get_share_count(post: PostFeedPost): number {
 		const post_id = String(post.id);
 		return share_counts[post_id] ?? post.share_count;
 	}
 
-	async function toggle_like(post_id: string | number) {
-		const key = String(post_id);
+	function get_confirmed_share_count(post: PostFeedPost): number {
+		const post_id = String(post.id);
+		return confirmed_share_counts[post_id] ?? post.share_count;
+	}
 
+	function get_count_for_state(params: {
+		confirmed_count: number;
+		confirmed_state: boolean;
+		desired_state: boolean;
+	}) {
+		if (params.confirmed_state === params.desired_state) {
+			return params.confirmed_count;
+		}
+
+		return Math.max(0, params.confirmed_count + (params.desired_state ? 1 : -1));
+	}
+
+	function clear_post_action_timeout(
+		timeouts: Map<string, ReturnType<typeof setTimeout>>,
+		key: string
+	) {
+		const timeout = timeouts.get(key);
+
+		if (!timeout) {
+			return;
+		}
+
+		clearTimeout(timeout);
+		timeouts.delete(key);
+	}
+
+	function clear_post_action_timeouts() {
+		for (const timeout of like_sync_timeouts.values()) {
+			clearTimeout(timeout);
+		}
+
+		for (const timeout of share_sync_timeouts.values()) {
+			clearTimeout(timeout);
+		}
+
+		like_sync_timeouts.clear();
+		share_sync_timeouts.clear();
+	}
+
+	function schedule_like_sync(key: string, delay_ms = post_action_sync_delay_ms) {
+		clear_post_action_timeout(like_sync_timeouts, key);
+
+		like_sync_timeouts.set(
+			key,
+			setTimeout(() => {
+				like_sync_timeouts.delete(key);
+				void sync_like_state(key);
+			}, delay_ms)
+		);
+	}
+
+	function schedule_share_sync(key: string, delay_ms = post_action_sync_delay_ms) {
+		clear_post_action_timeout(share_sync_timeouts, key);
+
+		share_sync_timeouts.set(
+			key,
+			setTimeout(() => {
+				share_sync_timeouts.delete(key);
+				void sync_share_state(key);
+			}, delay_ms)
+		);
+	}
+
+	async function sync_like_state(key: string) {
 		if (like_requests_in_flight[key]) {
+			schedule_like_sync(key);
 			return;
 		}
 
@@ -1107,50 +1196,74 @@
 			return;
 		}
 
-		const previous_is_liked = get_is_liked(post);
-		const previous_like_count = get_like_count(post);
-		const next_is_liked = !previous_is_liked;
-		const next_like_count = Math.max(0, previous_like_count + (next_is_liked ? 1 : -1));
+		const requested_liked = get_is_liked(post);
+		const confirmed_liked = get_confirmed_is_liked(post);
+		const confirmed_count = get_confirmed_like_count(post);
+
+		if (requested_liked === confirmed_liked) {
+			like_counts = {
+				...like_counts,
+				[key]: confirmed_count
+			};
+			return;
+		}
 
 		like_requests_in_flight = {
 			...like_requests_in_flight,
 			[key]: true
 		};
-		liked_posts = {
-			...liked_posts,
-			[key]: next_is_liked
-		};
-		like_counts = {
-			...like_counts,
-			[key]: next_like_count
-		};
 
 		try {
 			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/like`, {
-				method: 'POST'
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ liked: requested_liked })
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to toggle like');
+				throw new Error('Failed to sync like');
 			}
 
 			const payload = (await response.json()) as { liked: boolean; like_count: number };
-			liked_posts = {
-				...liked_posts,
+			confirmed_liked_posts = {
+				...confirmed_liked_posts,
 				[key]: payload.liked
 			};
-			like_counts = {
-				...like_counts,
+			confirmed_like_counts = {
+				...confirmed_like_counts,
 				[key]: payload.like_count
 			};
+
+			const current_desired_liked = get_is_liked(post);
+			if (current_desired_liked === requested_liked) {
+				liked_posts = {
+					...liked_posts,
+					[key]: payload.liked
+				};
+			}
+
+			like_counts = {
+				...like_counts,
+				[key]: get_count_for_state({
+					confirmed_count: payload.like_count,
+					confirmed_state: payload.liked,
+					desired_state: current_desired_liked
+				})
+			};
+
+			if (current_desired_liked !== payload.liked) {
+				schedule_like_sync(key, 0);
+			}
 		} catch {
 			liked_posts = {
 				...liked_posts,
-				[key]: previous_is_liked
+				[key]: confirmed_liked
 			};
 			like_counts = {
 				...like_counts,
-				[key]: previous_like_count
+				[key]: confirmed_count
 			};
 		} finally {
 			like_requests_in_flight = {
@@ -1160,10 +1273,9 @@
 		}
 	}
 
-	async function toggle_share(post_id: string | number) {
-		const key = String(post_id);
-
+	async function sync_share_state(key: string) {
 		if (share_requests_in_flight[key]) {
+			schedule_share_sync(key);
 			return;
 		}
 
@@ -1172,50 +1284,74 @@
 			return;
 		}
 
-		const previous_is_shared = get_is_shared(post);
-		const previous_share_count = get_share_count(post);
-		const next_is_shared = !previous_is_shared;
-		const next_share_count = Math.max(0, previous_share_count + (next_is_shared ? 1 : -1));
+		const requested_shared = get_is_shared(post);
+		const confirmed_shared = get_confirmed_is_shared(post);
+		const confirmed_count = get_confirmed_share_count(post);
+
+		if (requested_shared === confirmed_shared) {
+			share_counts = {
+				...share_counts,
+				[key]: confirmed_count
+			};
+			return;
+		}
 
 		share_requests_in_flight = {
 			...share_requests_in_flight,
 			[key]: true
 		};
-		shared_posts = {
-			...shared_posts,
-			[key]: next_is_shared
-		};
-		share_counts = {
-			...share_counts,
-			[key]: next_share_count
-		};
 
 		try {
 			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/share`, {
-				method: 'POST'
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ shared: requested_shared })
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to toggle share');
+				throw new Error('Failed to sync share');
 			}
 
 			const payload = (await response.json()) as { shared: boolean; share_count: number };
-			shared_posts = {
-				...shared_posts,
+			confirmed_shared_posts = {
+				...confirmed_shared_posts,
 				[key]: payload.shared
 			};
-			share_counts = {
-				...share_counts,
+			confirmed_share_counts = {
+				...confirmed_share_counts,
 				[key]: payload.share_count
 			};
+
+			const current_desired_shared = get_is_shared(post);
+			if (current_desired_shared === requested_shared) {
+				shared_posts = {
+					...shared_posts,
+					[key]: payload.shared
+				};
+			}
+
+			share_counts = {
+				...share_counts,
+				[key]: get_count_for_state({
+					confirmed_count: payload.share_count,
+					confirmed_state: payload.shared,
+					desired_state: current_desired_shared
+				})
+			};
+
+			if (current_desired_shared !== payload.shared) {
+				schedule_share_sync(key, 0);
+			}
 		} catch {
 			shared_posts = {
 				...shared_posts,
-				[key]: previous_is_shared
+				[key]: confirmed_shared
 			};
 			share_counts = {
 				...share_counts,
-				[key]: previous_share_count
+				[key]: confirmed_count
 			};
 		} finally {
 			share_requests_in_flight = {
@@ -1223,6 +1359,52 @@
 				[key]: false
 			};
 		}
+	}
+
+	function toggle_like(post_id: string | number) {
+		const key = String(post_id);
+		const post = posts.find((candidate) => String(candidate.id) === key);
+		if (!post) {
+			return;
+		}
+
+		const next_is_liked = !get_is_liked(post);
+		liked_posts = {
+			...liked_posts,
+			[key]: next_is_liked
+		};
+		like_counts = {
+			...like_counts,
+			[key]: get_count_for_state({
+				confirmed_count: get_confirmed_like_count(post),
+				confirmed_state: get_confirmed_is_liked(post),
+				desired_state: next_is_liked
+			})
+		};
+		schedule_like_sync(key);
+	}
+
+	function toggle_share(post_id: string | number) {
+		const key = String(post_id);
+		const post = posts.find((candidate) => String(candidate.id) === key);
+		if (!post) {
+			return;
+		}
+
+		const next_is_shared = !get_is_shared(post);
+		shared_posts = {
+			...shared_posts,
+			[key]: next_is_shared
+		};
+		share_counts = {
+			...share_counts,
+			[key]: get_count_for_state({
+				confirmed_count: get_confirmed_share_count(post),
+				confirmed_state: get_confirmed_is_shared(post),
+				desired_state: next_is_shared
+			})
+		};
+		schedule_share_sync(key);
 	}
 
 	function mark_image_loaded(post_id: string | number) {
@@ -1244,6 +1426,29 @@
 			Boolean(post.media_display_url ?? post.media_url) &&
 			!loaded_images[String(post.id)]
 		);
+	}
+
+	function initialize_post_action_state(post: PostFeedPost) {
+		const key = String(post.id);
+
+		const initialize_boolean_state = (
+			state: Record<string, boolean>,
+			value: boolean
+		): Record<string, boolean> => (state[key] === undefined ? { ...state, [key]: value } : state);
+
+		const initialize_count_state = (
+			state: Record<string, number>,
+			value: number
+		): Record<string, number> => (state[key] === undefined ? { ...state, [key]: value } : state);
+
+		liked_posts = initialize_boolean_state(liked_posts, post.has_liked);
+		confirmed_liked_posts = initialize_boolean_state(confirmed_liked_posts, post.has_liked);
+		like_counts = initialize_count_state(like_counts, post.like_count);
+		confirmed_like_counts = initialize_count_state(confirmed_like_counts, post.like_count);
+		shared_posts = initialize_boolean_state(shared_posts, post.has_shared);
+		confirmed_shared_posts = initialize_boolean_state(confirmed_shared_posts, post.has_shared);
+		share_counts = initialize_count_state(share_counts, post.share_count);
+		confirmed_share_counts = initialize_count_state(confirmed_share_counts, post.share_count);
 	}
 
 	function get_scroll_anchor_post_id(active_scroll_container: HTMLElement) {
@@ -1580,35 +1785,7 @@
 
 	$effect(() => {
 		for (const post of posts) {
-			const key = String(post.id);
-
-			if (liked_posts[key] === undefined) {
-				liked_posts = {
-					...liked_posts,
-					[key]: post.has_liked
-				};
-			}
-
-			if (like_counts[key] === undefined) {
-				like_counts = {
-					...like_counts,
-					[key]: post.like_count
-				};
-			}
-
-			if (shared_posts[key] === undefined) {
-				shared_posts = {
-					...shared_posts,
-					[key]: post.has_shared
-				};
-			}
-
-			if (share_counts[key] === undefined) {
-				share_counts = {
-					...share_counts,
-					[key]: post.share_count
-				};
-			}
+			initialize_post_action_state(post);
 		}
 	});
 
@@ -1651,6 +1828,7 @@
 		clear_video_preview_controls_timeout();
 		clear_video_preview_click_timeout();
 		clear_video_preview_drag_hold();
+		clear_post_action_timeouts();
 		stop_video_preview_time_loop();
 		video_preview_element?.pause();
 		persist_scroll_position();
@@ -1769,7 +1947,7 @@
 								</button>
 							</div>
 
-							<div class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl md:mx-4">
+							<div class="relative mx-3 mt-3 aspect-4/5 w-auto overflow-hidden rounded-2xl md:mx-4">
 								{#if get_post_path}
 									<a
 										href={resolve(get_post_path(post))}
@@ -1780,7 +1958,7 @@
 								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="absolute inset-0 z-15 cursor-pointer"
+										class="absolute inset-0 z-15 block h-full w-full cursor-pointer overflow-hidden"
 										onclick={() => open_post_detail(post)}
 										aria-label={`View ${post.author_name}'s post`}
 									>
@@ -1790,7 +1968,7 @@
 											sizes="(min-width: 1536px) 28vw, (min-width: 1024px) 30vw, (min-width: 768px) 45vw, 100vw"
 											alt="post"
 											wrapper_class="h-full w-full"
-											img_class="h-full w-full object-cover"
+											img_class="h-full w-full object-contain md:object-cover"
 											skeleton_class="rounded-2xl"
 											loading={index < 6 ? 'eager' : 'lazy'}
 											decoding="async"
@@ -1802,7 +1980,7 @@
 								{:else if post.media_url && post.media_type === 'video'}
 									<button
 										type="button"
-										class="absolute inset-0 z-15 cursor-zoom-in"
+										class="absolute inset-0 z-15 block h-full w-full cursor-zoom-in overflow-hidden"
 										onclick={() => {
 											open_video_preview(post.media_url ?? '', `${post.author_name}'s post video`);
 										}}
@@ -1810,7 +1988,7 @@
 									>
 										<video
 											src={post.media_url}
-											class="h-full w-full object-cover"
+											class="block h-full w-full object-contain md:object-cover"
 											autoplay
 											loop
 											muted
@@ -2036,12 +2214,12 @@
 							</div>
 
 							<div
-								class="relative mx-3 mt-3 aspect-4/5 overflow-hidden rounded-2xl bg-black/20 md:mx-4 md:max-h-[70vh]"
+								class="relative mx-3 mt-3 aspect-4/5 w-auto overflow-hidden rounded-2xl bg-black/20 md:mx-4"
 							>
 								{#if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
-										class="flex h-full w-full cursor-pointer items-center justify-center"
+										class="block h-full w-full cursor-pointer overflow-hidden"
 										onclick={() => open_post_detail(post)}
 										aria-label={`View ${post.author_name}'s post`}
 									>
@@ -2051,7 +2229,7 @@
 											sizes="(min-width: 1024px) 42rem, (min-width: 768px) calc(100vw - 12rem), calc(100vw - 2rem)"
 											alt="post"
 											wrapper_class="h-full w-full"
-											img_class="h-full w-full object-contain"
+											img_class="h-full w-full object-cover"
 											skeleton_class="rounded-2xl"
 											loading={index < 4 ? 'eager' : 'lazy'}
 											decoding="async"
@@ -2063,7 +2241,7 @@
 								{:else if post.media_url && post.media_type === 'video'}
 									<button
 										type="button"
-										class="flex h-full w-full cursor-zoom-in items-center justify-center"
+										class="block h-full w-full cursor-zoom-in overflow-hidden"
 										onclick={() => {
 											open_video_preview(post.media_url ?? '', `${post.author_name}'s post video`);
 										}}
@@ -2071,7 +2249,7 @@
 									>
 										<video
 											src={post.media_url}
-											class="h-full w-full object-contain"
+											class="block h-full w-full object-cover"
 											autoplay
 											loop
 											muted
