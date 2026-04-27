@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { base } from '$app/paths';
+
+	const about_background_video_src = `${base}/video/About-Background.webm`;
+
 	const team_sections = [
 		{
 			role: 'Project Leader',
@@ -148,12 +152,12 @@
 >
 	<video
 		class="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-[0.08]"
-		src="/video/About-Background.webm"
+		src={about_background_video_src}
 		autoplay
 		muted
 		loop
 		playsinline
-		preload="metadata"
+		preload="auto"
 		aria-hidden="true"
 	></video>
 
