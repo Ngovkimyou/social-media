@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { v2 as cloudinary } from 'cloudinary';
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { ALLOWED_IMAGE_FORMATS } from './image-validation';
@@ -53,6 +54,22 @@ type UploadedImage = {
 type UploadedVideo = {
 	secureUrl: string;
 	publicId: string;
+};
+
+export type UploadedVideoResource = {
+	bytes: number;
+	format: string;
+	publicId: string;
+	secureUrl: string;
+};
+
+export type SignedVideoUpload = {
+	apiKey: string;
+	cloudName: string;
+	params: Record<string, number | string | string[]>;
+	publicId: string;
+	signature: string;
+	uploadUrl: string;
 };
 
 function as_error(error: unknown): Error {
@@ -149,6 +166,73 @@ export async function upload_video_from_file(
 		},
 		resource_type: 'video'
 	});
+}
+
+export function create_signed_video_upload(params: {
+	endOffset: number;
+	folder: string;
+	startOffset: number;
+}): SignedVideoUpload {
+	ensure_cloudinary_configured();
+
+	const cloud_name = env['CLOUDINARY_CLOUD_NAME'];
+	const api_key = env['CLOUDINARY_API_KEY'];
+	const api_secret = env['CLOUDINARY_API_SECRET'];
+
+	if (!cloud_name || !api_key || !api_secret) {
+		throw new Error('Missing Cloudinary upload configuration');
+	}
+
+	const public_id = randomUUID();
+	const timestamp = Math.floor(Date.now() / 1000);
+	const upload_params = {
+		allowed_formats: [...ALLOWED_VIDEO_FORMATS],
+		end_offset: params.endOffset,
+		folder: params.folder,
+		public_id,
+		start_offset: params.startOffset,
+		timestamp
+	};
+
+	return {
+		apiKey: api_key,
+		cloudName: cloud_name,
+		params: upload_params,
+		publicId: `${params.folder}/${public_id}`,
+		signature: cloudinary.utils.api_sign_request(upload_params, api_secret),
+		uploadUrl: `https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`
+	};
+}
+
+export async function get_uploaded_video_resource(
+	public_id: string
+): Promise<UploadedVideoResource> {
+	ensure_cloudinary_configured();
+
+	const resource = (await cloudinary.api.resource(public_id, {
+		resource_type: 'video'
+	})) as {
+		bytes?: number;
+		format?: string;
+		public_id?: string;
+		secure_url?: string;
+	};
+
+	if (
+		typeof resource.bytes !== 'number' ||
+		typeof resource.format !== 'string' ||
+		typeof resource.public_id !== 'string' ||
+		typeof resource.secure_url !== 'string'
+	) {
+		throw new TypeError('Cloudinary video resource is incomplete');
+	}
+
+	return {
+		bytes: resource.bytes,
+		format: resource.format,
+		publicId: resource.public_id,
+		secureUrl: resource.secure_url
+	};
 }
 
 export function get_optimized_image_url(public_id: string): string {

@@ -124,9 +124,12 @@
 	let image_editor_error = $state('');
 	let is_applying_image_editor = $state(false);
 	let is_saving_profile_media = $state(false);
+	let profile_media_error = $state('');
 	let image_editor_object_url = $state('');
 	let post_editor_source_file = $state<File | undefined>();
 	let upload_media_error = $state('');
+	let direct_video_public_id = $state('');
+	let direct_video_secure_url = $state('');
 	let selected_image = $state<File>();
 	let selected_video = $state<File>();
 	let image_src = $state('');
@@ -145,10 +148,14 @@
 	let edit_profile_email = $state('');
 	let edit_profile_email_visible = $state(false);
 
-	const MAX_POST_IMAGE_BYTES = 10 * 1024 * 1024;
-	const MAX_POST_VIDEO_OUTPUT_BYTES = 40 * 1024 * 1024;
+	const SERVER_FUNCTION_UPLOAD_SAFE_BYTES = 4 * 1024 * 1024;
+	const MAX_SELECTED_IMAGE_BYTES = 10 * 1024 * 1024;
+	const MAX_POST_IMAGE_BYTES = MAX_SELECTED_IMAGE_BYTES;
+	const MAX_POST_VIDEO_OUTPUT_BYTES = SERVER_FUNCTION_UPLOAD_SAFE_BYTES;
 	const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
 	const MAX_POST_VIDEO_DURATION_SECONDS = 60;
+	const safe_upload_size_label = '4MB';
+	const selected_image_size_label = '10MB';
 
 	const estimated_trimmed_video_bytes = $derived.by(() => {
 		const video_source_file =
@@ -443,6 +450,26 @@
 		is_phone_country_dropdown_open = open;
 	}
 
+	function format_file_size(bytes: number) {
+		return `${Math.max(0.1, Math.round((bytes / (1024 * 1024)) * 10) / 10)}MB`;
+	}
+
+	function get_selected_image_size_error(file: File, label: string) {
+		if (file.size <= MAX_SELECTED_IMAGE_BYTES) {
+			return '';
+		}
+
+		return `${label} is ${format_file_size(file.size)}. Please choose an image ${selected_image_size_label} or smaller before editing.`;
+	}
+
+	function get_server_upload_size_error(file: File, label: string) {
+		if (file.size <= SERVER_FUNCTION_UPLOAD_SAFE_BYTES) {
+			return '';
+		}
+
+		return `${label} is ${format_file_size(file.size)} after editing. Please adjust it until the edited file is ${safe_upload_size_label} or smaller so Vercel can accept the upload.`;
+	}
+
 	function open_upload_modal(media_type: 'image' | 'video' = 'image') {
 		clear_post_preview();
 		caption = '';
@@ -543,16 +570,16 @@
 		return `${minutes}:${String(remaining_seconds).padStart(2, '0')}`;
 	}
 
-	function noop() {}
-
 	let caption = $state('');
 	let share_feedback = $state('');
 	let submitting_post = $state(false);
-	const selected_post_media = $derived(
-		upload_media_type === 'video' ? selected_video : selected_image
+	const has_selected_post_media = $derived(
+		upload_media_type === 'video'
+			? Boolean(selected_video || direct_video_public_id)
+			: Boolean(selected_image)
 	);
 	const post_validation_message = $derived.by(() => {
-		if (caption.trim().length === 0 || selected_post_media) {
+		if (caption.trim().length === 0 || has_selected_post_media) {
 			return '';
 		}
 
@@ -633,6 +660,8 @@
 
 		selected_image = undefined;
 		selected_video = undefined;
+		direct_video_public_id = '';
+		direct_video_secure_url = '';
 		image_src = '';
 		video_src = '';
 		post_video_duration_seconds = 0;
@@ -655,7 +684,7 @@
 
 		upload_media_error = '';
 		if (file.size > MAX_POST_IMAGE_BYTES) {
-			upload_media_error = 'Photo must be 10MB or smaller.';
+			upload_media_error = get_selected_image_size_error(file, 'Photo');
 			target.value = '';
 			return;
 		}
@@ -684,6 +713,8 @@
 		}
 
 		post_editor_source_file = file;
+		direct_video_public_id = '';
+		direct_video_secure_url = '';
 		await open_image_editor(file, 'video-post');
 	}
 
@@ -716,14 +747,25 @@
 			return;
 		}
 
-		if (!selected_post_media) {
+		if (!has_selected_post_media) {
 			event.preventDefault();
 			submitting_post = false;
 			return;
 		}
 
+		if (upload_media_type === 'image' && selected_image) {
+			const upload_size_error = get_server_upload_size_error(selected_image, 'Photo');
+			if (upload_size_error) {
+				event.preventDefault();
+				upload_media_error = upload_size_error;
+				submitting_post = false;
+				return;
+			}
+		}
+
 		if (
 			upload_media_type === 'video' &&
+			!direct_video_public_id &&
 			(post_video_trim_end_seconds - post_video_trim_start_seconds >
 				MAX_POST_VIDEO_DURATION_SECONDS ||
 				estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES)
@@ -1060,7 +1102,37 @@
 			return;
 		}
 
+		profile_media_error = '';
+		const size_error = get_selected_image_size_error(
+			file,
+			mode === 'avatar' ? 'Profile photo' : 'Cover photo'
+		);
+		if (size_error) {
+			profile_media_error = size_error;
+			target.value = '';
+			return;
+		}
+
 		await open_image_editor(file, mode);
+	}
+
+	function handle_profile_media_submit(event: SubmitEvent, label: string) {
+		const form = event.currentTarget as HTMLFormElement;
+		const file = Array.from(form.elements).find(
+			(element): element is HTMLInputElement =>
+				element instanceof HTMLInputElement && element.type === 'file'
+		)?.files?.[0];
+
+		if (!file) {
+			return;
+		}
+
+		const size_error = get_server_upload_size_error(file, label);
+		if (size_error) {
+			event.preventDefault();
+			is_saving_profile_media = false;
+			profile_media_error = size_error;
+		}
 	}
 
 	function handle_profile_image_change(event: Event) {
@@ -1194,6 +1266,14 @@
 		const cropped_file = new File([blob], editor.file_name, {
 			type: blob.type || editor.mime_type || 'image/jpeg'
 		});
+		const upload_size_error = get_server_upload_size_error(
+			cropped_file,
+			editor.mode === 'avatar' ? 'Profile photo' : editor.mode === 'cover' ? 'Cover photo' : 'Photo'
+		);
+		if (upload_size_error) {
+			throw new Error(upload_size_error);
+		}
+
 		const transfer = new DataTransfer();
 		transfer.items.add(cropped_file);
 
@@ -1212,6 +1292,7 @@
 
 		if (editor.mode === 'avatar' && profile_image_input && profile_image_form) {
 			profile_image_input.files = transfer.files;
+			profile_media_error = '';
 			is_saving_profile_media = true;
 			close_image_editor({ reset_inputs: false });
 			profile_image_form.requestSubmit();
@@ -1220,6 +1301,7 @@
 
 		if (editor.mode === 'cover' && cover_image_input && cover_image_form) {
 			cover_image_input.files = transfer.files;
+			profile_media_error = '';
 			is_saving_profile_media = true;
 			close_image_editor({ reset_inputs: false });
 			cover_image_form.requestSubmit();
@@ -1304,166 +1386,129 @@
 		update_video_trim_range(post_video_trim_start_seconds, next_end, 'end');
 	}
 
-	type VideoWithCaptureStream = HTMLVideoElement & {
-		['captureStream']?: () => MediaStream;
-		['mozCaptureStream']?: () => MediaStream;
+	type SignedVideoUploadResponse = {
+		apiKey: string;
+		cloudName: string;
+		params: Record<string, number | string | string[]>;
+		publicId: string;
+		signature: string;
+		uploadUrl: string;
 	};
 
-	async function seek_video_element(video: HTMLVideoElement, time_seconds: number) {
-		await new Promise<void>((resolve, reject) => {
-			const handle_seeked = () => {
-				cleanup();
-				resolve();
-			};
-			const handle_error = () => {
-				cleanup();
-				reject(new Error('Video preview could not seek to the selected trim point.'));
-			};
-			const cleanup = () => {
-				video.removeEventListener('seeked', handle_seeked);
-				video.removeEventListener('error', handle_error);
-			};
+	type CloudinaryVideoUploadResponse = {
+		bytes?: number;
+		public_id?: string;
+		secure_url?: string;
+	};
 
-			video.addEventListener('seeked', handle_seeked, { once: true });
-			video.addEventListener('error', handle_error, { once: true });
-			video.currentTime = time_seconds;
-		});
-	}
-
-	async function create_trimmed_video_blob(
-		editor: NonNullable<typeof image_editor>
-	): Promise<Blob> {
-		const clip_duration_seconds = post_video_trim_end_seconds - post_video_trim_start_seconds;
-		if (clip_duration_seconds <= 0) {
-			throw new Error('Choose a valid start and end time for the video clip.');
-		}
-
-		if (typeof MediaRecorder === 'undefined') {
-			throw new Error('This browser cannot trim videos here yet.');
-		}
-
-		const mime_type =
-			['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find((value) =>
-				MediaRecorder.isTypeSupported(value)
-			) ?? '';
-		if (!mime_type) {
-			throw new Error('This browser cannot export a trimmed video clip yet.');
-		}
-
-		const source_video = document.createElement('video');
-		source_video.src = editor.src;
-		source_video.preload = 'auto';
-		source_video.playsInline = true;
-		source_video.muted = true;
-
-		await new Promise<void>((resolve, reject) => {
-			source_video.onloadedmetadata = () => resolve();
-			source_video.onerror = () => reject(new Error('Video failed to load for trimming.'));
-		});
-		await seek_video_element(source_video, post_video_trim_start_seconds);
-
-		const capture_stream =
-			(source_video as VideoWithCaptureStream).captureStream?.() ??
-			(source_video as VideoWithCaptureStream).mozCaptureStream?.();
-		if (!capture_stream) {
-			throw new Error('This browser cannot capture the trimmed video segment.');
-		}
-
-		const chunks: BlobPart[] = [];
-		let settled = false;
-		let stop_timeout: ReturnType<typeof setTimeout> | undefined;
-		let timeupdate_cleanup: () => void = noop;
-
-		const cleanup = () => {
-			if (stop_timeout) {
-				clearTimeout(stop_timeout);
-				stop_timeout = undefined;
-			}
-
-			timeupdate_cleanup();
-			source_video.pause();
-			capture_stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-			source_video.src = '';
-		};
-
-		const stop_recording = (recorder: MediaRecorder) => {
-			if (settled) {
-				return;
-			}
-
-			settled = true;
-			if (recorder.state !== 'inactive') {
-				recorder.stop();
-			}
-		};
-
-		const recorder = new MediaRecorder(capture_stream, {
-			audioBitsPerSecond: 128_000,
-			mimeType: mime_type,
-			videoBitsPerSecond: 3_500_000
-		});
-
-		const completion = new Promise<Blob>((resolve, reject) => {
-			recorder.ondataavailable = (event) => {
-				if (event.data.size > 0) {
-					chunks.push(event.data);
-				}
-			};
-			recorder.onerror = () => {
-				cleanup();
-				reject(new Error('Unable to trim that video right now.'));
-			};
-			recorder.onstop = () => {
-				cleanup();
-				resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
-			};
-		});
-
-		const handle_time_update = () => {
-			if (source_video.currentTime >= post_video_trim_end_seconds - 0.05) {
-				stop_recording(recorder);
-			}
-		};
-		source_video.addEventListener('timeupdate', handle_time_update);
-		timeupdate_cleanup = () => {
-			source_video.removeEventListener('timeupdate', handle_time_update);
-		};
-
-		stop_timeout = setTimeout(
-			() => {
-				stop_recording(recorder);
+	async function get_signed_video_upload(file: File): Promise<SignedVideoUploadResponse> {
+		const response = await fetch('/api/uploads/video-signature', {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {
+				'content-type': 'application/json'
 			},
-			Math.ceil((clip_duration_seconds + 0.75) * 1000)
-		);
+			body: JSON.stringify({
+				file_size: file.size,
+				file_type: file.type,
+				profile_username: data['profile'].username,
+				trim_end_seconds: post_video_trim_end_seconds,
+				trim_start_seconds: post_video_trim_start_seconds,
+				video_duration_seconds: post_video_duration_seconds
+			})
+		});
 
-		recorder.start(250);
-		await source_video.play();
+		const payload = (await response.json()) as Partial<SignedVideoUploadResponse> & {
+			message?: string;
+		};
 
-		return completion;
+		if (!response.ok) {
+			throw new Error(payload.message ?? 'Video upload could not be prepared.');
+		}
+
+		if (
+			typeof payload.apiKey !== 'string' ||
+			typeof payload.signature !== 'string' ||
+			typeof payload.uploadUrl !== 'string' ||
+			typeof payload.publicId !== 'string' ||
+			!payload.params
+		) {
+			throw new Error('Video upload could not be prepared.');
+		}
+
+		return payload as SignedVideoUploadResponse;
 	}
 
-	async function submit_video_editor_file(editor: NonNullable<typeof image_editor>) {
+	async function upload_direct_trimmed_video(file: File) {
+		const signed_upload = await get_signed_video_upload(file);
+		const upload_form_data = new FormData();
+
+		for (const [key, value] of Object.entries(signed_upload.params)) {
+			if (Array.isArray(value)) {
+				upload_form_data.set(key, value.join(','));
+				continue;
+			}
+
+			upload_form_data.set(key, String(value));
+		}
+
+		upload_form_data.set('api_key', signed_upload.apiKey);
+		upload_form_data.set('signature', signed_upload.signature);
+		upload_form_data.set('file', file);
+
+		const response = await fetch(signed_upload.uploadUrl, {
+			method: 'POST',
+			body: upload_form_data
+		});
+		const payload = (await response.json()) as CloudinaryVideoUploadResponse & {
+			error?: { message?: string };
+		};
+
+		if (!response.ok) {
+			throw new Error(payload.error?.message ?? 'Video upload failed. Please try again.');
+		}
+
+		if (
+			typeof payload.public_id !== 'string' ||
+			typeof payload.secure_url !== 'string' ||
+			payload.public_id !== signed_upload.publicId
+		) {
+			throw new Error('Video upload could not be verified. Please try again.');
+		}
+
+		if (typeof payload.bytes === 'number' && payload.bytes > SERVER_FUNCTION_UPLOAD_SAFE_BYTES) {
+			throw new Error(
+				`The trimmed video is ${format_file_size(payload.bytes)}. Trim it to ${safe_upload_size_label} or smaller before posting.`
+			);
+		}
+
+		return {
+			publicId: payload.public_id,
+			secureUrl: payload.secure_url
+		};
+	}
+
+	async function submit_video_editor_file() {
 		if (!post_video_input) {
 			throw new Error('Video upload form is unavailable.');
 		}
 
-		const trimmed_blob = await create_trimmed_video_blob(editor);
+		if (!post_editor_source_file) {
+			throw new Error('Please choose the video again.');
+		}
+
+		const uploaded_video = await upload_direct_trimmed_video(post_editor_source_file);
 		const trimmed_duration_seconds = post_video_trim_end_seconds - post_video_trim_start_seconds;
-		const trimmed_file_name = `${editor.file_name.replace(/\.[^.]+$/u, '') || 'video'}-trimmed.webm`;
-		const trimmed_file = new File([trimmed_blob], trimmed_file_name, {
-			type: trimmed_blob.type || 'video/webm'
-		});
-		const transfer = new DataTransfer();
-		transfer.items.add(trimmed_file);
 
 		if (video_src) {
 			URL.revokeObjectURL(video_src);
 		}
 
-		post_video_input.files = transfer.files;
-		selected_video = trimmed_file;
-		post_editor_source_file = trimmed_file;
-		video_src = URL.createObjectURL(trimmed_file);
+		post_video_input.value = '';
+		selected_video = undefined;
+		direct_video_public_id = uploaded_video.publicId;
+		direct_video_secure_url = uploaded_video.secureUrl;
+		video_src = uploaded_video.secureUrl;
 		post_video_duration_seconds = trimmed_duration_seconds;
 		post_video_trim_start_seconds = 0;
 		post_video_trim_end_seconds = trimmed_duration_seconds;
@@ -1497,7 +1542,7 @@
 		return '';
 	}
 
-	async function apply_video_editor(editor: NonNullable<typeof image_editor>) {
+	async function apply_video_editor() {
 		const validation_message = validate_video_editor_range();
 
 		if (validation_message) {
@@ -1509,7 +1554,7 @@
 		video_editor_preview_element?.pause();
 
 		try {
-			await submit_video_editor_file(editor);
+			await submit_video_editor_file();
 		} catch (error) {
 			image_editor_error = get_apply_error_message(
 				error,
@@ -1554,7 +1599,7 @@
 		}
 
 		if (editor.mode === 'video-post') {
-			await apply_video_editor(editor);
+			await apply_video_editor();
 			return;
 		}
 
@@ -1713,6 +1758,7 @@
 						method="post"
 						action="?/update_cover_image"
 						enctype="multipart/form-data"
+						onsubmit={(event) => handle_profile_media_submit(event, 'Cover photo')}
 						class="absolute inset-0 z-20"
 					>
 						<div
@@ -1800,6 +1846,7 @@
 						method="post"
 						action="?/update_profile_image"
 						enctype="multipart/form-data"
+						onsubmit={(event) => handle_profile_media_submit(event, 'Profile photo')}
 						class="absolute inset-0 z-30"
 					>
 						<div
@@ -2015,6 +2062,14 @@
 			</div>
 			{#if share_feedback}
 				<p class="mt-3 text-center text-xs font-medium text-sky-300">{share_feedback}</p>
+			{/if}
+			{#if profile_media_error}
+				<p
+					class="mx-6 mt-4 rounded-xl border border-amber-300/35 bg-amber-500/12 px-4 py-3 text-sm text-amber-100"
+					aria-live="polite"
+				>
+					{profile_media_error}
+				</p>
 			{/if}
 
 			{#if form_message}
@@ -2530,6 +2585,8 @@
 				>
 					<input type="hidden" name="media_type" value={upload_media_type} />
 					{#if upload_media_type === 'video'}
+						<input type="hidden" name="media_public_id" value={direct_video_public_id} />
+						<input type="hidden" name="media_secure_url" value={direct_video_secure_url} />
 						<input
 							type="hidden"
 							name="trim_start_seconds"
@@ -2710,12 +2767,12 @@
 
 							<button
 								type="submit"
-								class="mt-3 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!selected_post_media ||
+								class="mt-3 w-full cursor-pointer rounded-xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] py-2.5 text-sm font-semibold text-[#CD82FF] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-transform hover:scale-[0.98] md:mt-4 md:py-3 md:text-base {!has_selected_post_media ||
 								caption.length > 1000 ||
 								submitting_post
 									? 'cursor-not-allowed opacity-50'
 									: 'shadow-[0_0_10px_rgba(255,179,201,25)]'}"
-								disabled={!selected_post_media || caption.length > 1000 || submitting_post}
+								disabled={!has_selected_post_media || caption.length > 1000 || submitting_post}
 							>
 								{submitting_post ? 'Posting...' : 'Post'}
 							</button>
@@ -2980,7 +3037,8 @@
 							</p>
 							{#if estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES}
 								<p class="mt-2 text-sm text-amber-200">
-									Trim more to get the estimated clip size down to 40MB or less before posting.
+									Trim more to get the estimated clip size down to {safe_upload_size_label} or less before
+									posting.
 								</p>
 							{/if}
 						{:else}

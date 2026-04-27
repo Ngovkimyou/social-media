@@ -20,6 +20,17 @@ const tsvector = customType<{ data: string }>({
 	}
 });
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const post_user_action_columns = () => ({
+	post_id: text('post_id')
+		.notNull()
+		.references(() => posts.id, { onDelete: 'cascade' }),
+	user_id: text('user_id')
+		.notNull()
+		.references(() => auth_user.id, { onDelete: 'cascade' }),
+	created_at: timestamp('created_at').defaultNow().notNull()
+});
+
 export const post_visibility = pgEnum('post_visibility', ['public', 'followers', 'private']);
 export const media_type = pgEnum('media_type', ['image', 'video']);
 export const reaction_type = pgEnum('reaction_type', [
@@ -94,14 +105,8 @@ export const reactions = pgTable(
 	'reaction',
 	{
 		id: text('id').primaryKey(),
-		post_id: text('post_id')
-			.notNull()
-			.references(() => posts.id, { onDelete: 'cascade' }),
-		user_id: text('user_id')
-			.notNull()
-			.references(() => auth_user.id, { onDelete: 'cascade' }),
-		type: reaction_type('type').notNull().default('like'),
-		created_at: timestamp('created_at').defaultNow().notNull()
+		...post_user_action_columns(),
+		type: reaction_type('type').notNull().default('like')
 	},
 	(table) => [
 		uniqueIndex('reaction_post_user_type_unique').on(table.post_id, table.user_id, table.type),
@@ -110,23 +115,11 @@ export const reactions = pgTable(
 	]
 );
 
-export const likes = pgTable(
-	'like',
-	{
-		post_id: text('post_id')
-			.notNull()
-			.references(() => posts.id, { onDelete: 'cascade' }),
-		user_id: text('user_id')
-			.notNull()
-			.references(() => auth_user.id, { onDelete: 'cascade' }),
-		created_at: timestamp('created_at').defaultNow().notNull()
-	},
-	(table) => [
-		primaryKey({ columns: [table.post_id, table.user_id] }),
-		index('like_post_id_idx').on(table.post_id),
-		index('like_user_id_idx').on(table.user_id)
-	]
-);
+export const likes = pgTable('like', post_user_action_columns(), (table) => [
+	primaryKey({ columns: [table.post_id, table.user_id] }),
+	index('like_post_id_idx').on(table.post_id),
+	index('like_user_id_idx').on(table.user_id)
+]);
 
 export const comments = pgTable(
 	'comment',
@@ -181,14 +174,8 @@ export const shares = pgTable(
 	'share',
 	{
 		id: text('id').primaryKey(),
-		post_id: text('post_id')
-			.notNull()
-			.references(() => posts.id, { onDelete: 'cascade' }),
-		user_id: text('user_id')
-			.notNull()
-			.references(() => auth_user.id, { onDelete: 'cascade' }),
-		comment_text: text('comment_text'),
-		created_at: timestamp('created_at').defaultNow().notNull()
+		...post_user_action_columns(),
+		comment_text: text('comment_text')
 	},
 	(table) => [
 		index('share_post_id_idx').on(table.post_id),
@@ -196,23 +183,11 @@ export const shares = pgTable(
 	]
 );
 
-export const post_shares = pgTable(
-	'post_share',
-	{
-		post_id: text('post_id')
-			.notNull()
-			.references(() => posts.id, { onDelete: 'cascade' }),
-		user_id: text('user_id')
-			.notNull()
-			.references(() => auth_user.id, { onDelete: 'cascade' }),
-		created_at: timestamp('created_at').defaultNow().notNull()
-	},
-	(table) => [
-		primaryKey({ columns: [table.post_id, table.user_id] }),
-		index('post_share_post_id_idx').on(table.post_id),
-		index('post_share_user_id_idx').on(table.user_id)
-	]
-);
+export const post_shares = pgTable('post_share', post_user_action_columns(), (table) => [
+	primaryKey({ columns: [table.post_id, table.user_id] }),
+	index('post_share_post_id_idx').on(table.post_id),
+	index('post_share_user_id_idx').on(table.user_id)
+]);
 
 export const profiles = pgTable(
 	'profile',

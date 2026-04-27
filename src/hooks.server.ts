@@ -20,12 +20,13 @@ const STATIC_SECURITY_HEADERS = {
 } as const;
 
 const BYTES_PER_MEGABYTE = 1024 * 1024;
-const MULTIPART_OVERHEAD_BYTES = 512 * 1024;
-const DEFAULT_MULTIPART_LIMIT_BYTES = 10 * BYTES_PER_MEGABYTE + MULTIPART_OVERHEAD_BYTES;
+const MULTIPART_OVERHEAD_BYTES = 256 * 1024;
+const SERVER_FUNCTION_UPLOAD_SAFE_BYTES = 4 * BYTES_PER_MEGABYTE;
+const DEFAULT_MULTIPART_LIMIT_BYTES = SERVER_FUNCTION_UPLOAD_SAFE_BYTES + MULTIPART_OVERHEAD_BYTES;
 const ACTION_MULTIPART_LIMITS = {
 	'/create_post': DEFAULT_MULTIPART_LIMIT_BYTES,
 	'/update_cover_image': DEFAULT_MULTIPART_LIMIT_BYTES,
-	'/update_profile_image': 5 * BYTES_PER_MEGABYTE + MULTIPART_OVERHEAD_BYTES
+	'/update_profile_image': DEFAULT_MULTIPART_LIMIT_BYTES
 } as const;
 
 const create_content_security_policy = (nonce: string): string =>
@@ -99,7 +100,7 @@ const handle_upload_size_limits: Handle = async ({ event, resolve }) => {
 	const content_length = Number.parseInt(content_length_header ?? '', 10);
 
 	if (!Number.isNaN(content_length) && content_length > max_bytes) {
-		return new Response('Upload is too large.', {
+		return new Response('Upload is too large. Please choose a smaller edited file and try again.', {
 			status: 413
 		});
 	}
