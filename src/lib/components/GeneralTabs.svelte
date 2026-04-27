@@ -27,10 +27,12 @@
 	const active_path = $derived(page.url.pathname);
 	const home_href = resolve('/home');
 	const search_href = resolve('/search');
+	const about_href = resolve('/about');
 	const sign_out_action = `${resolve('/sign-out')}?/signOut`;
 	const ison_home = $derived(active_path === home_href);
 	const ison_search = $derived(active_path === search_href);
 	const ison_profile = $derived(active_path === profile_path);
+	const ison_about = $derived(active_path === about_href);
 	const glow_base =
 		"before:content-[''] before:absolute before:inset-0 before:rounded-full before:bg-[radial-gradient(circle,rgba(210,150,255,0.95)_0%,rgba(146,95,255,0.55)_65%,rgba(146,95,255,0.2)_100%)] before:shadow-[0_0_24px_rgba(180,120,255,0.7)] before:transition-all before:duration-300 before:ease-out";
 	const glow_off = 'before:opacity-0 before:scale-90';
@@ -68,6 +70,7 @@
 			? 'block h-6 w-6 rotate-180 object-contain'
 			: 'block h-6 w-6 object-contain'
 	);
+	let is_mobile_settings_open = $state(false);
 
 	function persist_current_home_scroll_position() {
 		if (!ison_home) {
@@ -198,10 +201,12 @@
 	};
 
 	const handle_navigation_away_from_home: MouseEventHandler<HTMLAnchorElement> = () => {
+		is_mobile_settings_open = false;
 		persist_current_home_scroll_position();
 	};
 
 	const handle_sign_out_submit: SubmitFunction = () => {
+		is_mobile_settings_open = false;
 		is_signing_out = true;
 
 		return async ({ update }) => {
@@ -253,13 +258,45 @@
 			alt="dark/light mode switch icon"
 			class="h-8 transition-opacity hover:opacity-80 max-[480px]:h-6"
 		/>
-		<img
-			src="/images/sidebar-and-search/more-setting.avif"
-			alt="More Settings"
-			class="h-8 transition-opacity hover:opacity-80 max-[480px]:h-6"
-		/>
 		-->
 		<!-- eslint-enable -->
+		<div class="relative">
+			<button
+				type="button"
+				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80"
+				aria-label="More settings"
+				aria-expanded={is_mobile_settings_open}
+				onclick={() => {
+					is_mobile_settings_open = !is_mobile_settings_open;
+				}}
+			>
+				<img
+					src="/images/sidebar-and-search/more-setting.avif"
+					alt="More Settings"
+					class="h-8 max-[480px]:h-6"
+				/>
+			</button>
+
+			{#if is_mobile_settings_open}
+				<div
+					class="absolute top-11 right-0 z-150 min-w-36 rounded-2xl border border-white/10 bg-[#120D2A]/95 p-2 shadow-[0_18px_45px_rgba(0,0,0,0.42),inset_1px_-1px_24px_rgba(205,130,255,0.18)] backdrop-blur-md"
+				>
+					<a
+						href={about_href}
+						onclick={handle_navigation_away_from_home}
+						data-sveltekit-preload-data="hover"
+						class={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/8 ${ison_about ? 'bg-white/10 text-[#7DD4FF]' : ''}`}
+					>
+						<img
+							src="/images/sidebar-and-search/about-this-account-icon.avif"
+							alt="About icon"
+							class="h-6 w-6 object-contain"
+						/>
+						<span>About</span>
+					</a>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -517,9 +554,11 @@
 		-->
 		<!-- eslint-enable -->
 
-		<button
-			type="button"
-			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+		<a
+			href={about_href}
+			onclick={handle_navigation_away_from_home}
+			data-sveltekit-preload-data="hover"
+			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_about ? active_link : ''}`}
 		>
 			<span class={desktop_item_content_class}>
 				<span class={desktop_icon_slot_class}>
@@ -534,7 +573,7 @@
 					>About</span
 				>
 			</span>
-		</button>
+		</a>
 
 		<form method="post" action={sign_out_action} use:enhance={handle_sign_out_submit}>
 			<button
