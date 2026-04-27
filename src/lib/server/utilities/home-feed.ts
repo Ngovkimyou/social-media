@@ -2,6 +2,7 @@ import { HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 import { get_db } from '$lib/server/db';
 import {
 	comments,
+	hidden_posts,
 	likes,
 	media,
 	post_media,
@@ -11,6 +12,7 @@ import {
 	user
 } from '$lib/server/db/schema';
 import { ensure_profile_for_user } from '$lib/server/utilities/profile';
+import { initialize_hidden_posts_table } from '$lib/server/utilities/posts';
 import type { PostFeedPost } from '$lib/types/post-feed';
 import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 import { and, asc, count, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
@@ -132,6 +134,7 @@ export async function get_home_feed_page(
 	cursor?: string,
 	viewer_user_id?: string
 ): Promise<HomeFeedPage> {
+	await initialize_hidden_posts_table();
 	const db = get_db();
 	const normalized_limit = Math.max(1, Math.min(limit, 30));
 	const decoded_cursor = decode_home_feed_cursor(cursor);
@@ -149,9 +152,17 @@ export async function get_home_feed_page(
 		.from(posts)
 		.innerJoin(user, eq(posts.author_id, user.id))
 		.leftJoin(profiles, eq(profiles.user_id, user.id))
+		.leftJoin(
+			hidden_posts,
+			and(
+				eq(hidden_posts.post_id, posts.id),
+				eq(hidden_posts.user_id, viewer_user_id ?? '__anonymous__')
+			)
+		)
 		.where(
 			and(
 				isNull(posts.deleted_at),
+				isNull(hidden_posts.post_id),
 				decoded_cursor
 					? or(
 							lt(posts.created_at, new Date(decoded_cursor.created_at)),
@@ -253,6 +264,7 @@ export async function get_home_feed_page(
 
 		return {
 			id: row.id,
+			author_id: row.author_id,
 			content: row.content,
 			created_at: row.created_at,
 			like_count: interaction_data.like_count_by_post.get(row.id) ?? 0,

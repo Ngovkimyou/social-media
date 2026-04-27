@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { MouseEventHandler } from 'svelte/elements';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -16,6 +17,7 @@
 		type HomeFeedState
 	} from '$lib/state/home-feed-state';
 	const { profile_username = '' }: { profile_username: string } = $props();
+	let is_signing_out = $state(false);
 	const profile_path: Pathname = $derived(
 		profile_username.length > 0
 			? (`/profile/${encodeURIComponent(profile_username)}` as `/profile/${string}`)
@@ -198,6 +200,18 @@
 	const handle_navigation_away_from_home: MouseEventHandler<HTMLAnchorElement> = () => {
 		persist_current_home_scroll_position();
 	};
+
+	const handle_sign_out_submit: SubmitFunction = () => {
+		is_signing_out = true;
+
+		return async ({ update }) => {
+			try {
+				await update();
+			} finally {
+				is_signing_out = false;
+			}
+		};
+	};
 </script>
 
 <!-- Top Tab (scrolls naturally) -->
@@ -214,17 +228,22 @@
 		/>
 	</a>
 	<div class="flex items-center gap-6">
-		<form method="post" action={sign_out_action} use:enhance>
+		<form method="post" action={sign_out_action} use:enhance={handle_sign_out_submit}>
 			<button
 				type="submit"
-				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80"
+				disabled={is_signing_out}
+				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-60"
 				aria-label="Sign out"
 			>
-				<img
-					src="/images/sidebar-and-search/logout-icon.avif"
-					alt="Sign out"
-					class="h-8 max-[480px]:h-6"
-				/>
+				{#if is_signing_out}
+					<span class="logout-spinner mobile-logout-spinner" aria-hidden="true"></span>
+				{:else}
+					<img
+						src="/images/sidebar-and-search/logout-icon.avif"
+						alt="Sign out"
+						class="h-8 max-[480px]:h-6"
+					/>
+				{/if}
 			</button>
 		</form>
 		<!-- eslint-disable -->
@@ -517,22 +536,27 @@
 			</span>
 		</button>
 
-		<form method="post" action={sign_out_action} use:enhance>
+		<form method="post" action={sign_out_action} use:enhance={handle_sign_out_submit}>
 			<button
 				type="submit"
-				class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class}`}
+				disabled={is_signing_out}
+				class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} disabled:cursor-wait disabled:opacity-60`}
 			>
 				<span class={desktop_item_content_class}>
 					<span class={desktop_icon_slot_class}>
-						<img
-							src="/images/sidebar-and-search/logout-icon.avif"
-							alt="Sign out icon"
-							class="block h-6 w-6 object-contain"
-						/>
+						{#if is_signing_out}
+							<span class="logout-spinner" aria-hidden="true"></span>
+						{:else}
+							<img
+								src="/images/sidebar-and-search/logout-icon.avif"
+								alt="Sign out icon"
+								class="block h-6 w-6 object-contain"
+							/>
+						{/if}
 					</span>
 					<span
 						class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-						>Logout</span
+						>{is_signing_out ? 'Logging out...' : 'Logout'}</span
 					>
 				</span>
 			</button>
@@ -560,6 +584,13 @@
 	<!-- eslint-enable -->
 </aside>
 
+{#if is_signing_out}
+	<div class="logout-blocking-overlay" role="status" aria-live="polite">
+		<span class="logout-overlay-spinner" aria-hidden="true"></span>
+		<span>Logging out...</span>
+	</div>
+{/if}
+
 <style>
 	.desktop-item-content {
 		display: grid;
@@ -574,5 +605,61 @@
 	.desktop-item-content-collapsed {
 		grid-template-columns: 1.5rem 0fr;
 		column-gap: 0;
+	}
+
+	.logout-spinner,
+	.logout-overlay-spinner {
+		display: inline-block;
+		border-radius: 9999px;
+		border: 2px solid rgba(255, 255, 255, 0.42);
+		border-top-color: #7dd4ff;
+		animation: logout-spin 800ms linear infinite;
+	}
+
+	.logout-spinner {
+		width: 1.35rem;
+		height: 1.35rem;
+	}
+
+	.mobile-logout-spinner {
+		width: 1.55rem;
+		height: 1.55rem;
+	}
+
+	.logout-overlay-spinner {
+		width: 1.45rem;
+		height: 1.45rem;
+		border-top-color: white;
+	}
+
+	.logout-blocking-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: rgba(9, 5, 28, 0.56);
+		backdrop-filter: blur(5px);
+		-webkit-backdrop-filter: blur(5px);
+		color: white;
+		font-weight: 800;
+		letter-spacing: 0;
+		pointer-events: all;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.logout-spinner,
+		.logout-overlay-spinner {
+			animation: none;
+		}
+	}
+
+	@keyframes logout-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 </style>

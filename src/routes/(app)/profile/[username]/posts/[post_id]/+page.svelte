@@ -15,4 +15,5 @@
 	title={data.profile.name ?? data.profile.username}
 	{back_path}
 	{get_post_path}
+	current_user_id={data.current_user_id}
 />

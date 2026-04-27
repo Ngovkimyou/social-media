@@ -189,6 +189,12 @@ export const post_shares = pgTable('post_share', post_user_action_columns(), (ta
 	index('post_share_user_id_idx').on(table.user_id)
 ]);
 
+export const hidden_posts = pgTable('hidden_post', post_user_action_columns(), (table) => [
+	primaryKey({ columns: [table.post_id, table.user_id] }),
+	index('hidden_post_post_id_idx').on(table.post_id),
+	index('hidden_post_user_id_idx').on(table.user_id)
+]);
+
 export const profiles = pgTable(
 	'profile',
 	{

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import {
 		get_email_validation_message,
 		get_name_validation_message,
@@ -13,6 +14,7 @@
 	let is_password_visible = $state(false);
 	let sign_up_password = $state('');
 	let sign_up_name = $state('');
+	let is_submitting = $state(false);
 
 	type PasswordStrengthTone = 'weak' | 'fair' | 'good' | 'strong' | 'elite';
 
@@ -105,131 +107,162 @@
 			get_sign_up_password_match_message(input.value, name_value);
 		input.setCustomValidity(password_message);
 	};
+
+	const handle_submit: SubmitFunction = () => {
+		is_submitting = true;
+
+		return async ({ update }) => {
+			try {
+				await update();
+			} finally {
+				is_submitting = false;
+			}
+		};
+	};
 </script>
 
 <svelte:head>
 	<link rel="preload" as="image" href="/assets/Pixel Art.gif" media="(min-width: 900px)" />
 </svelte:head>
 
-<div class="body">
+<div class="body" aria-busy={is_submitting}>
 	<div class="login-container">
 		<div class="form-container">
 			<h1 class="login-title">Sign Up</h1>
-			<form method="post" action="?/signUpEmail" use:enhance>
-				<div class="input-group">
-					<label class="login-label">
-						Name
-						<input
-							type="text"
-							name="name"
-							minlength="3"
-							maxlength="15"
-							required
-							aria-describedby="name-requirements"
-							bind:value={sign_up_name}
-							oninput={apply_name_validation}
-							oninvalid={apply_name_validation}
-							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-							placeholder="Choose your display name"
-						/>
-						<span id="name-requirements" class="sr-only">
-							Name must be 3 to 15 characters, can include letters and numbers, may have at most one
-							space and one underscore, and must include at least one letter.
-						</span>
-					</label>
-				</div>
-				<div class="input-group">
-					<label class="login-label">
-						Email
-						<input
-							type="email"
-							name="email"
-							required
-							maxlength="254"
-							oninput={apply_email_validation}
-							oninvalid={apply_email_validation}
-							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-							placeholder="Enter your email address"
-						/>
-					</label>
-				</div>
-				<div class="input-group">
-					<label class="login-label">
-						Password
-						<div class="password-input-wrapper">
+			<form method="post" action="?/signUpEmail" use:enhance={handle_submit}>
+				<fieldset disabled={is_submitting} class="login-fieldset">
+					<div class="input-group">
+						<label class="login-label">
+							Name
 							<input
-								type={is_password_visible ? 'text' : 'password'}
-								name="password"
-								minlength="8"
-								maxlength="128"
+								type="text"
+								name="name"
+								minlength="3"
+								maxlength="15"
 								required
-								pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).*"
-								title="Password must be 8 to 128 characters and include uppercase, lowercase, and a number."
-								aria-describedby="password-requirements"
-								bind:value={sign_up_password}
-								oninput={apply_sign_up_password_validation}
-								oninvalid={apply_sign_up_password_validation}
-								class="login-input auth-password-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-								placeholder="Enter your password"
+								aria-describedby="name-requirements"
+								bind:value={sign_up_name}
+								oninput={apply_name_validation}
+								oninvalid={apply_name_validation}
+								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+								placeholder="Choose your display name"
 							/>
-							<button
-								type="button"
-								class="password-toggle"
-								aria-label={is_password_visible ? 'Hide password' : 'Show password'}
-								aria-pressed={is_password_visible}
-								onclick={() => {
-									is_password_visible = !is_password_visible;
-								}}
-							>
-								<img
-									src={is_password_visible
-										? '/images/login-screen/show-password.avif'
-										: '/images/login-screen/hide-password.avif'}
-									alt=""
-									class="password-toggle-icon"
+							<span id="name-requirements" class="sr-only">
+								Name must be 3 to 15 characters, can include letters and numbers, may have at most
+								one space and one underscore, and must include at least one letter.
+							</span>
+						</label>
+					</div>
+					<div class="input-group">
+						<label class="login-label">
+							Email
+							<input
+								type="email"
+								name="email"
+								required
+								maxlength="254"
+								oninput={apply_email_validation}
+								oninvalid={apply_email_validation}
+								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+								placeholder="Enter your email address"
+							/>
+						</label>
+					</div>
+					<div class="input-group">
+						<label class="login-label">
+							Password
+							<div class="password-input-wrapper">
+								<input
+									type={is_password_visible ? 'text' : 'password'}
+									name="password"
+									minlength="8"
+									maxlength="128"
+									required
+									pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).*"
+									title="Password must be 8 to 128 characters and include uppercase, lowercase, and a number."
+									aria-describedby="password-requirements"
+									bind:value={sign_up_password}
+									oninput={apply_sign_up_password_validation}
+									oninvalid={apply_sign_up_password_validation}
+									class="login-input auth-password-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+									placeholder="Enter your password"
 								/>
-							</button>
-						</div>
-						<span id="password-requirements" class="sr-only">
-							Password must be 8 to 128 characters and include uppercase, lowercase, and a number.
-						</span>
-					</label>
-					<div class="password-strength-panel" aria-live="polite">
-						<div class="password-strength-header">
-							<div>
-								<p class="password-strength-kicker">Password strength</p>
-								<p class="password-strength-label">{password_strength.label}</p>
-							</div>
-							<span class="password-strength-score">{password_strength.score + 1}/5</span>
-						</div>
-						<div class="password-strength-bar" aria-hidden="true">
-							<div
-								class={`password-strength-bar-fill bg-linear-to-r ${password_strength_fill_class}`}
-								style={`width: ${((password_strength.score + 1) / 5) * 100}%`}
-							></div>
-						</div>
-						<p class="password-strength-hint">{password_strength_hint}</p>
-						<div class="password-strength-checks">
-							{#each password_strength.checks as check (check.label)}
-								<div
-									class={`password-strength-check ${check.is_met ? 'password-strength-check-done' : ''}`}
+								<button
+									type="button"
+									class="password-toggle"
+									aria-label={is_password_visible ? 'Hide password' : 'Show password'}
+									aria-pressed={is_password_visible}
+									onclick={() => {
+										is_password_visible = !is_password_visible;
+									}}
 								>
-									<span class="password-strength-check-icon" aria-hidden="true">
-										{check.is_met ? '✓' : '•'}
-									</span>
-									<span>{check.label}</span>
+									<img
+										src={is_password_visible
+											? '/images/login-screen/show-password.avif'
+											: '/images/login-screen/hide-password.avif'}
+										alt=""
+										class="password-toggle-icon"
+									/>
+								</button>
+							</div>
+							<span id="password-requirements" class="sr-only">
+								Password must be 8 to 128 characters and include uppercase, lowercase, and a number.
+							</span>
+						</label>
+						<div class="password-strength-panel" aria-live="polite">
+							<div class="password-strength-header">
+								<div>
+									<p class="password-strength-kicker">Password strength</p>
+									<p class="password-strength-label">{password_strength.label}</p>
 								</div>
-							{/each}
+								<span class="password-strength-score">{password_strength.score + 1}/5</span>
+							</div>
+							<div class="password-strength-bar" aria-hidden="true">
+								<div
+									class={`password-strength-bar-fill bg-linear-to-r ${password_strength_fill_class}`}
+									style={`width: ${((password_strength.score + 1) / 5) * 100}%`}
+								></div>
+							</div>
+							<p class="password-strength-hint">{password_strength_hint}</p>
+							<div class="password-strength-checks">
+								{#each password_strength.checks as check (check.label)}
+									<div
+										class={`password-strength-check ${check.is_met ? 'password-strength-check-done' : ''}`}
+									>
+										<span class="password-strength-check-icon" aria-hidden="true">
+											{check.is_met ? '✓' : '•'}
+										</span>
+										<span>{check.label}</span>
+									</div>
+								{/each}
+							</div>
 						</div>
 					</div>
-				</div>
-				<div class="login-actions">
-					<a href={resolve('/login')} class="login-button login-secondary-link">Back to Login</a>
-					<button formaction="?/signUpEmail" class="login-button">Register</button>
-				</div>
+					<div class="login-actions">
+						<a
+							href={resolve('/login')}
+							class="login-button login-secondary-link"
+							aria-disabled={is_submitting}
+							tabindex={is_submitting ? -1 : undefined}
+							onclick={(event) => {
+								if (is_submitting) {
+									event.preventDefault();
+								}
+							}}>Back to Login</a
+						>
+						<button formaction="?/signUpEmail" class="login-button">
+							{#if is_submitting}
+								<span class="login-spinner" aria-hidden="true"></span>
+								Creating...
+							{:else}
+								Register
+							{/if}
+						</button>
+					</div>
+				</fieldset>
 			</form>
 			<p class="login-message" aria-live="polite">
-				{form?.message ?? ''}
+				{is_submitting ? '' : (form?.message ?? '')}
 			</p>
 		</div>
 		<img
@@ -241,6 +274,12 @@
 			fetchpriority="high"
 		/>
 	</div>
+	{#if is_submitting}
+		<div class="auth-blocking-overlay" role="status" aria-live="polite">
+			<span class="auth-overlay-spinner" aria-hidden="true"></span>
+			<span>Creating your account...</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -323,6 +362,13 @@
 		margin-top: 1rem;
 	}
 
+	.login-fieldset {
+		min-width: 0;
+		border: 0;
+		padding: 0;
+		margin: 0;
+	}
+
 	.login-input {
 		box-sizing: border-box;
 		display: block;
@@ -372,6 +418,11 @@
 	}
 
 	.login-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		min-height: 2.875rem;
 		background: linear-gradient(90deg, #cd82ff 0%, #7dd4ff 100%);
 		color: white;
 		padding: 0.7rem 1rem;
@@ -387,16 +438,67 @@
 		will-change: transform, box-shadow, filter;
 	}
 
-	.login-button:hover {
+	.login-button:hover:not(:disabled):not([aria-disabled='true']) {
 		transform: translateY(-1px);
 		box-shadow: 0 12px 22px rgba(43, 45, 87, 0.24);
 		filter: brightness(1.03);
 	}
 
-	.login-button:active {
+	.login-button:active:not(:disabled):not([aria-disabled='true']) {
 		transform: translateY(1px) scale(0.985);
 		box-shadow: 0 5px 12px rgba(43, 45, 87, 0.18);
 		filter: brightness(0.96);
+	}
+
+	.login-button:disabled,
+	.login-button[aria-disabled='true'] {
+		cursor: wait;
+		opacity: 0.72;
+		transform: none;
+		filter: saturate(0.82);
+	}
+
+	.login-input:disabled,
+	.password-toggle:disabled {
+		cursor: wait;
+		opacity: 0.68;
+	}
+
+	.login-spinner,
+	.auth-overlay-spinner {
+		display: inline-block;
+		border-radius: 9999px;
+		border: 2px solid rgba(255, 255, 255, 0.45);
+		border-top-color: white;
+		animation: auth-spin 800ms linear infinite;
+	}
+
+	.login-spinner {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.auth-overlay-spinner {
+		width: 1.4rem;
+		height: 1.4rem;
+	}
+
+	.auth-blocking-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: rgba(9, 5, 28, 0.42);
+		backdrop-filter: blur(5px);
+		-webkit-backdrop-filter: blur(5px);
+		color: white;
+		font-weight: 800;
+		letter-spacing: 0;
+		pointer-events: all;
 	}
 
 	.login-button:focus-visible {
@@ -604,9 +706,18 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.login-button {
+		.login-button,
+		.login-spinner,
+		.auth-overlay-spinner {
 			transition: none;
+			animation: none;
 			will-change: auto;
+		}
+	}
+
+	@keyframes auth-spin {
+		to {
+			transform: rotate(360deg);
 		}
 	}
 </style>

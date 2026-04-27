@@ -1,5 +1,6 @@
 export type PostFeedPost = {
 	id: string;
+	author_id: string;
 	content: string;
 	created_at: Date;
 	like_count: number;
