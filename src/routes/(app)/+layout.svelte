@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
+	import { base, resolve } from '$app/paths';
 	import { preloadCode, preloadData } from '$app/navigation';
-	import { navigating } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import { onMount } from 'svelte';
 	import GeneralTabs from '$lib/components/GeneralTabs.svelte';
 	import { desktop_sidebar_width } from '$lib/state/desktop-sidebar-state';
@@ -10,6 +10,8 @@
 	const home_href = $derived(resolve('/home'));
 	const search_href = $derived(resolve('/search'));
 	const about_href = $derived(resolve('/about'));
+	const about_background_video_src = `${base}/video/About-Background.webm`;
+	const about_background_music_src = `${base}/music/about-screen-bg-music.mp3`;
 	const profile_prefix = $derived(resolve('/profile'));
 	const profile_href = $derived(
 		resolve(
@@ -42,6 +44,65 @@
 	const profile_skeleton_tiles = Array.from({ length: 12 }, (_, index) => index);
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let isNetworkOnline = $state(true);
+	let about_background_music_element = $state<HTMLAudioElement>();
+	let should_retry_about_background_music = $state(false);
+
+	function play_about_background_music() {
+		if (!about_background_music_element) {
+			return;
+		}
+
+		about_background_music_element.volume = 0.35;
+		should_retry_about_background_music = false;
+
+		if (!about_background_music_element.paused) {
+			return;
+		}
+
+		void about_background_music_element.play().catch(() => {
+			should_retry_about_background_music = true;
+		});
+	}
+
+	function pause_about_background_music() {
+		if (!about_background_music_element) {
+			return;
+		}
+
+		about_background_music_element.pause();
+		about_background_music_element.currentTime = 0;
+		should_retry_about_background_music = false;
+	}
+
+	function should_start_about_background_music_from_event(event: Event) {
+		if (typeof window === 'undefined') {
+			return false;
+		}
+
+		const target = event.target;
+
+		if (!(target instanceof Element)) {
+			return false;
+		}
+
+		const about_link = target.closest<HTMLAnchorElement>('a[href]');
+
+		if (!about_link) {
+			return page.url.pathname === about_href && should_retry_about_background_music;
+		}
+
+		return new URL(about_link.href, window.location.href).pathname === about_href;
+	}
+
+	function handle_about_background_music_activation(event: Event) {
+		if (should_start_about_background_music_from_event(event)) {
+			play_about_background_music();
+		}
+	}
+
+	function cleanup_about_background_music() {
+		pause_about_background_music();
+	}
 
 	onMount(() => {
 		isNetworkOnline = navigator.onLine;
@@ -56,6 +117,13 @@
 
 		window.addEventListener('online', handle_online);
 		window.addEventListener('offline', handle_offline);
+		document.addEventListener('pointerdown', handle_about_background_music_activation, {
+			capture: true
+		});
+		document.addEventListener('click', handle_about_background_music_activation, { capture: true });
+		document.addEventListener('keydown', handle_about_background_music_activation, {
+			capture: true
+		});
 
 		void preloadCode(home_href);
 		void preloadData(home_href);
@@ -66,10 +134,51 @@
 		void preloadData(search_href);
 		void preloadData(about_href);
 
+		const about_background_video_preloader = document.createElement('video');
+		about_background_video_preloader.src = about_background_video_src;
+		about_background_video_preloader.preload = 'auto';
+		about_background_video_preloader.muted = true;
+		about_background_video_preloader.playsInline = true;
+		about_background_video_preloader.setAttribute('playsinline', '');
+		about_background_video_preloader.setAttribute('aria-hidden', 'true');
+		about_background_video_preloader.tabIndex = -1;
+		Object.assign(about_background_video_preloader.style, {
+			position: 'fixed',
+			width: '1px',
+			height: '1px',
+			opacity: '0',
+			pointerEvents: 'none',
+			inset: '0',
+			zIndex: '-1'
+		});
+		document.body.append(about_background_video_preloader);
+		about_background_video_preloader.load();
+
 		return () => {
 			window.removeEventListener('online', handle_online);
 			window.removeEventListener('offline', handle_offline);
+			document.removeEventListener('pointerdown', handle_about_background_music_activation, {
+				capture: true
+			});
+			document.removeEventListener('click', handle_about_background_music_activation, {
+				capture: true
+			});
+			document.removeEventListener('keydown', handle_about_background_music_activation, {
+				capture: true
+			});
+			about_background_video_preloader.remove();
 		};
+	});
+
+	$effect(() => {
+		if (page.url.pathname !== about_href) {
+			pause_about_background_music();
+			return;
+		}
+
+		play_about_background_music();
+
+		return cleanup_about_background_music;
 	});
 
 	$effect(() => {
@@ -98,7 +207,22 @@
 	});
 </script>
 
+<svelte:head>
+	<link rel="preload" as="video" type="video/webm" href={about_background_video_src} />
+	<link rel="preload" as="audio" type="audio/mpeg" href={about_background_music_src} />
+</svelte:head>
+
 <div class="app_shell" style={`--desktop-sidebar-width: ${$desktop_sidebar_width};`}>
+	<audio
+		bind:this={about_background_music_element}
+		src={about_background_music_src}
+		preload="auto"
+		loop
+		aria-hidden="true"
+		tabindex="-1"
+		class="sr-only"
+	></audio>
+
 	<GeneralTabs profile_username={data['profile_username']} />
 
 	<main class="app_main md:min-h-screen">

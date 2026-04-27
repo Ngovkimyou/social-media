@@ -2542,7 +2542,7 @@
 									class="relative grid h-9 w-9 place-items-center rounded-full bg-black/45 shadow-[0_8px_24px_rgba(0,0,0,0.3)] md:h-11 md:w-11"
 								>
 									<span
-										class="ml-0.5 h-0 w-0 border-y-[7px] border-l-[11px] border-y-transparent border-l-white md:border-y-[8px] md:border-l-[13px]"
+										class="ml-0.5 h-0 w-0 border-y-[7px] border-l-11 border-y-transparent border-l-white md:border-y-8 md:border-l-13"
 									></span>
 								</span>
 							</span>
