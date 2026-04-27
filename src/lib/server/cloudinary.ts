@@ -43,6 +43,7 @@ export type UploadVideoOptions = {
 	endOffset?: number;
 	folder: string;
 	publicId?: string;
+	shouldTransform?: boolean;
 	startOffset?: number;
 };
 
@@ -71,6 +72,41 @@ export type SignedVideoUpload = {
 	signature: string;
 	uploadUrl: string;
 };
+
+const VIDEO_UPLOAD_FORMAT_OPTIONS = {
+	format: 'mp4'
+} as const;
+
+const COMPRESSED_VIDEO_TRANSFORMATION_OPTIONS = ['q_auto:good', 'vc_h264', 'ac_aac'] as const;
+
+function format_cloudinary_time_value(value: number): string {
+	const bounded_value = Math.max(0, value);
+
+	if (Number.isInteger(bounded_value)) {
+		return String(bounded_value);
+	}
+
+	return bounded_value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function build_video_upload_transformation(options: {
+	endOffset?: number;
+	startOffset?: number;
+}): string {
+	const transformation: string[] = [...COMPRESSED_VIDEO_TRANSFORMATION_OPTIONS];
+
+	if (typeof options.startOffset === 'number') {
+		transformation.unshift(`so_${format_cloudinary_time_value(options.startOffset)}`);
+	}
+
+	if (typeof options.endOffset === 'number') {
+		const end_offset = `eo_${format_cloudinary_time_value(options.endOffset)}`;
+		const insert_index = typeof options.startOffset === 'number' ? 1 : 0;
+		transformation.splice(insert_index, 0, end_offset);
+	}
+
+	return transformation.join(',');
+}
 
 function as_error(error: unknown): Error {
 	if (error instanceof Error) {
@@ -159,10 +195,10 @@ export async function upload_video_from_file(
 		file,
 		options: {
 			allowed_formats: options.allowedFormats ?? [...ALLOWED_VIDEO_FORMATS],
+			...VIDEO_UPLOAD_FORMAT_OPTIONS,
 			folder: options.folder,
 			...(options.publicId ? { public_id: options.publicId } : {}),
-			...('startOffset' in options ? { start_offset: options.startOffset } : {}),
-			...('endOffset' in options ? { end_offset: options.endOffset } : {})
+			transformation: build_video_upload_transformation(options)
 		},
 		resource_type: 'video'
 	});
@@ -171,6 +207,7 @@ export async function upload_video_from_file(
 export function create_signed_video_upload(params: {
 	endOffset: number;
 	folder: string;
+	shouldTransform?: boolean;
 	startOffset: number;
 }): SignedVideoUpload {
 	ensure_cloudinary_configured();
@@ -183,22 +220,23 @@ export function create_signed_video_upload(params: {
 		throw new Error('Missing Cloudinary upload configuration');
 	}
 
-	const public_id = randomUUID();
+	const public_id = `${params.folder}/${randomUUID()}`;
 	const timestamp = Math.floor(Date.now() / 1000);
 	const upload_params = {
 		allowed_formats: [...ALLOWED_VIDEO_FORMATS],
-		end_offset: params.endOffset,
-		folder: params.folder,
+		...(params.shouldTransform === false ? {} : VIDEO_UPLOAD_FORMAT_OPTIONS),
 		public_id,
-		start_offset: params.startOffset,
-		timestamp
+		timestamp,
+		...(params.shouldTransform === false
+			? {}
+			: { transformation: build_video_upload_transformation(params) })
 	};
 
 	return {
 		apiKey: api_key,
 		cloudName: cloud_name,
 		params: upload_params,
-		publicId: `${params.folder}/${public_id}`,
+		publicId: public_id,
 		signature: cloudinary.utils.api_sign_request(upload_params, api_secret),
 		uploadUrl: `https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`
 	};

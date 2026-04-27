@@ -1526,6 +1526,10 @@
 		);
 	}
 
+	function get_post_video_src(post: PostFeedPost): string {
+		return post.media_display_url ?? post.media_url ?? '';
+	}
+
 	function initialize_post_action_state(post: PostFeedPost) {
 		const key = String(post.id);
 
@@ -2152,12 +2156,16 @@
 										type="button"
 										class="absolute inset-0 z-15 block h-full w-full cursor-zoom-in overflow-hidden"
 										onclick={() => {
-											open_video_preview(post.media_url ?? '', `${post.author_name}'s post video`);
+											open_video_preview(
+												get_post_video_src(post),
+												`${post.author_name}'s post video`
+											);
 										}}
 										aria-label={`Preview ${post.author_name}'s post video`}
 									>
 										<video
-											src={post.media_url}
+											src={get_post_video_src(post)}
+											poster={post.media_poster_url}
 											class="block h-full w-full object-contain md:object-cover"
 											autoplay
 											loop
@@ -2456,12 +2464,16 @@
 										type="button"
 										class="block h-full w-full cursor-zoom-in overflow-hidden"
 										onclick={() => {
-											open_video_preview(post.media_url ?? '', `${post.author_name}'s post video`);
+											open_video_preview(
+												get_post_video_src(post),
+												`${post.author_name}'s post video`
+											);
 										}}
 										aria-label={`Preview ${post.author_name}'s post video`}
 									>
 										<video
-											src={post.media_url}
+											src={get_post_video_src(post)}
+											poster={post.media_poster_url}
 											class="block h-full w-full object-cover"
 											autoplay
 											loop

@@ -12,6 +12,7 @@ export type PostFeedPost = {
 	author_avatar: string | null;
 	media_display_srcset: string | undefined;
 	media_display_url: string | undefined;
+	media_poster_url: string | undefined;
 	media_url: string | null | undefined;
 	media_type: 'image' | 'video' | null | undefined;
 	comment_count: number;

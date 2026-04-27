@@ -4,6 +4,7 @@
 	import { navigating, page } from '$app/state';
 	import { onMount } from 'svelte';
 	import GeneralTabs from '$lib/components/GeneralTabs.svelte';
+	import BackgroundVideoPostStatus from '$lib/components/BackgroundVideoPostStatus.svelte';
 	import { desktop_sidebar_width } from '$lib/state/desktop-sidebar-state';
 	const { children, data } = $props();
 
@@ -47,6 +48,10 @@
 	let about_background_music_element = $state<HTMLAudioElement>();
 	let should_retry_about_background_music = $state(false);
 
+	function is_about_path(pathname: string) {
+		return pathname === about_href || pathname.endsWith('/about');
+	}
+
 	function play_about_background_music() {
 		if (!about_background_music_element) {
 			return;
@@ -54,6 +59,7 @@
 
 		about_background_music_element.volume = 0.35;
 		should_retry_about_background_music = false;
+		about_background_music_element.load();
 
 		if (!about_background_music_element.paused) {
 			return;
@@ -88,10 +94,10 @@
 		const about_link = target.closest<HTMLAnchorElement>('a[href]');
 
 		if (!about_link) {
-			return page.url.pathname === about_href && should_retry_about_background_music;
+			return is_about_path(page.url.pathname) && should_retry_about_background_music;
 		}
 
-		return new URL(about_link.href, window.location.href).pathname === about_href;
+		return is_about_path(new URL(about_link.href, window.location.href).pathname);
 	}
 
 	function handle_about_background_music_activation(event: Event) {
@@ -124,6 +130,7 @@
 		document.addEventListener('keydown', handle_about_background_music_activation, {
 			capture: true
 		});
+		document.addEventListener('about-background-music:play', play_about_background_music);
 
 		void preloadCode(home_href);
 		void preloadData(home_href);
@@ -166,12 +173,13 @@
 			document.removeEventListener('keydown', handle_about_background_music_activation, {
 				capture: true
 			});
+			document.removeEventListener('about-background-music:play', play_about_background_music);
 			about_background_video_preloader.remove();
 		};
 	});
 
 	$effect(() => {
-		if (page.url.pathname !== about_href) {
+		if (!is_about_path(page.url.pathname)) {
 			pause_about_background_music();
 			return;
 		}
@@ -228,6 +236,8 @@
 	<main class="app_main md:min-h-screen">
 		{@render children()}
 	</main>
+
+	<BackgroundVideoPostStatus />
 
 	{#if hasnavigation_skeleton_visible}
 		<div

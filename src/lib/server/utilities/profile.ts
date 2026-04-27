@@ -21,6 +21,7 @@ import {
 import { initialize_hidden_posts_table } from '$lib/server/utilities/posts';
 import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
+import { build_responsive_video_source } from '$lib/utilities/responsive-video';
 
 const PROFILE_USERNAME_CACHE_TTL_MS = 10_000;
 const PROFILE_PAGE_CACHE_TTL_MS = 15_000;
@@ -249,7 +250,7 @@ type ProfilePageData = {
 	};
 	photo_posts: Array<{ id: string; image_url: string }>;
 	photo_urls: string[];
-	video_posts: Array<{ id: string; video_url: string }>;
+	video_posts: Array<{ id: string; poster_url: string | undefined; video_url: string }>;
 	shared_posts: PostFeedPost[];
 };
 
@@ -326,7 +327,10 @@ const load_profile_page_data = async (
 	const [post_count_row, followers_count_row, following_count_row] = counts;
 	const photo_posts = photo_rows.map((row) => ({ id: row.id, image_url: row.url }));
 	const photo_urls = photo_posts.map((row) => row.image_url);
-	const video_posts = video_rows.map((row) => ({ id: row.id, video_url: row.url }));
+	const video_posts = video_rows.map((row) => {
+		const video_source = build_responsive_video_source(row.url);
+		return { id: row.id, poster_url: video_source.poster, video_url: video_source.src };
+	});
 	const visible_email: string | null = profile.email_visible
 		? profile.email
 		: // eslint-disable-next-line unicorn/no-null
@@ -469,24 +473,32 @@ const get_shared_posts_by_user_id = async (
 		comment_count_by_post.set(row.post_id, row.comment_count);
 	}
 
-	return unique_posts.map((row) => ({
-		id: row.id,
-		author_id: row.author_id,
-		content: row.content,
-		created_at: row.created_at,
-		like_count: like_count_by_post.get(row.id) ?? 0,
-		has_liked: liked_post_ids.has(row.id),
-		share_count: share_count_by_post.get(row.id) ?? 0,
-		has_shared: shared_post_ids.has(row.id),
-		author_name: row.author_name,
-		author_username: row.author_username ?? 'user',
-		author_avatar: row.author_avatar,
-		media_display_srcset: undefined,
-		media_display_url: undefined,
-		media_url: row.media_url,
-		media_type: row.media_type,
-		comment_count: comment_count_by_post.get(row.id) ?? 0
-	}));
+	return unique_posts.map((row) => {
+		const responsive_video =
+			row.media_type === 'video' && row.media_url
+				? build_responsive_video_source(row.media_url)
+				: undefined;
+
+		return {
+			id: row.id,
+			author_id: row.author_id,
+			content: row.content,
+			created_at: row.created_at,
+			like_count: like_count_by_post.get(row.id) ?? 0,
+			has_liked: liked_post_ids.has(row.id),
+			share_count: share_count_by_post.get(row.id) ?? 0,
+			has_shared: shared_post_ids.has(row.id),
+			author_name: row.author_name,
+			author_username: row.author_username ?? 'user',
+			author_avatar: row.author_avatar,
+			media_display_srcset: undefined,
+			media_display_url: responsive_video?.src,
+			media_poster_url: responsive_video?.poster,
+			media_url: row.media_url,
+			media_type: row.media_type,
+			comment_count: comment_count_by_post.get(row.id) ?? 0
+		};
+	});
 };
 
 export const get_profile_page_data = async (
@@ -622,24 +634,32 @@ export const get_profile_posts_by_username = async (
 		comment_count_by_post.set(row.post_id, row.comment_count);
 	}
 
-	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
-		id: row.id,
-		author_id: row.author_id,
-		content: row.content,
-		created_at: row.created_at,
-		like_count: like_count_by_post.get(row.id) ?? 0,
-		has_liked: liked_post_ids.has(row.id),
-		share_count: share_count_by_post.get(row.id) ?? 0,
-		has_shared: shared_post_ids.has(row.id),
-		author_name: profile.name ?? profile.username,
-		author_username: profile.username,
-		author_avatar: profile.image,
-		media_display_srcset: undefined,
-		media_display_url: undefined,
-		media_url: row.media_url,
-		media_type: row.media_type,
-		comment_count: comment_count_by_post.get(row.id) ?? 0
-	}));
+	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => {
+		const responsive_video =
+			row.media_type === 'video' && row.media_url
+				? build_responsive_video_source(row.media_url)
+				: undefined;
+
+		return {
+			id: row.id,
+			author_id: row.author_id,
+			content: row.content,
+			created_at: row.created_at,
+			like_count: like_count_by_post.get(row.id) ?? 0,
+			has_liked: liked_post_ids.has(row.id),
+			share_count: share_count_by_post.get(row.id) ?? 0,
+			has_shared: shared_post_ids.has(row.id),
+			author_name: profile.name ?? profile.username,
+			author_username: profile.username,
+			author_avatar: profile.image,
+			media_display_srcset: undefined,
+			media_display_url: responsive_video?.src,
+			media_poster_url: responsive_video?.poster,
+			media_url: row.media_url,
+			media_type: row.media_type,
+			comment_count: comment_count_by_post.get(row.id) ?? 0
+		};
+	});
 
 	if (!selected_post_id) {
 		return mapped_posts;

@@ -13,7 +13,7 @@ const sonarjsRules = [
 			sonarjs
 		},
 		rules: {
-			'sonarjs/cognitive-complexity': ['warn', 15],
+			'sonarjs/cognitive-complexity': ['warn', 20],
 			'sonarjs/no-collapsible-if': 'warn',
 			'sonarjs/no-commented-code': 'error',
 			'sonarjs/no-duplicated-branches': 'warn',

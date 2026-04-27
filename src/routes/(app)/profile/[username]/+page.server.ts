@@ -16,7 +16,8 @@ import {
 	delete_video_by_public_id,
 	get_uploaded_video_resource,
 	upload_image_from_file,
-	upload_video_from_file
+	upload_video_from_file,
+	type UploadedVideoResource
 } from '$lib/server/cloudinary';
 import { validate_uploaded_image } from '$lib/server/image-validation';
 import { validate_uploaded_video } from '$lib/server/video-validation';
@@ -80,9 +81,19 @@ const get_retry_message = (seconds: number, noun: string): string =>
 
 const MAX_POST_VIDEO_DURATION_SECONDS = 60;
 const SERVER_FUNCTION_UPLOAD_SAFE_BYTES = 4 * 1024 * 1024;
-const MAX_POST_VIDEO_OUTPUT_BYTES = SERVER_FUNCTION_UPLOAD_SAFE_BYTES;
+const MAX_POST_VIDEO_OUTPUT_BYTES = 80 * 1024 * 1024;
 const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
 const ALLOWED_DIRECT_VIDEO_FORMATS = new Set(['mp4', 'mov', 'webm']);
+const DIRECT_VIDEO_VERIFY_ATTEMPTS = 4;
+const DIRECT_VIDEO_VERIFY_RETRY_DELAY_MS = 350;
+
+const wait = (milliseconds: number): Promise<void> =>
+	new Promise((resolve) => {
+		setTimeout(resolve, milliseconds);
+	});
+
+const format_file_size = (bytes: number): string =>
+	`${Math.max(0.1, Math.round((bytes / (1024 * 1024)) * 10) / 10)}MB`;
 
 const get_missing_post_media_message = (caption: string, media_type: 'image' | 'video'): string => {
 	if (caption && media_type === 'video') {
@@ -436,7 +447,7 @@ const validate_post_media_selection = async (params: {
 	const estimated_trimmed_bytes =
 		(file.size * (trim_end_seconds - trim_start_seconds)) / video_duration_seconds;
 	if (estimated_trimmed_bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
-		return 'Trim more to get the estimated clip size down to 4MB or less before posting.';
+		return 'Trim more to get the estimated clip size down to 80MB or less before posting.';
 	}
 
 	return undefined;
@@ -475,6 +486,29 @@ const validate_post_video_trim_submission = (params: {
 	return undefined;
 };
 
+const should_retry_direct_video_verify = (attempt: number): boolean =>
+	attempt < DIRECT_VIDEO_VERIFY_ATTEMPTS;
+
+const get_uploaded_video_resource_with_retry = async (
+	public_id: string
+): Promise<UploadedVideoResource> => {
+	let last_error: unknown;
+
+	for (let attempt = 1; attempt <= DIRECT_VIDEO_VERIFY_ATTEMPTS; attempt += 1) {
+		try {
+			return await get_uploaded_video_resource(public_id);
+		} catch (error) {
+			last_error = error;
+		}
+
+		if (should_retry_direct_video_verify(attempt)) {
+			await wait(DIRECT_VIDEO_VERIFY_RETRY_DELAY_MS);
+		}
+	}
+
+	throw last_error;
+};
+
 const get_direct_video_upload = async (params: {
 	public_id: string;
 	secure_url: string;
@@ -499,15 +533,22 @@ const get_direct_video_upload = async (params: {
 	}
 
 	try {
-		const resource = await get_uploaded_video_resource(public_id);
+		const resource = await get_uploaded_video_resource_with_retry(public_id);
 
-		if (
-			resource.publicId !== public_id ||
-			resource.secureUrl !== secure_url ||
-			resource.bytes > MAX_POST_VIDEO_OUTPUT_BYTES ||
-			!ALLOWED_DIRECT_VIDEO_FORMATS.has(resource.format.toLowerCase())
-		) {
+		if (resource.publicId !== public_id) {
 			return { error_message: 'Video upload could not be verified. Please choose it again.' };
+		}
+
+		if (resource.bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
+			return {
+				error_message: `The compressed video is ${format_file_size(resource.bytes)}. Trim it to 80MB or smaller before posting.`
+			};
+		}
+
+		if (!ALLOWED_DIRECT_VIDEO_FORMATS.has(resource.format.toLowerCase())) {
+			return {
+				error_message: 'Video upload finished in an unsupported format. Please choose it again.'
+			};
 		}
 
 		return {

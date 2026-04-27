@@ -579,7 +579,10 @@
 	function open_inline_video_preview() {
 		inline_video_el?.pause();
 		sync_inline_video_time();
-		on_video_preview?.(post.media_url ?? '', `${post.author_name}'s post video`);
+		on_video_preview?.(
+			post.media_display_url ?? post.media_url ?? '',
+			`${post.author_name}'s post video`
+		);
 	}
 
 	function handle_inline_video_preview_click(event: MouseEvent) {
@@ -910,7 +913,8 @@
 				>
 					<video
 						bind:this={inline_video_el}
-						src={post.media_url}
+						src={post.media_display_url ?? post.media_url}
+						poster={post.media_poster_url}
 						class="comment-inline-video-media bg-black"
 						style={`filter:brightness(${inline_video_brightness}%);`}
 						autoplay
