@@ -79,10 +79,17 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		return json({ message: validation_message }, { status: 400 });
 	}
 
+	const trim_end_seconds = as_number(payload.trim_end_seconds);
+	const trim_start_seconds = as_number(payload.trim_start_seconds);
+
+	if (trim_end_seconds === undefined || trim_start_seconds === undefined) {
+		return json({ message: 'Choose a valid video trim range before posting.' }, { status: 400 });
+	}
+
 	const signed_upload = create_signed_video_upload({
-		endOffset: as_number(payload.trim_end_seconds)!,
+		endOffset: trim_end_seconds,
 		folder: `posts/${locals.user.id}`,
-		startOffset: as_number(payload.trim_start_seconds)!
+		startOffset: trim_start_seconds
 	});
 
 	return json(signed_upload);

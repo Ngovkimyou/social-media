@@ -224,7 +224,7 @@ export async function get_uploaded_video_resource(
 		typeof resource.public_id !== 'string' ||
 		typeof resource.secure_url !== 'string'
 	) {
-		throw new Error('Cloudinary video resource is incomplete');
+		throw new TypeError('Cloudinary video resource is incomplete');
 	}
 
 	return {
