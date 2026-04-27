@@ -5,6 +5,7 @@ import { get_db } from '$lib/server/db';
 import {
 	comments,
 	follows,
+	hidden_posts,
 	likes,
 	media,
 	post_media,
@@ -17,6 +18,7 @@ import {
 	invalidate_short_ttl_cache_key,
 	invalidate_short_ttl_cache_prefix
 } from '$lib/server/utilities/short-ttl-cache';
+import { initialize_hidden_posts_table } from '$lib/server/utilities/posts';
 import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 import type { PostFeedPost } from '$lib/types/post-feed';
 
@@ -356,11 +358,13 @@ const get_shared_posts_by_user_id = async (
 	shared_by_user_id: string,
 	viewer_user_id?: string
 ): Promise<PostFeedPost[]> => {
+	await initialize_hidden_posts_table();
 	const db = get_db();
 	const post_author_profiles = alias(profiles, 'post_author_profile');
 	const rows = await db
 		.select({
 			id: posts.id,
+			author_id: posts.author_id,
 			content: posts.content,
 			created_at: posts.created_at,
 			media_url: media.url,
@@ -376,7 +380,17 @@ const get_shared_posts_by_user_id = async (
 		.leftJoin(post_author_profiles, eq(post_author_profiles.user_id, auth_user.id))
 		.leftJoin(post_media, eq(posts.id, post_media.post_id))
 		.leftJoin(media, eq(post_media.media_id, media.id))
-		.where(and(eq(post_shares.user_id, shared_by_user_id), isNull(posts.deleted_at)))
+		.leftJoin(
+			hidden_posts,
+			and(eq(hidden_posts.post_id, posts.id), eq(hidden_posts.user_id, shared_by_user_id))
+		)
+		.where(
+			and(
+				eq(post_shares.user_id, shared_by_user_id),
+				isNull(posts.deleted_at),
+				isNull(hidden_posts.post_id)
+			)
+		)
 		.orderBy(desc(post_shares.created_at), desc(posts.created_at), post_media.sort_order)
 		.limit(120);
 
@@ -457,6 +471,7 @@ const get_shared_posts_by_user_id = async (
 
 	return unique_posts.map((row) => ({
 		id: row.id,
+		author_id: row.author_id,
 		content: row.content,
 		created_at: row.created_at,
 		like_count: like_count_by_post.get(row.id) ?? 0,
@@ -514,6 +529,7 @@ export const get_profile_posts_by_username = async (
 	const rows = await db
 		.select({
 			id: posts.id,
+			author_id: posts.author_id,
 			content: posts.content,
 			created_at: posts.created_at,
 			media_url: media.url,
@@ -608,6 +624,7 @@ export const get_profile_posts_by_username = async (
 
 	const mapped_posts: PostFeedPost[] = unique_posts.map((row) => ({
 		id: row.id,
+		author_id: row.author_id,
 		content: row.content,
 		created_at: row.created_at,
 		like_count: like_count_by_post.get(row.id) ?? 0,

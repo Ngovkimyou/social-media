@@ -29,6 +29,7 @@
 		is_loading_more?: boolean;
 		load_more_error?: string;
 		on_load_more?: (() => Promise<void> | void) | undefined;
+		current_user_id?: string;
 	};
 
 	const {
@@ -40,7 +41,8 @@
 		has_more = false,
 		is_loading_more = false,
 		load_more_error = '',
-		on_load_more
+		on_load_more,
+		current_user_id = ''
 	}: Props = $props();
 
 	const requested_view = $derived(page.url.searchParams.get('view') === 'grid' ? 'grid' : 'feed');
@@ -114,6 +116,7 @@
 	let scroll_measure_frame = $state<number | undefined>();
 	let scroll_persist_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let load_more_observer = $state<IntersectionObserver | undefined>();
+	let skip_next_scroll_restore = $state(false);
 	let liked_posts = $state<Record<string, boolean>>({});
 	let like_counts = $state<Record<string, number>>({});
 	let confirmed_liked_posts = $state<Record<string, boolean>>({});
@@ -126,12 +129,18 @@
 	let share_requests_in_flight = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
 	let comment_counts = $state<Record<string, number>>({});
+	let hidden_post_ids = $state<Record<string, boolean>>({});
+	let open_post_actions_menu_id = $state<string | undefined>();
+	let deleting_post_id = $state<string | undefined>();
+	let hiding_post_id = $state<string | undefined>();
+	let post_delete_error = $state('');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
 	const prewarmed_media_urls = new SvelteSet<string>();
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	const focus_post_id = $derived(page.url.searchParams.get('focusPost')?.trim() ?? '');
+	const visible_posts = $derived(posts.filter((post) => !hidden_post_ids[post.id]));
 	const has_infinite_feed = $derived(Boolean(on_load_more));
 	const grid_loading_placeholders = Array.from({ length: 6 }, (_, index) => index);
 	const video_preview_controls_hide_delay_ms = 1000;
@@ -245,6 +254,95 @@
 				...detail_post,
 				comment_count: next_count
 			};
+		}
+	}
+
+	function can_delete_post(post: PostFeedPost) {
+		return Boolean(current_user_id) && post.author_id === current_user_id;
+	}
+
+	function can_hide_post(post: PostFeedPost) {
+		return (
+			Boolean(current_user_id) &&
+			!can_delete_post(post) &&
+			(page.url.pathname === '/home' || /^\/profile\/[^/]+\/shared\/[^/]+$/.test(page.url.pathname))
+		);
+	}
+
+	function toggle_post_actions_menu(post_id: string | number) {
+		const key = String(post_id);
+		post_delete_error = '';
+		open_post_actions_menu_id = open_post_actions_menu_id === key ? undefined : key;
+	}
+
+	async function delete_post_from_feed(post: PostFeedPost) {
+		if (!can_delete_post(post) || deleting_post_id) {
+			return;
+		}
+
+		const key = String(post.id);
+		deleting_post_id = key;
+		post_delete_error = '';
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(key)}`, {
+				method: 'DELETE'
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error ?? 'Unable to delete post right now.');
+			}
+
+			hidden_post_ids = {
+				...hidden_post_ids,
+				[key]: true
+			};
+			open_post_actions_menu_id = undefined;
+
+			if (detail_post?.id === post.id) {
+				detail_post = undefined;
+			}
+		} catch (error) {
+			post_delete_error =
+				error instanceof Error ? error.message : 'Unable to delete post right now.';
+		} finally {
+			deleting_post_id = undefined;
+		}
+	}
+
+	async function hide_post_from_home_feed(post: PostFeedPost) {
+		if (!can_hide_post(post) || hiding_post_id) {
+			return;
+		}
+
+		const key = String(post.id);
+		hiding_post_id = key;
+		post_delete_error = '';
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(key)}/hide`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error ?? 'Unable to hide post right now.');
+			}
+
+			hidden_post_ids = {
+				...hidden_post_ids,
+				[key]: true
+			};
+			open_post_actions_menu_id = undefined;
+
+			if (detail_post?.id === post.id) {
+				detail_post = undefined;
+			}
+		} catch (error) {
+			post_delete_error = error instanceof Error ? error.message : 'Unable to hide post right now.';
+		} finally {
+			hiding_post_id = undefined;
 		}
 	}
 
@@ -1476,11 +1574,20 @@
 
 	async function update_view_query(next_view: 'grid' | 'feed') {
 		const next_url = new URL(page.url);
+		const active_scroll_container = get_active_scroll_container();
+		const anchor_post_id = active_scroll_container
+			? get_scroll_anchor_post_id(active_scroll_container)
+			: '';
 
 		if (next_view === 'grid') {
 			next_url.searchParams.set('view', 'grid');
 		} else {
 			next_url.searchParams.delete('view');
+		}
+
+		if (anchor_post_id) {
+			next_url.searchParams.set('focusPost', anchor_post_id);
+			hasConsumedFocusPost = false;
 		}
 
 		const next_href = `${next_url.pathname}${next_url.search}${next_url.hash}`;
@@ -1607,6 +1714,7 @@
 		const cleaned_url = new URL(page.url);
 		cleaned_url.searchParams.delete('focusPost');
 		const cleaned_href = `${cleaned_url.pathname}${cleaned_url.search}${cleaned_url.hash}`;
+		skip_next_scroll_restore = true;
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		void goto(cleaned_href, {
 			replaceState: true,
@@ -1790,9 +1898,16 @@
 	});
 
 	afterNavigate(() => {
+		mounted_scroll_storage_key = `post-feed-scroll:${page.url.pathname}${page.url.search}`;
 		void tick().then(() => {
 			refresh_load_more_observer();
 			if (restore_focus_post()) {
+				return;
+			}
+
+			if (skip_next_scroll_restore) {
+				skip_next_scroll_restore = false;
+				maybe_load_more();
 				return;
 			}
 
@@ -1886,6 +2001,14 @@
 			/>
 		</button>
 	</div>
+	{#if post_delete_error}
+		<div
+			class="mx-4 mb-3 rounded-2xl border border-rose-300/20 bg-rose-950/45 px-4 py-3 text-sm font-semibold text-rose-100 shadow-[0_14px_40px_rgba(0,0,0,0.18)] md:mx-8"
+			aria-live="polite"
+		>
+			{post_delete_error}
+		</div>
+	{/if}
 
 	<div
 		bind:this={scroll_container}
@@ -1896,7 +2019,7 @@
 			<div
 				class="post-feed-grid grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-2.5 lg:grid-cols-3 lg:gap-4 xl:gap-6 2xl:gap-8"
 			>
-				{#each posts as post, index (post.id)}
+				{#each visible_posts as post, index (post.id)}
 					<div
 						use:register_post_element={post.id}
 						class="post-feed-card relative overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
@@ -1938,13 +2061,60 @@
 										>
 									</div>
 								</a>
-								<button class="ml-auto shrink-0 text-white/50 transition-colors hover:text-white">
-									<img
-										src="/images/home-screen/three-dots-icon.avif"
-										alt="more options"
-										class="h-3 w-auto md:h-2 xl:h-3"
-									/>
-								</button>
+								<div class="relative ml-auto shrink-0">
+									<button
+										type="button"
+										class="shrink-0 rounded-full p-2 text-white/50 transition-colors hover:bg-white/8 hover:text-white"
+										aria-haspopup="menu"
+										aria-expanded={open_post_actions_menu_id === post.id}
+										aria-label="Post options"
+										onclick={() => toggle_post_actions_menu(post.id)}
+									>
+										<img
+											src="/images/home-screen/three-dots-icon.avif"
+											alt=""
+											class="h-3 w-auto md:h-2 xl:h-3"
+										/>
+									</button>
+									{#if open_post_actions_menu_id === post.id}
+										<div
+											class="absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
+											role="menu"
+										>
+											{#if can_delete_post(post)}
+												<button
+													type="button"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+													role="menuitem"
+													disabled={deleting_post_id === post.id}
+													onclick={() => {
+														void delete_post_from_feed(post);
+													}}
+												>
+													<span>{deleting_post_id === post.id ? 'Deleting...' : 'Delete'}</span>
+													<span aria-hidden="true">x</span>
+												</button>
+											{:else if can_hide_post(post)}
+												<button
+													type="button"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+													role="menuitem"
+													disabled={hiding_post_id === post.id}
+													onclick={() => {
+														void hide_post_from_home_feed(post);
+													}}
+												>
+													<span>{hiding_post_id === post.id ? 'Hiding...' : 'Hide from feed'}</span>
+													<span aria-hidden="true">x</span>
+												</button>
+											{:else}
+												<p class="px-3 py-2 text-xs font-medium text-white/50">
+													No actions available
+												</p>
+											{/if}
+										</div>
+									{/if}
+								</div>
 							</div>
 
 							<div class="relative mx-3 mt-3 aspect-4/5 w-auto overflow-hidden rounded-2xl md:mx-4">
@@ -2162,7 +2332,7 @@
 			</div>
 		{:else}
 			<div class="flex flex-col items-center gap-5 md:gap-8">
-				{#each posts as post, index (post.id)}
+				{#each visible_posts as post, index (post.id)}
 					<div
 						use:register_post_element={post.id}
 						class="post-feed-card relative w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
@@ -2204,13 +2374,56 @@
 										>
 									</div>
 								</a>
-								<button class="ml-auto shrink-0 text-white/50 transition-colors hover:text-white">
-									<img
-										src="/images/home-screen/three-dots-icon.avif"
-										alt="more options"
-										class="h-3 w-auto"
-									/>
-								</button>
+								<div class="relative ml-auto shrink-0">
+									<button
+										type="button"
+										class="shrink-0 rounded-full p-2 text-white/50 transition-colors hover:bg-white/8 hover:text-white"
+										aria-haspopup="menu"
+										aria-expanded={open_post_actions_menu_id === post.id}
+										aria-label="Post options"
+										onclick={() => toggle_post_actions_menu(post.id)}
+									>
+										<img src="/images/home-screen/three-dots-icon.avif" alt="" class="h-3 w-auto" />
+									</button>
+									{#if open_post_actions_menu_id === post.id}
+										<div
+											class="absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
+											role="menu"
+										>
+											{#if can_delete_post(post)}
+												<button
+													type="button"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+													role="menuitem"
+													disabled={deleting_post_id === post.id}
+													onclick={() => {
+														void delete_post_from_feed(post);
+													}}
+												>
+													<span>{deleting_post_id === post.id ? 'Deleting...' : 'Delete'}</span>
+													<span aria-hidden="true">x</span>
+												</button>
+											{:else if can_hide_post(post)}
+												<button
+													type="button"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+													role="menuitem"
+													disabled={hiding_post_id === post.id}
+													onclick={() => {
+														void hide_post_from_home_feed(post);
+													}}
+												>
+													<span>{hiding_post_id === post.id ? 'Hiding...' : 'Hide from feed'}</span>
+													<span aria-hidden="true">x</span>
+												</button>
+											{:else}
+												<p class="px-3 py-2 text-xs font-medium text-white/50">
+													No actions available
+												</p>
+											{/if}
+										</div>
+									{/if}
+								</div>
 							</div>
 
 							<div
@@ -2479,7 +2692,7 @@
 					</button>
 				</div>
 			</div>
-		{:else if has_infinite_feed && !has_more && posts.length > 0}
+		{:else if has_infinite_feed && !has_more && visible_posts.length > 0}
 			<div class="mx-auto w-full max-w-xl px-1 pt-2 pb-1">
 				<div
 					class="rounded-[1.75rem] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] px-4 py-3 text-center text-xs tracking-[0.22em] text-white/55 uppercase backdrop-blur-md"
