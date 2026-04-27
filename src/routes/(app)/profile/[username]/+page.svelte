@@ -190,12 +190,17 @@
 	const shared_post_tiles = $derived.by(() =>
 		data['shared_posts'].map((post) => ({
 			id: post.id,
-			image: build_responsive_image_source(post.media_display_url ?? post.media_url ?? '', {
-				widths: [360, 540, 720, 960, 1200],
-				height: 'match-width',
-				fit: 'lfill',
-				quality: 100
-			})
+			media_type: post.media_type,
+			media_url: post.media_url,
+			image:
+				post.media_type === 'image' && (post.media_display_url ?? post.media_url)
+					? build_responsive_image_source(post.media_display_url ?? post.media_url ?? '', {
+							widths: [360, 540, 720, 960, 1200],
+							height: 'match-width',
+							fit: 'lfill',
+							quality: 100
+						})
+					: undefined
 		}))
 	);
 
@@ -2518,20 +2523,48 @@
 						href={resolve(
 							`/profile/${encodeURIComponent(data['profile'].username)}/shared/${post.id}`
 						)}
-						class="block aspect-square cursor-pointer overflow-hidden rounded-xl transition-transform hover:scale-[0.98] md:rounded-2xl"
+						class="relative block aspect-square cursor-pointer overflow-hidden rounded-xl bg-black/30 transition-transform hover:scale-[0.98] md:rounded-2xl"
 						aria-label="Open shared post"
 					>
-						<ProgressiveImage
-							src={post.image.src}
-							srcset={post.image.srcset}
-							sizes="(max-width: 768px) 33vw, (max-width: 1280px) 30vw, 360px"
-							alt="Shared post"
-							wrapper_class="h-full w-full"
-							img_class="h-full w-full object-cover"
-							skeleton_class="rounded-xl md:rounded-2xl"
-							loading="lazy"
-							decoding="async"
-						/>
+						{#if post.media_type === 'video' && post.media_url}
+							<video
+								src={post.media_url}
+								class="h-full w-full object-cover"
+								muted
+								playsinline
+								preload="metadata"
+							></video>
+							<span
+								class="pointer-events-none absolute inset-0 grid place-items-center bg-black/10"
+								aria-hidden="true"
+							>
+								<span
+									class="relative grid h-9 w-9 place-items-center rounded-full bg-black/45 shadow-[0_8px_24px_rgba(0,0,0,0.3)] md:h-11 md:w-11"
+								>
+									<span
+										class="ml-0.5 h-0 w-0 border-y-[7px] border-l-[11px] border-y-transparent border-l-white md:border-y-[8px] md:border-l-[13px]"
+									></span>
+								</span>
+							</span>
+						{:else if post.image}
+							<ProgressiveImage
+								src={post.image.src}
+								srcset={post.image.srcset}
+								sizes="(max-width: 768px) 33vw, (max-width: 1280px) 30vw, 360px"
+								alt="Shared post"
+								wrapper_class="h-full w-full"
+								img_class="h-full w-full object-cover"
+								skeleton_class="rounded-xl md:rounded-2xl"
+								loading="lazy"
+								decoding="async"
+							/>
+						{:else}
+							<div
+								class="flex h-full w-full items-center justify-center px-3 text-center text-xs font-semibold text-white/70"
+							>
+								Shared post
+							</div>
+						{/if}
 					</a>
 				{/each}
 			</div>

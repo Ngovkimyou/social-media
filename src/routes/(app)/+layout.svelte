@@ -9,6 +9,7 @@
 
 	const home_href = $derived(resolve('/home'));
 	const search_href = $derived(resolve('/search'));
+	const about_href = $derived(resolve('/about'));
 	const profile_prefix = $derived(resolve('/profile'));
 	const profile_href = $derived(
 		resolve(
@@ -59,9 +60,11 @@
 		void preloadCode(home_href);
 		void preloadData(home_href);
 		void preloadCode(search_href);
+		void preloadCode(about_href);
 		void preloadCode(profile_href);
 		void preloadData(profile_href);
 		void preloadData(search_href);
+		void preloadData(about_href);
 
 		return () => {
 			window.removeEventListener('online', handle_online);
