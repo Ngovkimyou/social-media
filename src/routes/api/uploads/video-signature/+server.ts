@@ -6,6 +6,8 @@ import { get_profile_owner_by_username } from '$lib/server/utilities/profile';
 const MAX_POST_VIDEO_DURATION_SECONDS = 60;
 const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
 const ALLOWED_VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+const TRIM_START_TOLERANCE_SECONDS = 0.05;
+const TRIM_END_TOLERANCE_SECONDS = 0.25;
 
 type VideoSignaturePayload = {
 	file_size?: unknown;
@@ -81,14 +83,24 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	const trim_end_seconds = as_number(payload.trim_end_seconds);
 	const trim_start_seconds = as_number(payload.trim_start_seconds);
+	const video_duration_seconds = as_number(payload.video_duration_seconds);
 
-	if (trim_end_seconds === undefined || trim_start_seconds === undefined) {
+	if (
+		trim_end_seconds === undefined ||
+		trim_start_seconds === undefined ||
+		video_duration_seconds === undefined
+	) {
 		return json({ message: 'Choose a valid video trim range before posting.' }, { status: 400 });
 	}
+
+	const should_transform =
+		trim_start_seconds > TRIM_START_TOLERANCE_SECONDS ||
+		trim_end_seconds < video_duration_seconds - TRIM_END_TOLERANCE_SECONDS;
 
 	const signed_upload = create_signed_video_upload({
 		endOffset: trim_end_seconds,
 		folder: `posts/${locals.user.id}`,
+		shouldTransform: should_transform,
 		startOffset: trim_start_seconds
 	});
 

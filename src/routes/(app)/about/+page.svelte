@@ -1,7 +1,74 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { onMount } from 'svelte';
 
 	const about_background_video_src = `${base}/video/About-Background.webm`;
+	const about_background_fallback_src = `${base}/assets/Pixel Art.gif`;
+
+	let background_video_element = $state<HTMLVideoElement>();
+	let is_background_video_supported = $state(true);
+	let is_background_video_ready = $state(false);
+	let has_requested_music = $state(false);
+
+	function can_play_webm_video() {
+		if (typeof document === 'undefined') {
+			return true;
+		}
+
+		const probe = document.createElement('video');
+		return (
+			probe.canPlayType('video/webm; codecs="vp9"').length > 0 ||
+			probe.canPlayType('video/webm; codecs="vp8"').length > 0 ||
+			probe.canPlayType('video/webm').length > 0
+		);
+	}
+
+	function request_background_music() {
+		if (typeof document === 'undefined') {
+			return;
+		}
+
+		has_requested_music = true;
+		document.dispatchEvent(new CustomEvent('about-background-music:play'));
+	}
+
+	function play_background_video() {
+		if (!background_video_element || !is_background_video_supported) {
+			return;
+		}
+
+		background_video_element.muted = true;
+		background_video_element.playsInline = true;
+		background_video_element.load();
+
+		void background_video_element.play().catch(() => {
+			is_background_video_ready = false;
+		});
+	}
+
+	onMount(() => {
+		is_background_video_supported = can_play_webm_video();
+
+		if (!is_background_video_supported) {
+			return;
+		}
+
+		const retry_media = () => {
+			play_background_video();
+			request_background_music();
+		};
+
+		play_background_video();
+		window.addEventListener('pointerdown', retry_media, { capture: true, passive: true });
+		window.addEventListener('touchstart', retry_media, { capture: true, passive: true });
+		document.addEventListener('visibilitychange', play_background_video);
+
+		return () => {
+			window.removeEventListener('pointerdown', retry_media, { capture: true });
+			window.removeEventListener('touchstart', retry_media, { capture: true });
+			document.removeEventListener('visibilitychange', play_background_video);
+		};
+	});
 
 	const team_sections = [
 		{
@@ -62,7 +129,8 @@
 			<h1 class="mt-3 text-4xl font-bold md:text-5xl">Space and Time</h1>
 			<p class="mt-4 max-w-2xl text-sm leading-7 text-white/72 md:text-base">
 				A social media project built by a student team, shaped through design, engineering,
-				documentation, and testing.
+				documentation, and testing. Designed to connect users through modern UI/UX and culturally
+				aware communication features.
 			</p>
 		</header>
 
@@ -151,6 +219,7 @@
 	class="about-credit-screen relative isolate flex h-[calc(100dvh-4rem)] items-start justify-center overflow-y-auto px-4 text-center text-white md:h-screen md:px-8"
 >
 	<video
+		bind:this={background_video_element}
 		class="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-[0.08]"
 		src={about_background_video_src}
 		autoplay
@@ -159,7 +228,48 @@
 		playsinline
 		preload="auto"
 		aria-hidden="true"
+		oncanplay={() => {
+			is_background_video_ready = true;
+		}}
+		onplaying={() => {
+			is_background_video_ready = true;
+		}}
+		onerror={() => {
+			is_background_video_supported = false;
+		}}
 	></video>
+
+	{#if !is_background_video_supported || !is_background_video_ready}
+		<img
+			src={about_background_fallback_src}
+			alt=""
+			class="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-[0.08]"
+			aria-hidden="true"
+			loading="eager"
+			decoding="async"
+		/>
+	{/if}
+
+	<button
+		type="button"
+		class="fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-20 grid h-10 w-10 place-items-center rounded-full border border-white/15 bg-black/35 text-white/85 shadow-[0_12px_34px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/12 hover:text-white"
+		aria-label="Play background music"
+		aria-pressed={has_requested_music}
+		onclick={request_background_music}
+	>
+		<svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5">
+			<path
+				d="M9 17.2V7.7l8-2v9.4"
+				fill="none"
+				stroke="currentColor"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				stroke-width="2"
+			/>
+			<circle cx="6.7" cy="17.2" r="2.3" fill="none" stroke="currentColor" stroke-width="2" />
+			<circle cx="14.7" cy="15.1" r="2.3" fill="none" stroke="currentColor" stroke-width="2" />
+		</svg>
+	</button>
 
 	<div class="about-credit-track relative z-10 flex w-full flex-col items-center">
 		{@render credits_content()}

@@ -15,6 +15,7 @@ import { ensure_profile_for_user } from '$lib/server/utilities/profile';
 import { initialize_hidden_posts_table } from '$lib/server/utilities/posts';
 import type { PostFeedPost } from '$lib/types/post-feed';
 import { build_responsive_image_source } from '$lib/utilities/responsive-image';
+import { build_responsive_video_source } from '$lib/utilities/responsive-video';
 import { and, asc, count, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 
 type HomeFeedCursor = {
@@ -261,6 +262,10 @@ export async function get_home_feed_page(
 						quality: 'auto'
 					})
 				: undefined;
+		const responsive_video =
+			post_media_row?.media_type === 'video' && post_media_row.media_url
+				? build_responsive_video_source(post_media_row.media_url)
+				: undefined;
 
 		return {
 			id: row.id,
@@ -275,7 +280,8 @@ export async function get_home_feed_page(
 			author_username: row.author_username ?? ensured_usernames.get(row.author_id) ?? 'user',
 			author_avatar: row.author_avatar,
 			media_display_srcset: responsive_media?.srcset,
-			media_display_url: responsive_media?.src,
+			media_display_url: responsive_media?.src ?? responsive_video?.src,
+			media_poster_url: responsive_video?.poster,
 			media_url: post_media_row?.media_url,
 			media_type: post_media_row?.media_type,
 			comment_count: comment_count_by_post.get(row.id) ?? 0
