@@ -205,16 +205,23 @@
 		persist_current_home_scroll_position();
 	};
 	let logout_dialog: HTMLDialogElement;
-	const handle_logout = () => {
+	const handle_logout = (event: SubmitEvent & { currentTarget: EventTarget & HTMLFormElement }) => {
+		event.preventDefault();
+
+		if (typeof logout_dialog?.showModal !== 'function') {
+			event.currentTarget.submit();
+			return;
+		}
+
 		logout_dialog.showModal();
 	};
 	const handle_sign_out_submit: SubmitFunction = () => {
-		is_mobile_settings_open = false;
 		is_signing_out = true;
-		logout_dialog.close();
 		return async ({ update }) => {
 			try {
 				await update();
+				logout_dialog.close();
+				is_mobile_settings_open = false;
 			} finally {
 				is_signing_out = false;
 			}
@@ -245,22 +252,24 @@
 		/>
 	</a>
 	<div class="flex items-center gap-6">
-		<button
-			onclick={handle_logout}
-			disabled={is_signing_out}
-			class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-60"
-			aria-label="Sign out"
-		>
-			{#if is_signing_out}
-				<span class="logout-spinner mobile-logout-spinner" aria-hidden="true"></span>
-			{:else}
-				<img
-					src="/images/sidebar-and-search/logout-icon.avif"
-					alt="Sign out"
-					class="h-8 max-[480px]:h-6"
-				/>
-			{/if}
-		</button>
+		<form method="POST" action={sign_out_action} onsubmit={handle_logout}>
+			<button
+				type="submit"
+				disabled={is_signing_out}
+				class="grid h-8 w-8 place-items-center transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-60"
+				aria-label="Sign out"
+			>
+				{#if is_signing_out}
+					<span class="logout-spinner mobile-logout-spinner" aria-hidden="true"></span>
+				{:else}
+					<img
+						src="/images/sidebar-and-search/logout-icon.avif"
+						alt="Sign out"
+						class="h-8 max-[480px]:h-6"
+					/>
+				{/if}
+			</button>
+		</form>
 		<!-- eslint-disable -->
 		<!--
 		<img
@@ -585,29 +594,31 @@
 			</span>
 		</a>
 
-		<button
-			onclick={handle_logout}
-			disabled={is_signing_out}
-			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} disabled:cursor-wait disabled:opacity-60`}
-		>
-			<span class={desktop_item_content_class}>
-				<span class={desktop_icon_slot_class}>
-					{#if is_signing_out}
-						<span class="logout-spinner" aria-hidden="true"></span>
-					{:else}
-						<img
-							src="/images/sidebar-and-search/logout-icon.avif"
-							alt="Sign out icon"
-							class="block h-6 w-6 object-contain"
-						/>
-					{/if}
-				</span>
-				<span
-					class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
-					>{is_signing_out ? 'Logging out...' : 'Logout'}</span
-				>
-			</span></button
-		>
+		<form method="POST" action={sign_out_action} onsubmit={handle_logout}>
+			<button
+				type="submit"
+				disabled={is_signing_out}
+				class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} disabled:cursor-wait disabled:opacity-60`}
+			>
+				<span class={desktop_item_content_class}>
+					<span class={desktop_icon_slot_class}>
+						{#if is_signing_out}
+							<span class="logout-spinner" aria-hidden="true"></span>
+						{:else}
+							<img
+								src="/images/sidebar-and-search/logout-icon.avif"
+								alt="Sign out icon"
+								class="block h-6 w-6 object-contain"
+							/>
+						{/if}
+					</span>
+					<span
+						class={`origin-left text-lg font-semibold whitespace-nowrap transition-[max-width,opacity,transform,filter] duration-420 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktop_label_class}`}
+						>{is_signing_out ? 'Logging out...' : 'Logout'}</span
+					>
+				</span></button
+			>
+		</form>
 	</nav>
 
 	<!-- eslint-disable -->

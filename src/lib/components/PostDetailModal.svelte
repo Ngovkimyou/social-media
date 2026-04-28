@@ -1647,20 +1647,20 @@
 						</p>
 					{/if}
 					<div
-						class="flex items-end gap-2 rounded-full border border-white/16 bg-[linear-gradient(100deg,rgba(255,167,218,0.28),rgba(226,232,255,0.18)_48%,rgba(72,211,255,0.28))] p-1.5 shadow-[0_0_26px_rgba(205,130,255,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all duration-300 focus-within:border-sky-200/45 focus-within:shadow-[0_0_34px_rgba(125,212,255,0.25),inset_0_1px_0_rgba(255,255,255,0.28)] sm:gap-3"
+						class="flex items-center gap-2 rounded-full border border-white/16 bg-[linear-gradient(100deg,rgba(255,167,218,0.28),rgba(226,232,255,0.18)_48%,rgba(72,211,255,0.28))] p-1.5 shadow-[0_0_26px_rgba(205,130,255,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all duration-300 focus-within:border-sky-200/45 focus-within:shadow-[0_0_34px_rgba(125,212,255,0.25),inset_0_1px_0_rgba(255,255,255,0.28)] sm:gap-3"
 					>
 						<textarea
 							placeholder="Add a comment..."
 							bind:value={comment_input}
 							maxlength={500}
-							rows={2}
+							rows={1}
 							disabled={is_submitting}
-							class="min-w-0 flex-1 resize-none overflow-y-auto rounded-full bg-transparent px-4 py-2.5 text-sm leading-5 font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
+							class="comment-input-field min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-full bg-transparent px-4 py-3 text-sm leading-5 font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
 						></textarea>
 						<button
 							type="submit"
 							disabled={is_submitting || comment_input.trim().length === 0}
-							class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#11164a] shadow-[0_10px_22px_rgba(0,0,0,0.32)] transition-all duration-250 hover:scale-105 hover:bg-[#17206a] hover:shadow-[0_12px_28px_rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:h-11 sm:w-11"
+							class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#11164a] shadow-[0_10px_22px_rgba(0,0,0,0.32)] transition-all duration-250 hover:scale-105 hover:bg-[#17206a] hover:shadow-[0_12px_28px_rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 							aria-label={is_submitting ? 'Sending comment' : 'Send comment'}
 						>
 							<img
@@ -1711,6 +1711,14 @@
 		width: var(--comment-avatar-size);
 		height: var(--comment-avatar-size);
 		transform: translate(-50%, -50%);
+	}
+
+	.comment-input-field {
+		scrollbar-width: none;
+	}
+
+	.comment-input-field::-webkit-scrollbar {
+		display: none;
 	}
 
 	.comment-detail-scroll {
