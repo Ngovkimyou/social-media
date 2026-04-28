@@ -1551,7 +1551,12 @@
 					return;
 				}
 
-				on_progress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+				const progress_percent =
+					event.loaded >= event.total
+						? 100
+						: Math.min(99, Math.round((event.loaded / event.total) * 100));
+
+				on_progress(progress_percent);
 			};
 
 			request.onload = () => {
