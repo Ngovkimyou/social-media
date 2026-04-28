@@ -59,6 +59,7 @@
 	let is_compact_inline_video = $state(false);
 	let inline_video_active_setting = $state<'brightness' | 'volume' | undefined>();
 	let inline_video_touch_setting_panel = $state<'brightness' | 'volume' | undefined>();
+	let is_media_unavailable = $state(false);
 	let inline_video_click_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let inline_video_controls_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let inline_video_seek_pointer_id = $state<number | undefined>();
@@ -585,6 +586,14 @@
 		);
 	}
 
+	function mark_media_available() {
+		is_media_unavailable = false;
+	}
+
+	function mark_media_unavailable() {
+		is_media_unavailable = true;
+	}
+
 	function handle_inline_video_preview_click(event: MouseEvent) {
 		event.stopPropagation();
 		open_inline_video_preview();
@@ -883,7 +892,17 @@
 		<div
 			class="relative flex h-[clamp(210px,42dvh,430px)] min-h-0 shrink-0 items-center justify-center overflow-hidden bg-black/20 md:h-full md:flex-1 md:rounded-l-2xl"
 		>
-			{#if post.media_url && post.media_type === 'image'}
+			{#if post.media_url && is_media_unavailable}
+				<div
+					class="flex h-full w-full flex-col items-center justify-center bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.18),transparent_35%),linear-gradient(145deg,rgba(17,13,38,0.96),rgba(7,7,20,0.98))] px-6 text-center text-white"
+					role="status"
+				>
+					<p class="text-base font-semibold">Media unavailable</p>
+					<p class="mt-2 max-w-64 text-sm leading-6 text-white/62">
+						This {post.media_type === 'video' ? 'video' : 'image'} no longer exists in storage.
+					</p>
+				</div>
+			{:else if post.media_url && post.media_type === 'image'}
 				<ProgressiveImage
 					src={post.media_display_url ?? post.media_url}
 					srcset={post.media_display_srcset}
@@ -894,6 +913,8 @@
 					loading="eager"
 					decoding="async"
 					fetchpriority="high"
+					on_load={mark_media_available}
+					on_error={mark_media_unavailable}
 				/>
 			{:else if post.media_url && post.media_type === 'video'}
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -923,6 +944,7 @@
 						playsinline
 						preload="metadata"
 						onloadedmetadata={() => {
+							mark_media_available();
 							apply_inline_video_settings();
 							sync_inline_video_time();
 							void inline_video_el?.play().catch(() => {
@@ -933,6 +955,7 @@
 						onplay={sync_inline_video_time}
 						onplaying={sync_inline_video_time}
 						onpause={sync_inline_video_time}
+						onerror={mark_media_unavailable}
 					></video>
 
 					{#if inline_video_touch_setting_panel}
