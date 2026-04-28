@@ -1314,7 +1314,7 @@
 					</button>
 				</div>
 				{#if post.content}
-					<p class="mt-4 text-sm leading-relaxed whitespace-pre-line text-white/80">
+					<p class="mt-4 text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80">
 						{post.content}
 					</p>
 					<p class="mt-1 text-xs text-white/35">{time_ago(post.created_at)}</p>
@@ -1448,7 +1448,9 @@
 											{/if}
 										</div>
 										<div class="my-3 h-px bg-white/10"></div>
-										<p class="text-sm leading-relaxed whitespace-pre-line text-white/80">
+										<p
+											class="text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
+										>
 											{comment.content}
 										</p>
 									</div>
@@ -1532,6 +1534,17 @@
 						submit_comment();
 					}}
 				>
+					{#if comment_input.length >= 400}
+						<p
+							class="px-1 text-right text-xs font-medium tabular-nums {comment_input.length >= 500
+								? 'text-red-400'
+								: comment_input.length >= 450
+									? 'text-yellow-400'
+									: 'text-white/50'}"
+						>
+							{comment_input.length}/500
+						</p>
+					{/if}
 					<div
 						class="flex items-center gap-2 rounded-full border border-white/16 bg-[linear-gradient(100deg,rgba(255,167,218,0.28),rgba(226,232,255,0.18)_48%,rgba(72,211,255,0.28))] p-1.5 shadow-[0_0_26px_rgba(205,130,255,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all duration-300 focus-within:border-sky-200/45 focus-within:shadow-[0_0_34px_rgba(125,212,255,0.25),inset_0_1px_0_rgba(255,255,255,0.28)] sm:gap-3"
 					>
@@ -1539,7 +1552,7 @@
 							type="text"
 							placeholder="Add a comment..."
 							bind:value={comment_input}
-							maxlength={2000}
+							maxlength={500}
 							disabled={is_submitting}
 							class="min-w-0 flex-1 rounded-full bg-transparent px-4 py-2.5 text-sm font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
 						/>

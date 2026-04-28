@@ -143,6 +143,7 @@
 		BlinkMacSystemFont,
 		sans-serif;
 	letter-spacing: 0;
+	overflow-wrap: break-word;
 }
 
 .caption-overlay-scroll {
