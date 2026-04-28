@@ -201,7 +201,7 @@
 
 <dialog bind:this={logout_dialog}>
 	<h1>Would you like to logout?</h1>
-	<form method="POST" action={sign_out_action} class="actions">
+	<form method="POST" action={sign_out_action} class="actions" use:enhance>
 		<button type="submit">Confirm</button>
 		<!-- Using type="button" prevents form submission -->
 		<button type="button" class="cancel" onclick={() => logout_dialog.close()}> Cancel </button>
