@@ -3002,7 +3002,7 @@
 								rows={image_src || video_src ? 6 : 4}
 								placeholder="Write a caption..."
 								readonly={submitting_post}
-								class="min-h-18 w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none md:min-h-28 {image_src ||
+								class="post-caption-scroll min-h-18 w-full flex-1 resize-none border-0 bg-transparent p-0 text-white placeholder:text-slate-500 focus:ring-0 focus:outline-none md:min-h-28 {image_src ||
 								video_src
 									? 'text-sm'
 									: 'text-base md:text-lg'}"
