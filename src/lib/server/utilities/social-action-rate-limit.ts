@@ -8,7 +8,13 @@ import {
 import type { RequestEvent } from '@sveltejs/kit';
 import { sql } from 'drizzle-orm';
 
-type ActionScope = 'follow-action' | 'home-feed';
+type ActionScope =
+	| 'follow-action'
+	| 'hide-post-action'
+	| 'home-feed'
+	| 'comment'
+	| 'like-action'
+	| 'share-action';
 
 const WINDOW_CONFIG: Record<
 	ActionScope,
@@ -18,9 +24,25 @@ const WINDOW_CONFIG: Record<
 		{ max_attempts: 30, window_seconds: 60 },
 		{ max_attempts: 100, window_seconds: 60 * 60 }
 	],
+	'hide-post-action': [
+		{ max_attempts: 60, window_seconds: 60 },
+		{ max_attempts: 240, window_seconds: 15 * 60 }
+	],
 	'home-feed': [
 		{ max_attempts: 120, window_seconds: 60 },
 		{ max_attempts: 600, window_seconds: 15 * 60 }
+	],
+	comment: [
+		{ max_attempts: 10, window_seconds: 60 },
+		{ max_attempts: 50, window_seconds: 60 * 60 }
+	],
+	'like-action': [
+		{ max_attempts: 120, window_seconds: 60 },
+		{ max_attempts: 500, window_seconds: 15 * 60 }
+	],
+	'share-action': [
+		{ max_attempts: 120, window_seconds: 60 },
+		{ max_attempts: 500, window_seconds: 15 * 60 }
 	]
 };
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import {
 		get_email_validation_message,
 		get_password_validation_message
@@ -16,6 +17,7 @@
 	let turnstile_scale = $state(1);
 	let turnstile_height = $state(70);
 	let turnstile_mount_key = $state(0);
+	let is_submitting = $state(false);
 
 	type TurnstileWindow = Window & {
 		turnstile?: {
@@ -53,6 +55,18 @@
 	const apply_password_validation = (event: Event): void => {
 		const input = event.currentTarget as HTMLInputElement;
 		input.setCustomValidity(get_password_validation_message(input.value));
+	};
+
+	const handle_submit: SubmitFunction = () => {
+		is_submitting = true;
+
+		return async ({ update }) => {
+			try {
+				await update();
+			} finally {
+				is_submitting = false;
+			}
+		};
 	};
 
 	const mount_turnstile_widget = (): void => {
@@ -151,84 +165,103 @@
 	></script>
 </svelte:head>
 
-<div class="body">
+<div class="body" aria-busy={is_submitting}>
 	<div class="login-container">
 		<div class="form-container">
 			<h1 class="login-title">Login</h1>
-			<form method="post" action="?/signInEmail" use:enhance>
-				<div class="input-group">
-					<label class="login-label">
-						Email
-						<input
-							type="email"
-							name="email"
-							required
-							maxlength="254"
-							value={submitted_email}
-							oninput={apply_email_validation}
-							oninvalid={apply_email_validation}
-							class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-							placeholder="Enter your email address"
-						/>
-					</label>
-				</div>
-				<div class="input-group">
-					<label class="login-label">
-						Password
-						<div class="password-input-wrapper">
+			<form method="post" action="?/signInEmail" use:enhance={handle_submit}>
+				<fieldset disabled={is_submitting} class="login-fieldset">
+					<div class="input-group">
+						<label class="login-label">
+							Email
 							<input
-								type={is_password_visible ? 'text' : 'password'}
-								name="password"
+								type="email"
+								name="email"
 								required
-								maxlength="128"
-								oninput={apply_password_validation}
-								oninvalid={apply_password_validation}
+								maxlength="254"
+								value={submitted_email}
+								oninput={apply_email_validation}
+								oninvalid={apply_email_validation}
 								class="login-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-								placeholder="Enter your password"
+								placeholder="Enter your email address"
 							/>
-							<button
-								type="button"
-								class="password-toggle"
-								aria-label={is_password_visible ? 'Hide password' : 'Show password'}
-								aria-pressed={is_password_visible}
-								onclick={() => {
-									is_password_visible = !is_password_visible;
-								}}
-							>
-								<img
-									src={is_password_visible
-										? '/images/login-screen/show-password.avif'
-										: '/images/login-screen/hide-password.avif'}
-									alt=""
-									class="password-toggle-icon"
-								/>
-							</button>
-						</div>
-					</label>
-				</div>
-				{#if turnstile_required}
-					<div class="challenge-panel">
-						<p class="challenge-badge">Security check</p>
-						<p class="challenge-copy">
-							Too many failed attempts were detected. Complete the verification to continue.
-						</p>
-						{#key turnstile_mount_key}
-							<div
-								bind:this={turnstile_container}
-								class="challenge-widget"
-								style={`--turnstile-scale: ${turnstile_scale}; min-height: ${turnstile_height}px;`}
-							></div>
-						{/key}
-						<input type="hidden" name="cf-turnstile-response" value={turnstile_token} />
+						</label>
 					</div>
-				{/if}
-				<div class="login-actions">
-					<button formaction="?/signInEmail" class="login-button">Login</button>
-					<a href={resolve('/sign-up')} class="login-button login-signup-link">Sign Up</a>
-				</div>
+					<div class="input-group">
+						<label class="login-label">
+							Password
+							<div class="password-input-wrapper">
+								<input
+									type={is_password_visible ? 'text' : 'password'}
+									name="password"
+									required
+									maxlength="128"
+									oninput={apply_password_validation}
+									oninvalid={apply_password_validation}
+									class="login-input auth-password-input rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+									placeholder="Enter your password"
+								/>
+								<button
+									type="button"
+									class="password-toggle"
+									aria-label={is_password_visible ? 'Hide password' : 'Show password'}
+									aria-pressed={is_password_visible}
+									onclick={() => {
+										is_password_visible = !is_password_visible;
+									}}
+								>
+									<img
+										src={is_password_visible
+											? '/images/login-screen/show-password.avif'
+											: '/images/login-screen/hide-password.avif'}
+										alt=""
+										class="password-toggle-icon"
+									/>
+								</button>
+							</div>
+						</label>
+					</div>
+					{#if turnstile_required}
+						<div class="challenge-panel">
+							<p class="challenge-badge">Security check</p>
+							<p class="challenge-copy">
+								Too many failed attempts were detected. Complete the verification to continue.
+							</p>
+							{#key turnstile_mount_key}
+								<div
+									bind:this={turnstile_container}
+									class="challenge-widget"
+									style={`--turnstile-scale: ${turnstile_scale}; min-height: ${turnstile_height}px;`}
+								></div>
+							{/key}
+							<input type="hidden" name="cf-turnstile-response" value={turnstile_token} />
+						</div>
+					{/if}
+					<div class="login-actions">
+						<button formaction="?/signInEmail" class="login-button">
+							{#if is_submitting}
+								<span class="login-spinner" aria-hidden="true"></span>
+								Logging in...
+							{:else}
+								Login
+							{/if}
+						</button>
+						<a
+							href={resolve('/sign-up')}
+							class="login-button login-signup-link"
+							aria-disabled={is_submitting}
+							tabindex={is_submitting ? -1 : undefined}
+							onclick={(event) => {
+								if (is_submitting) {
+									event.preventDefault();
+								}
+							}}>Sign Up</a
+						>
+					</div>
+				</fieldset>
 			</form>
 			<p class="login-message" aria-live="polite">
-				{form_message}
+				{is_submitting ? '' : form_message}
 			</p>
 		</div>
 		<img
@@ -240,6 +273,12 @@
 			fetchpriority="high"
 		/>
 	</div>
+	{#if is_submitting}
+		<div class="auth-blocking-overlay" role="status" aria-live="polite">
+			<span class="auth-overlay-spinner" aria-hidden="true"></span>
+			<span>Logging in...</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -316,6 +355,13 @@
 		margin-top: 1rem;
 	}
 
+	.login-fieldset {
+		min-width: 0;
+		border: 0;
+		padding: 0;
+		margin: 0;
+	}
+
 	.login-input {
 		box-sizing: border-box;
 		display: block;
@@ -360,6 +406,11 @@
 	}
 
 	.login-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		min-height: 2.875rem;
 		background: linear-gradient(90deg, #cd82ff 0%, #7dd4ff 100%);
 		color: white;
 		padding: 0.7rem 1rem;
@@ -375,16 +426,67 @@
 		will-change: transform, box-shadow, filter;
 	}
 
-	.login-button:hover {
+	.login-button:hover:not(:disabled):not([aria-disabled='true']) {
 		transform: translateY(-1px);
 		box-shadow: 0 12px 22px rgba(43, 45, 87, 0.24);
 		filter: brightness(1.03);
 	}
 
-	.login-button:active {
+	.login-button:active:not(:disabled):not([aria-disabled='true']) {
 		transform: translateY(1px) scale(0.985);
 		box-shadow: 0 5px 12px rgba(43, 45, 87, 0.18);
 		filter: brightness(0.96);
+	}
+
+	.login-button:disabled,
+	.login-button[aria-disabled='true'] {
+		cursor: wait;
+		opacity: 0.72;
+		transform: none;
+		filter: saturate(0.82);
+	}
+
+	.login-input:disabled,
+	.password-toggle:disabled {
+		cursor: wait;
+		opacity: 0.68;
+	}
+
+	.login-spinner,
+	.auth-overlay-spinner {
+		display: inline-block;
+		border-radius: 9999px;
+		border: 2px solid rgba(255, 255, 255, 0.45);
+		border-top-color: white;
+		animation: auth-spin 800ms linear infinite;
+	}
+
+	.login-spinner {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.auth-overlay-spinner {
+		width: 1.4rem;
+		height: 1.4rem;
+	}
+
+	.auth-blocking-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: rgba(9, 5, 28, 0.42);
+		backdrop-filter: blur(5px);
+		-webkit-backdrop-filter: blur(5px);
+		color: white;
+		font-weight: 800;
+		letter-spacing: 0;
+		pointer-events: all;
 	}
 
 	.login-button:focus-visible {
@@ -479,9 +581,18 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.login-button {
+		.login-button,
+		.login-spinner,
+		.auth-overlay-spinner {
 			transition: none;
+			animation: none;
 			will-change: auto;
+		}
+	}
+
+	@keyframes auth-spin {
+		to {
+			transform: rotate(360deg);
 		}
 	}
 </style>

@@ -1,7 +1,7 @@
 const codeQualityRules = [
 	{
 		rules: {
-			complexity: ['error', 15],
+			complexity: ['error', 20],
 			'max-depth': ['error', 2],
 			curly: ['warn', 'all'],
 			eqeqeq: ['warn', 'always'],

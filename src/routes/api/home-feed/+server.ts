@@ -6,7 +6,12 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async (event) => {
-	const { url } = event;
+	const { url, locals } = event;
+
+	if (!locals.user) {
+		return json({ error: 'Unauthorized' }, { status: 401 });
+	}
+
 	const rate_limit = await consume_social_action_rate_limit(event, 'home-feed');
 	if (!rate_limit.is_allowed) {
 		await record_security_event({
@@ -28,8 +33,11 @@ export const GET: RequestHandler = async (event) => {
 	const cursor = url.searchParams.get('cursor') ?? undefined;
 	const requested_view = url.searchParams.get('view');
 	const default_limit = requested_view === 'grid' ? HOME_FEED_GRID_PAGE_SIZE : HOME_FEED_PAGE_SIZE;
-	const requested_limit = Number(url.searchParams.get('limit') ?? default_limit);
-	const page = await get_home_feed_page(requested_limit, cursor);
+	const MAX_LIMIT = 100;
+	const raw_limit = url.searchParams.get('limit');
+	const parsed_limit = raw_limit ? Number.parseInt(raw_limit, 10) : default_limit;
+	const requested_limit = Math.min(Math.max(parsed_limit || default_limit, 1), MAX_LIMIT);
+	const page = await get_home_feed_page(requested_limit, cursor, locals.user.id);
 
 	return json(page);
 };

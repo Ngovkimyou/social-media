@@ -196,4 +196,5 @@
 	{is_loading_more}
 	{load_more_error}
 	on_load_more={load_more_posts}
+	current_user_id={data.current_user_id}
 />

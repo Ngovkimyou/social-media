@@ -1,5 +1,5 @@
 import { email_validator, name_validator, password_validator } from '$lib/utilities/validator';
-import { slugify_username } from '$lib/utilities/profile';
+import { is_reserved_profile_username, slugify_username } from '$lib/utilities/profile';
 
 const normalize_for_comparison = (value: string): string =>
 	value.normalize('NFKC').trim().toLowerCase();
@@ -34,7 +34,9 @@ const localize_validation_message = (message: string): string => {
 		'Name can contain at most one space': '名前に使用できるスペースは1つまでです',
 		'Name can contain at most one underscore': '名前に使用できるアンダースコアは1つまでです',
 		'Password must not match your name or generated username':
-			'パスワードは名前または生成されるユーザー名と同じにできません'
+			'パスワードは名前または生成されるユーザー名と同じにできません',
+		'This name creates a reserved username. Please choose another name.':
+			'この名前から予約済みのユーザー名が生成されます。別の名前を選んでください。'
 	};
 
 	const exact_translation = translated_messages[message];
@@ -93,7 +95,15 @@ export const get_name_validation_message = (value: string): string => {
 	}
 
 	const result = name_validator(value);
-	return result.is_Valid ? '' : localize_validation_message(result.message ?? 'Invalid name');
+	if (!result.is_Valid) {
+		return localize_validation_message(result.message ?? 'Invalid name');
+	}
+
+	return is_reserved_profile_username(value)
+		? localize_validation_message(
+				'This name creates a reserved username. Please choose another name.'
+			)
+		: '';
 };
 
 export const get_sign_up_password_match_message = (password: string, name: string): string => {
