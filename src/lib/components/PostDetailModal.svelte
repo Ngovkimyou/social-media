@@ -48,6 +48,8 @@
 	let confirm_delete_id = $state<string>();
 	let deleting_comment_id = $state<string>();
 	let comment_count = $state(0);
+	let expanded_comments = $state<Record<string, boolean>>({});
+	let overflowing_comments = $state<Record<string, boolean>>({});
 	let inline_video_el = $state<HTMLVideoElement | undefined>();
 	let inline_video_current_time = $state(0);
 	let inline_video_duration = $state(0);
@@ -112,6 +114,43 @@
 	function set_comment_count(next_count: number) {
 		comment_count = next_count;
 		on_comment_count_change?.(next_count);
+	}
+
+	function toggle_comment(comment_id: string) {
+		expanded_comments = {
+			...expanded_comments,
+			[comment_id]: !expanded_comments[comment_id]
+		};
+	}
+
+	function set_comment_overflow(comment_id: string, is_overflowing: boolean) {
+		if (overflowing_comments[comment_id] === is_overflowing) {
+			return;
+		}
+
+		overflowing_comments = {
+			...overflowing_comments,
+			[comment_id]: is_overflowing
+		};
+	}
+
+	function measure_comment(node: HTMLElement, comment_id: string): { destroy(): void } {
+		const update = () => {
+			set_comment_overflow(comment_id, node.scrollHeight > node.clientHeight + 1);
+		};
+
+		const resize_observer = new ResizeObserver(() => {
+			update();
+		});
+
+		resize_observer.observe(node);
+		requestAnimationFrame(update);
+
+		return {
+			destroy() {
+				resize_observer.disconnect();
+			}
+		};
 	}
 
 	function format_media_time(seconds: number) {
@@ -1471,11 +1510,50 @@
 											{/if}
 										</div>
 										<div class="my-3 h-px bg-white/10"></div>
-										<p
-											class="text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
-										>
-											{comment.content}
-										</p>
+										{#if expanded_comments[comment.id]}
+											<button
+												type="button"
+												class="block w-full text-left"
+												aria-label="Collapse comment"
+												onclick={() => toggle_comment(comment.id)}
+											>
+												<p
+													class="text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
+												>
+													{comment.content}
+												</p>
+												{#if overflowing_comments[comment.id]}
+													<span
+														class="mt-2 inline-block text-xs font-semibold tracking-wide text-sky-300"
+														>See less</span
+													>
+												{/if}
+											</button>
+										{:else}
+											<button
+												type="button"
+												class={`block w-full text-left ${overflowing_comments[comment.id] ? 'cursor-pointer' : 'cursor-default'}`}
+												aria-label={overflowing_comments[comment.id] ? 'Expand comment' : undefined}
+												onclick={() => {
+													if (overflowing_comments[comment.id]) {
+														toggle_comment(comment.id);
+													}
+												}}
+											>
+												<p
+													use:measure_comment={comment.id}
+													class="comment-preview-text text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
+												>
+													{comment.content}
+												</p>
+												{#if overflowing_comments[comment.id]}
+													<span
+														class="mt-2 inline-block text-xs font-semibold tracking-wide text-sky-300"
+														>See more</span
+													>
+												{/if}
+											</button>
+										{/if}
 									</div>
 								</article>
 							{/each}
@@ -1569,16 +1647,16 @@
 						</p>
 					{/if}
 					<div
-						class="flex items-center gap-2 rounded-full border border-white/16 bg-[linear-gradient(100deg,rgba(255,167,218,0.28),rgba(226,232,255,0.18)_48%,rgba(72,211,255,0.28))] p-1.5 shadow-[0_0_26px_rgba(205,130,255,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all duration-300 focus-within:border-sky-200/45 focus-within:shadow-[0_0_34px_rgba(125,212,255,0.25),inset_0_1px_0_rgba(255,255,255,0.28)] sm:gap-3"
+						class="flex items-end gap-2 rounded-full border border-white/16 bg-[linear-gradient(100deg,rgba(255,167,218,0.28),rgba(226,232,255,0.18)_48%,rgba(72,211,255,0.28))] p-1.5 shadow-[0_0_26px_rgba(205,130,255,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all duration-300 focus-within:border-sky-200/45 focus-within:shadow-[0_0_34px_rgba(125,212,255,0.25),inset_0_1px_0_rgba(255,255,255,0.28)] sm:gap-3"
 					>
-						<input
-							type="text"
+						<textarea
 							placeholder="Add a comment..."
 							bind:value={comment_input}
 							maxlength={500}
+							rows={2}
 							disabled={is_submitting}
-							class="min-w-0 flex-1 rounded-full bg-transparent px-4 py-2.5 text-sm font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
-						/>
+							class="min-w-0 flex-1 resize-none overflow-y-auto rounded-full bg-transparent px-4 py-2.5 text-sm leading-5 font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
+						></textarea>
 						<button
 							type="submit"
 							disabled={is_submitting || comment_input.trim().length === 0}
@@ -1616,6 +1694,14 @@
 
 	.comment-card-container {
 		position: relative;
+	}
+
+	.comment-preview-text {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
 	}
 
 	:global(.comment-card-avatar) {
