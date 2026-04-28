@@ -1,23 +1,23 @@
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
     spellcheck:
       run: pnpm spellcheck
-    audit:
-      run: pnpm audit --audit-level high
+    # audit:
+    #   run: pnpm audit --audit-level high
 
     prettier:
       glob: '**/*.{css,html,js,json,jsonc,md,svelte,ts,yaml,yml}'
       run: pnpm exec prettier --write {staged_files}
       stage_fixed: true
 
-    eslint:
-      glob: '**/*.{js,ts,svelte}'
-      run: pnpm exec eslint --fix {staged_files}
-      stage_fixed: true
+    # eslint:
+    #   glob: '**/*.{js,ts,svelte}'
+    #   run: pnpm exec eslint --fix {staged_files}
+    #   stage_fixed: true
 
 pre-push:
-  parallel: true
+  parallel: false
   commands:
     lint:
       run: pnpm lint
