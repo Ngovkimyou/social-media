@@ -1723,15 +1723,7 @@
 		const payload = await upload_to_cloudinary_with_progress(signed_upload, file, on_progress);
 
 		if (payload.error) {
-			const upload_error_message = payload.error?.message ?? '';
-
-			if (upload_error_message.includes('too large to process synchronously')) {
-				throw new Error(
-					`Cloudinary could not trim or transcode this ${format_file_size(file.size)} source video during upload. Try a shorter trim range or choose a smaller source video.`
-				);
-			}
-
-			throw new Error(upload_error_message || 'Video upload failed. Please try again.');
+			throw new Error(payload.error?.message || 'Video upload failed. Please try again.');
 		}
 
 		if (
@@ -1740,12 +1732,6 @@
 			payload.public_id !== signed_upload.publicId
 		) {
 			throw new Error('Video upload could not be verified. Please try again.');
-		}
-
-		if (typeof payload.bytes === 'number' && payload.bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
-			throw new Error(
-				`The compressed video is ${format_file_size(payload.bytes)}. Trim it to ${video_upload_size_label} or smaller before posting.`
-			);
 		}
 
 		return {
@@ -1761,6 +1747,7 @@
 		trim_end_seconds: number;
 		trim_start_seconds: number;
 		video_duration_seconds: number;
+		create_post_action_url: string;
 	}) {
 		const form_data = new FormData();
 		form_data.set('caption', params.caption);
@@ -1774,7 +1761,7 @@
 		active_video_post_abort_controller = new AbortController();
 
 		try {
-			const response = await fetch('?/create_post', {
+			const response = await fetch(params.create_post_action_url, {
 				method: 'POST',
 				body: form_data,
 				signal: active_video_post_abort_controller.signal
@@ -1789,6 +1776,8 @@
 	}
 
 	async function start_background_video_post(post: PreparedVideoPost) {
+		const create_post_action_url = `${page.url.pathname}?/create_post`;
+
 		background_video_post = {
 			file_name: post.file.name,
 			progress_percent: 0,
@@ -1830,6 +1819,7 @@
 
 			await save_uploaded_video_post({
 				caption: post.caption,
+				create_post_action_url,
 				public_id: uploaded_video.publicId,
 				secure_url: uploaded_video.secureUrl,
 				trim_end_seconds: post.trim_end_seconds,

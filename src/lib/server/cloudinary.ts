@@ -43,7 +43,6 @@ export type UploadVideoOptions = {
 	endOffset?: number;
 	folder: string;
 	publicId?: string;
-	shouldTransform?: boolean;
 	startOffset?: number;
 };
 
@@ -72,10 +71,6 @@ export type SignedVideoUpload = {
 	signature: string;
 	uploadUrl: string;
 };
-
-const VIDEO_UPLOAD_FORMAT_OPTIONS = {
-	format: 'mp4'
-} as const;
 
 const COMPRESSED_VIDEO_TRANSFORMATION_OPTIONS = ['q_auto:good', 'vc_h264', 'ac_aac'] as const;
 
@@ -195,21 +190,30 @@ export async function upload_video_from_file(
 		file,
 		options: {
 			allowed_formats: options.allowedFormats ?? [...ALLOWED_VIDEO_FORMATS],
-			...VIDEO_UPLOAD_FORMAT_OPTIONS,
 			folder: options.folder,
-			...(options.publicId ? { public_id: options.publicId } : {}),
-			transformation: build_video_upload_transformation(options)
+			...(options.publicId ? { public_id: options.publicId } : {})
 		},
 		resource_type: 'video'
 	});
 }
 
-export function create_signed_video_upload(params: {
-	endOffset: number;
-	folder: string;
-	shouldTransform?: boolean;
-	startOffset: number;
-}): SignedVideoUpload {
+export function build_video_delivery_url(
+	base_url: string,
+	options: {
+		endOffset?: number;
+		startOffset?: number;
+	}
+): string {
+	const [prefix, suffix] = base_url.split('/video/upload/');
+
+	if (!prefix || !suffix) {
+		return base_url;
+	}
+
+	return `${prefix}/video/upload/${build_video_upload_transformation(options)},f_mp4/${suffix}`;
+}
+
+export function create_signed_video_upload(params: { folder: string }): SignedVideoUpload {
 	ensure_cloudinary_configured();
 
 	const cloud_name = env['CLOUDINARY_CLOUD_NAME'];
@@ -224,12 +228,8 @@ export function create_signed_video_upload(params: {
 	const timestamp = Math.floor(Date.now() / 1000);
 	const upload_params = {
 		allowed_formats: [...ALLOWED_VIDEO_FORMATS],
-		...(params.shouldTransform === false ? {} : VIDEO_UPLOAD_FORMAT_OPTIONS),
 		public_id,
-		timestamp,
-		...(params.shouldTransform === false
-			? {}
-			: { transformation: build_video_upload_transformation(params) })
+		timestamp
 	};
 
 	return {

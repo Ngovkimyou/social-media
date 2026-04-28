@@ -19,9 +19,25 @@ const build_cloudinary_video_variant_url = (
 	return `${prefix}/video/upload/${transform_segment}/${suffix}`;
 };
 
+const has_cloudinary_video_transform = (url: string): boolean => {
+	const suffix = url.split('/video/upload/')[1];
+	const first_segment = suffix?.split('/')[0] ?? '';
+
+	return first_segment.length > 0 && !/^v\d+$/.test(first_segment);
+};
+
 export const build_responsive_video_source = (original_url: string): ResponsiveVideoSource => {
 	if (!is_cloudinary_video_upload_url(original_url)) {
 		return { poster: undefined, src: original_url };
+	}
+
+	if (has_cloudinary_video_transform(original_url)) {
+		const poster_url = build_cloudinary_video_variant_url(original_url, 'so_0,w_720,q_auto,f_jpg');
+
+		return {
+			poster: poster_url,
+			src: original_url
+		};
 	}
 
 	const playback_url = build_cloudinary_video_variant_url(

@@ -12,6 +12,7 @@ import { user as auth_user } from '$lib/server/db/auth.schema';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import {
+	build_video_delivery_url,
 	delete_image_by_public_id,
 	delete_video_by_public_id,
 	get_uploaded_video_resource,
@@ -505,6 +506,9 @@ const get_direct_video_upload = async (params: {
 	public_id: string;
 	secure_url: string;
 	user_id: string;
+	trim_end_seconds: number;
+	trim_start_seconds: number;
+	video_duration_seconds: number;
 }): Promise<
 	| {
 			error_message: string;
@@ -531,9 +535,13 @@ const get_direct_video_upload = async (params: {
 			return { error_message: 'Video upload could not be verified. Please choose it again.' };
 		}
 
-		if (resource.bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
+		const estimated_trimmed_bytes =
+			(resource.bytes * (params.trim_end_seconds - params.trim_start_seconds)) /
+			params.video_duration_seconds;
+
+		if (estimated_trimmed_bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
 			return {
-				error_message: `The compressed video is ${format_file_size(resource.bytes)}. Trim it to 80MB or smaller before posting.`
+				error_message: `The estimated video is ${format_file_size(estimated_trimmed_bytes)}. Trim it to 80MB or smaller before posting.`
 			};
 		}
 
@@ -546,7 +554,10 @@ const get_direct_video_upload = async (params: {
 		return {
 			uploaded: {
 				publicId: resource.publicId,
-				secureUrl: resource.secureUrl
+				secureUrl: build_video_delivery_url(resource.secureUrl, {
+					endOffset: params.trim_end_seconds,
+					startOffset: params.trim_start_seconds
+				})
 			}
 		};
 	} catch {
@@ -623,13 +634,24 @@ const prepare_post_media_upload = async (params: {
 		const uploaded =
 			media_type === 'video'
 				? await upload_video_from_file(file, {
-						...(typeof trim_end_seconds === 'number' ? { endOffset: trim_end_seconds } : {}),
-						folder: `posts/${user_id}`,
-						startOffset: trim_start_seconds
+						folder: `posts/${user_id}`
 					})
 				: await upload_image_from_file(file, {
 						folder: `posts/${user_id}`
 					});
+
+		if (media_type === 'video' && typeof trim_end_seconds === 'number') {
+			return {
+				image_hash_to_record,
+				uploaded: {
+					publicId: uploaded.publicId,
+					secureUrl: build_video_delivery_url(uploaded.secureUrl, {
+						endOffset: trim_end_seconds,
+						startOffset: trim_start_seconds
+					})
+				}
+			};
+		}
 
 		return { image_hash_to_record, uploaded };
 	} catch (error) {
@@ -741,10 +763,17 @@ const resolve_post_media_upload = async (params: {
 		return { error_message: trim_error };
 	}
 
+	if (trim_end_seconds === undefined || video_duration_seconds === undefined) {
+		return { error_message: 'Video metadata could not be verified. Please choose it again.' };
+	}
+
 	const direct_upload = await get_direct_video_upload({
 		public_id: media_public_id,
 		secure_url: media_secure_url,
-		user_id
+		user_id,
+		trim_end_seconds,
+		trim_start_seconds,
+		video_duration_seconds
 	});
 	if ('error_message' in direct_upload) {
 		return { error_message: direct_upload.error_message };
