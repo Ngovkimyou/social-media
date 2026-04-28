@@ -128,6 +128,7 @@
 	let confirmed_share_counts = $state<Record<string, number>>({});
 	let share_requests_in_flight = $state<Record<string, boolean>>({});
 	let loaded_images = $state<Record<string, boolean>>({});
+	let unavailable_media = $state<Record<string, boolean>>({});
 	let comment_counts = $state<Record<string, number>>({});
 	let hidden_post_ids = $state<Record<string, boolean>>({});
 	let open_post_actions_menu_id = $state<string | undefined>();
@@ -1574,10 +1575,42 @@
 		};
 	}
 
+	function mark_media_available(post_id: string | number) {
+		const key = String(post_id);
+
+		if (!unavailable_media[key]) {
+			return;
+		}
+
+		unavailable_media = {
+			...unavailable_media,
+			[key]: false
+		};
+	}
+
+	function mark_media_unavailable(post_id: string | number) {
+		const key = String(post_id);
+
+		mark_image_loaded(key);
+		if (unavailable_media[key]) {
+			return;
+		}
+
+		unavailable_media = {
+			...unavailable_media,
+			[key]: true
+		};
+	}
+
+	function is_media_unavailable(post: PostFeedPost) {
+		return Boolean(unavailable_media[String(post.id)]);
+	}
+
 	function is_post_media_pending(post: PostFeedPost) {
 		return (
 			post.media_type === 'image' &&
 			Boolean(post.media_display_url ?? post.media_url) &&
+			!is_media_unavailable(post) &&
 			!loaded_images[String(post.id)]
 		);
 	}
@@ -2185,7 +2218,17 @@
 										aria-label={`Open ${post.author_name}'s post`}
 									></a>
 								{/if}
-								{#if post.media_url && post.media_type === 'image'}
+								{#if post.media_url && is_media_unavailable(post)}
+									<div
+										class="absolute inset-0 z-15 flex h-full w-full flex-col items-center justify-center bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.18),transparent_35%),linear-gradient(145deg,rgba(17,13,38,0.96),rgba(7,7,20,0.98))] px-6 text-center text-white"
+										role="status"
+									>
+										<p class="text-sm font-semibold">Media unavailable</p>
+										<p class="mt-2 max-w-52 text-xs leading-5 text-white/62">
+											This {post.media_type === 'video' ? 'video' : 'image'} no longer exists in storage.
+										</p>
+									</div>
+								{:else if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
 										class="absolute inset-0 z-15 block h-full w-full cursor-pointer overflow-hidden"
@@ -2203,8 +2246,11 @@
 											loading={index < 6 ? 'eager' : 'lazy'}
 											decoding="async"
 											fetchpriority={index < 6 ? 'high' : 'low'}
-											on_load={() => mark_image_loaded(post.id)}
-											on_error={() => mark_image_loaded(post.id)}
+											on_load={() => {
+												mark_image_loaded(post.id);
+												mark_media_available(post.id);
+											}}
+											on_error={() => mark_media_unavailable(post.id)}
 										/>
 									</button>
 								{:else if post.media_url && post.media_type === 'video'}
@@ -2228,6 +2274,8 @@
 											muted
 											playsinline
 											preload="metadata"
+											onloadedmetadata={() => mark_media_available(post.id)}
+											onerror={() => mark_media_unavailable(post.id)}
 										></video>
 									</button>
 								{/if}
@@ -2493,7 +2541,17 @@
 							<div
 								class="relative mx-3 mt-3 aspect-4/5 w-auto overflow-hidden rounded-2xl bg-black/20 md:mx-4"
 							>
-								{#if post.media_url && post.media_type === 'image'}
+								{#if post.media_url && is_media_unavailable(post)}
+									<div
+										class="flex h-full w-full flex-col items-center justify-center bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.18),transparent_35%),linear-gradient(145deg,rgba(17,13,38,0.96),rgba(7,7,20,0.98))] px-6 text-center text-white"
+										role="status"
+									>
+										<p class="text-sm font-semibold">Media unavailable</p>
+										<p class="mt-2 max-w-52 text-xs leading-5 text-white/62">
+											This {post.media_type === 'video' ? 'video' : 'image'} no longer exists in storage.
+										</p>
+									</div>
+								{:else if post.media_url && post.media_type === 'image'}
 									<button
 										type="button"
 										class="block h-full w-full cursor-pointer overflow-hidden"
@@ -2511,8 +2569,11 @@
 											loading={index < 4 ? 'eager' : 'lazy'}
 											decoding="async"
 											fetchpriority={index < 4 ? 'high' : 'low'}
-											on_load={() => mark_image_loaded(post.id)}
-											on_error={() => mark_image_loaded(post.id)}
+											on_load={() => {
+												mark_image_loaded(post.id);
+												mark_media_available(post.id);
+											}}
+											on_error={() => mark_media_unavailable(post.id)}
 										/>
 									</button>
 								{:else if post.media_url && post.media_type === 'video'}
@@ -2536,6 +2597,8 @@
 											muted
 											playsinline
 											preload="metadata"
+											onloadedmetadata={() => mark_media_available(post.id)}
+											onerror={() => mark_media_unavailable(post.id)}
 										></video>
 									</button>
 								{/if}

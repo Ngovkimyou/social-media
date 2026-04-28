@@ -1,5 +1,6 @@
 import { get_db } from '$lib/server/db';
-import { hidden_posts, posts } from '$lib/server/db/schema';
+import { hidden_posts, media, post_media, posts } from '$lib/server/db/schema';
+import { delete_media_by_cloudinary_url } from '$lib/server/cloudinary';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
 let hidden_posts_init_promise: Promise<void> | undefined;
@@ -50,7 +51,20 @@ export async function delete_post(
 		return { success: false, error: 'Forbidden' };
 	}
 
+	const attached_media = await db
+		.select({
+			type: media.type,
+			url: media.url
+		})
+		.from(post_media)
+		.innerJoin(media, eq(post_media.media_id, media.id))
+		.where(eq(post_media.post_id, post_id));
+
 	await db.update(posts).set({ deleted_at: new Date() }).where(eq(posts.id, post_id));
+
+	await Promise.allSettled(
+		attached_media.map((item) => delete_media_by_cloudinary_url(item.url, item.type))
+	);
 
 	return { success: true };
 }

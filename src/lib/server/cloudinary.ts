@@ -294,3 +294,59 @@ export async function delete_video_by_public_id(public_id: string): Promise<void
 		resource_type: 'video'
 	});
 }
+
+export function get_cloudinary_public_id_from_url(
+	url: string,
+	resource_type: 'image' | 'video'
+): string | undefined {
+	const upload_marker = `/${resource_type}/upload/`;
+	const [, raw_suffix] = url.split(upload_marker);
+
+	if (!raw_suffix) {
+		return undefined;
+	}
+
+	const suffix = raw_suffix.split(/[?#]/)[0] ?? '';
+	let segments = suffix.split('/').filter(Boolean);
+	const version_index = segments.findIndex((segment) => /^v\d+$/.test(segment));
+
+	if (version_index >= 0) {
+		segments = segments.slice(version_index + 1);
+	} else {
+		const post_folder_index = segments.indexOf('posts');
+		if (post_folder_index >= 0) {
+			segments = segments.slice(post_folder_index);
+		} else if (segments[0]?.includes(',')) {
+			segments = segments.slice(1);
+		}
+	}
+
+	if (segments.length === 0) {
+		return undefined;
+	}
+
+	const last_segment = segments.at(-1) ?? '';
+	const extension_index = last_segment.lastIndexOf('.');
+	const normalized_last_segment =
+		extension_index > 0 ? last_segment.slice(0, extension_index) : last_segment;
+
+	return [...segments.slice(0, -1), normalized_last_segment].join('/');
+}
+
+export async function delete_media_by_cloudinary_url(
+	url: string,
+	resource_type: 'image' | 'video'
+): Promise<void> {
+	const public_id = get_cloudinary_public_id_from_url(url, resource_type);
+
+	if (!public_id) {
+		return;
+	}
+
+	if (resource_type === 'video') {
+		await delete_video_by_public_id(public_id);
+		return;
+	}
+
+	await delete_image_by_public_id(public_id);
+}

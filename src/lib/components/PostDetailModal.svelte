@@ -48,6 +48,8 @@
 	let confirm_delete_id = $state<string>();
 	let deleting_comment_id = $state<string>();
 	let comment_count = $state(0);
+	let expanded_comments = $state<Record<string, boolean>>({});
+	let overflowing_comments = $state<Record<string, boolean>>({});
 	let inline_video_el = $state<HTMLVideoElement | undefined>();
 	let inline_video_current_time = $state(0);
 	let inline_video_duration = $state(0);
@@ -59,6 +61,7 @@
 	let is_compact_inline_video = $state(false);
 	let inline_video_active_setting = $state<'brightness' | 'volume' | undefined>();
 	let inline_video_touch_setting_panel = $state<'brightness' | 'volume' | undefined>();
+	let is_media_unavailable = $state(false);
 	let inline_video_click_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let inline_video_controls_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let inline_video_seek_pointer_id = $state<number | undefined>();
@@ -111,6 +114,43 @@
 	function set_comment_count(next_count: number) {
 		comment_count = next_count;
 		on_comment_count_change?.(next_count);
+	}
+
+	function toggle_comment(comment_id: string) {
+		expanded_comments = {
+			...expanded_comments,
+			[comment_id]: !expanded_comments[comment_id]
+		};
+	}
+
+	function set_comment_overflow(comment_id: string, is_overflowing: boolean) {
+		if (overflowing_comments[comment_id] === is_overflowing) {
+			return;
+		}
+
+		overflowing_comments = {
+			...overflowing_comments,
+			[comment_id]: is_overflowing
+		};
+	}
+
+	function measure_comment(node: HTMLElement, comment_id: string): { destroy(): void } {
+		const update = () => {
+			set_comment_overflow(comment_id, node.scrollHeight > node.clientHeight + 1);
+		};
+
+		const resize_observer = new ResizeObserver(() => {
+			update();
+		});
+
+		resize_observer.observe(node);
+		requestAnimationFrame(update);
+
+		return {
+			destroy() {
+				resize_observer.disconnect();
+			}
+		};
 	}
 
 	function format_media_time(seconds: number) {
@@ -585,6 +625,14 @@
 		);
 	}
 
+	function mark_media_available() {
+		is_media_unavailable = false;
+	}
+
+	function mark_media_unavailable() {
+		is_media_unavailable = true;
+	}
+
 	function handle_inline_video_preview_click(event: MouseEvent) {
 		event.stopPropagation();
 		open_inline_video_preview();
@@ -883,7 +931,17 @@
 		<div
 			class="relative flex h-[clamp(210px,42dvh,430px)] min-h-0 shrink-0 items-center justify-center overflow-hidden bg-black/20 md:h-full md:flex-1 md:rounded-l-2xl"
 		>
-			{#if post.media_url && post.media_type === 'image'}
+			{#if post.media_url && is_media_unavailable}
+				<div
+					class="flex h-full w-full flex-col items-center justify-center bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.18),transparent_35%),linear-gradient(145deg,rgba(17,13,38,0.96),rgba(7,7,20,0.98))] px-6 text-center text-white"
+					role="status"
+				>
+					<p class="text-base font-semibold">Media unavailable</p>
+					<p class="mt-2 max-w-64 text-sm leading-6 text-white/62">
+						This {post.media_type === 'video' ? 'video' : 'image'} no longer exists in storage.
+					</p>
+				</div>
+			{:else if post.media_url && post.media_type === 'image'}
 				<ProgressiveImage
 					src={post.media_display_url ?? post.media_url}
 					srcset={post.media_display_srcset}
@@ -894,6 +952,8 @@
 					loading="eager"
 					decoding="async"
 					fetchpriority="high"
+					on_load={mark_media_available}
+					on_error={mark_media_unavailable}
 				/>
 			{:else if post.media_url && post.media_type === 'video'}
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -923,6 +983,7 @@
 						playsinline
 						preload="metadata"
 						onloadedmetadata={() => {
+							mark_media_available();
 							apply_inline_video_settings();
 							sync_inline_video_time();
 							void inline_video_el?.play().catch(() => {
@@ -933,6 +994,7 @@
 						onplay={sync_inline_video_time}
 						onplaying={sync_inline_video_time}
 						onpause={sync_inline_video_time}
+						onerror={mark_media_unavailable}
 					></video>
 
 					{#if inline_video_touch_setting_panel}
@@ -1448,11 +1510,50 @@
 											{/if}
 										</div>
 										<div class="my-3 h-px bg-white/10"></div>
-										<p
-											class="text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
-										>
-											{comment.content}
-										</p>
+										{#if expanded_comments[comment.id]}
+											<button
+												type="button"
+												class="block w-full text-left"
+												aria-label="Collapse comment"
+												onclick={() => toggle_comment(comment.id)}
+											>
+												<p
+													class="text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
+												>
+													{comment.content}
+												</p>
+												{#if overflowing_comments[comment.id]}
+													<span
+														class="mt-2 inline-block text-xs font-semibold tracking-wide text-sky-300"
+														>See less</span
+													>
+												{/if}
+											</button>
+										{:else}
+											<button
+												type="button"
+												class={`block w-full text-left ${overflowing_comments[comment.id] ? 'cursor-pointer' : 'cursor-default'}`}
+												aria-label={overflowing_comments[comment.id] ? 'Expand comment' : undefined}
+												onclick={() => {
+													if (overflowing_comments[comment.id]) {
+														toggle_comment(comment.id);
+													}
+												}}
+											>
+												<p
+													use:measure_comment={comment.id}
+													class="comment-preview-text text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
+												>
+													{comment.content}
+												</p>
+												{#if overflowing_comments[comment.id]}
+													<span
+														class="mt-2 inline-block text-xs font-semibold tracking-wide text-sky-300"
+														>See more</span
+													>
+												{/if}
+											</button>
+										{/if}
 									</div>
 								</article>
 							{/each}
@@ -1548,18 +1649,18 @@
 					<div
 						class="flex items-center gap-2 rounded-full border border-white/16 bg-[linear-gradient(100deg,rgba(255,167,218,0.28),rgba(226,232,255,0.18)_48%,rgba(72,211,255,0.28))] p-1.5 shadow-[0_0_26px_rgba(205,130,255,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all duration-300 focus-within:border-sky-200/45 focus-within:shadow-[0_0_34px_rgba(125,212,255,0.25),inset_0_1px_0_rgba(255,255,255,0.28)] sm:gap-3"
 					>
-						<input
-							type="text"
+						<textarea
 							placeholder="Add a comment..."
 							bind:value={comment_input}
 							maxlength={500}
+							rows={1}
 							disabled={is_submitting}
-							class="min-w-0 flex-1 rounded-full bg-transparent px-4 py-2.5 text-sm font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
-						/>
+							class="comment-input-field min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-full bg-transparent px-4 py-3 text-sm leading-5 font-medium text-white outline-none placeholder:text-white/48 disabled:opacity-60"
+						></textarea>
 						<button
 							type="submit"
 							disabled={is_submitting || comment_input.trim().length === 0}
-							class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#11164a] shadow-[0_10px_22px_rgba(0,0,0,0.32)] transition-all duration-250 hover:scale-105 hover:bg-[#17206a] hover:shadow-[0_12px_28px_rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:h-11 sm:w-11"
+							class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#11164a] shadow-[0_10px_22px_rgba(0,0,0,0.32)] transition-all duration-250 hover:scale-105 hover:bg-[#17206a] hover:shadow-[0_12px_28px_rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 							aria-label={is_submitting ? 'Sending comment' : 'Send comment'}
 						>
 							<img
@@ -1595,6 +1696,14 @@
 		position: relative;
 	}
 
+	.comment-preview-text {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+	}
+
 	:global(.comment-card-avatar) {
 		position: absolute;
 		top: 0;
@@ -1602,6 +1711,14 @@
 		width: var(--comment-avatar-size);
 		height: var(--comment-avatar-size);
 		transform: translate(-50%, -50%);
+	}
+
+	.comment-input-field {
+		scrollbar-width: none;
+	}
+
+	.comment-input-field::-webkit-scrollbar {
+		display: none;
 	}
 
 	.comment-detail-scroll {
