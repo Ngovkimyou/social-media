@@ -1640,6 +1640,7 @@
 		trim_end_seconds: number;
 		trim_start_seconds: number;
 		video_duration_seconds: number;
+		create_post_action_url: string;
 	}) {
 		const form_data = new FormData();
 		form_data.set('caption', params.caption);
@@ -1653,7 +1654,7 @@
 		active_video_post_abort_controller = new AbortController();
 
 		try {
-			const response = await fetch('?/create_post', {
+			const response = await fetch(params.create_post_action_url, {
 				method: 'POST',
 				body: form_data,
 				signal: active_video_post_abort_controller.signal
@@ -1668,6 +1669,8 @@
 	}
 
 	async function start_background_video_post(post: PreparedVideoPost) {
+		const create_post_action_url = `${page.url.pathname}?/create_post`;
+
 		background_video_post = {
 			file_name: post.file.name,
 			progress_percent: 0,
@@ -1709,6 +1712,7 @@
 
 			await save_uploaded_video_post({
 				caption: post.caption,
+				create_post_action_url,
 				public_id: uploaded_video.publicId,
 				secure_url: uploaded_video.secureUrl,
 				trim_end_seconds: post.trim_end_seconds,
