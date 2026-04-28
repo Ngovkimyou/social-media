@@ -192,19 +192,75 @@
 	}
 
 	function measure_caption(node: HTMLElement, caption_id: string): { destroy(): void } {
+		const max_preview_lines = 3;
+		let measure_frame: number | undefined;
+		let is_destroyed = false;
+
+		const measure_natural_line_count = () => {
+			const node_width = node.getBoundingClientRect().width;
+
+			if (node_width <= 0) {
+				return 0;
+			}
+
+			const computed_style = getComputedStyle(node);
+			const line_height = Number.parseFloat(computed_style.lineHeight);
+			const font_size = Number.parseFloat(computed_style.fontSize);
+			const resolved_line_height = Number.isFinite(line_height) ? line_height : font_size * 1.2;
+			const clone = node.cloneNode(true) as HTMLElement;
+
+			clone.classList.remove('caption-preview');
+			clone.style.position = 'absolute';
+			clone.style.visibility = 'hidden';
+			clone.style.pointerEvents = 'none';
+			clone.style.inset = 'auto';
+			clone.style.width = `${node_width}px`;
+			clone.style.height = 'auto';
+			clone.style.maxHeight = 'none';
+			clone.style.overflow = 'visible';
+			clone.style.display = 'block';
+			clone.style.setProperty('line-clamp', 'unset');
+			clone.style.setProperty('-webkit-line-clamp', 'unset');
+			clone.style.setProperty('-webkit-box-orient', 'unset');
+
+			document.body.append(clone);
+			const natural_height = clone.getBoundingClientRect().height;
+			clone.remove();
+
+			return natural_height / resolved_line_height;
+		};
+
 		const update = () => {
-			set_caption_overflow(caption_id, node.scrollHeight > node.clientHeight + 1);
+			measure_frame = undefined;
+			set_caption_overflow(caption_id, measure_natural_line_count() > max_preview_lines + 0.2);
+		};
+
+		const schedule_update = () => {
+			if (measure_frame !== undefined) {
+				cancelAnimationFrame(measure_frame);
+			}
+
+			measure_frame = requestAnimationFrame(update);
 		};
 
 		const resize_observer = new ResizeObserver(() => {
-			update();
+			schedule_update();
 		});
 
 		resize_observer.observe(node);
-		requestAnimationFrame(update);
+		schedule_update();
+		void document.fonts?.ready.then(() => {
+			if (!is_destroyed) {
+				schedule_update();
+			}
+		});
 
 		return {
 			destroy() {
+				is_destroyed = true;
+				if (measure_frame !== undefined) {
+					cancelAnimationFrame(measure_frame);
+				}
 				resize_observer.disconnect();
 			}
 		};

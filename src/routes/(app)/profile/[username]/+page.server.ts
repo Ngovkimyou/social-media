@@ -79,10 +79,9 @@ const has_recent_duplicate_caption = async (
 const get_retry_message = (seconds: number, noun: string): string =>
 	`Too many ${noun}. Please try again in ${seconds} seconds.`;
 
-const MAX_POST_VIDEO_DURATION_SECONDS = 60;
 const SERVER_FUNCTION_UPLOAD_SAFE_BYTES = 4 * 1024 * 1024;
 const MAX_POST_VIDEO_OUTPUT_BYTES = 80 * 1024 * 1024;
-const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
+const MAX_POST_VIDEO_SOURCE_BYTES = 99 * 1024 * 1024;
 const ALLOWED_DIRECT_VIDEO_FORMATS = new Set(['mp4', 'mov', 'webm']);
 const DIRECT_VIDEO_VERIFY_ATTEMPTS = 4;
 const DIRECT_VIDEO_VERIFY_RETRY_DELAY_MS = 350;
@@ -415,7 +414,8 @@ const validate_post_media_selection = async (params: {
 	const post_video_validation = await validate_uploaded_video({
 		file,
 		max_bytes: MAX_POST_VIDEO_SOURCE_BYTES,
-		size_message: 'Video source must be 200MB or smaller before trimming.',
+		size_message:
+			'Video source must be 100MB or smaller. Trim or compress the video before uploading.',
 		type_message: 'Only MP4, MOV, and WebM videos are allowed.'
 	});
 	if (!post_video_validation.is_valid) {
@@ -430,10 +430,6 @@ const validate_post_media_selection = async (params: {
 		trim_end_seconds <= trim_start_seconds
 	) {
 		return 'Choose a valid video trim range before posting.';
-	}
-
-	if (trim_end_seconds - trim_start_seconds > MAX_POST_VIDEO_DURATION_SECONDS) {
-		return `Video clips must be ${MAX_POST_VIDEO_DURATION_SECONDS} seconds or shorter after trimming.`;
 	}
 
 	if (
@@ -468,10 +464,6 @@ const validate_post_video_trim_submission = (params: {
 		trim_end_seconds <= trim_start_seconds
 	) {
 		return 'Choose a valid video trim range before posting.';
-	}
-
-	if (trim_end_seconds - trim_start_seconds > MAX_POST_VIDEO_DURATION_SECONDS) {
-		return `Video clips must be ${MAX_POST_VIDEO_DURATION_SECONDS} seconds or shorter after trimming.`;
 	}
 
 	if (

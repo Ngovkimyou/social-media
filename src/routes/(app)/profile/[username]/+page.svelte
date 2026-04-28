@@ -181,8 +181,9 @@
 	const MAX_SELECTED_IMAGE_BYTES = 10 * 1024 * 1024;
 	const MAX_POST_IMAGE_BYTES = MAX_SELECTED_IMAGE_BYTES;
 	const MAX_POST_VIDEO_OUTPUT_BYTES = 80 * 1024 * 1024;
-	const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
-	const MAX_POST_VIDEO_DURATION_SECONDS = 60;
+	const MAX_POST_VIDEO_SOURCE_BYTES = 99 * 1024 * 1024;
+	const CLOUDINARY_CHUNKED_VIDEO_THRESHOLD_BYTES = 60 * 1024 * 1024;
+	const CLOUDINARY_VIDEO_CHUNK_BYTES = 20 * 1024 * 1024;
 	const safe_upload_size_label = '4MB';
 	const video_upload_size_label = '80MB';
 	const selected_image_size_label = '10MB';
@@ -762,7 +763,8 @@
 
 		upload_media_error = '';
 		if (file.size > MAX_POST_VIDEO_SOURCE_BYTES) {
-			upload_media_error = 'Video source must be 200MB or smaller before trimming.';
+			upload_media_error =
+				'Video source must be 100MB or smaller. Trim or compress the video before uploading.';
 			target.value = '';
 			return;
 		}
@@ -821,9 +823,7 @@
 		if (
 			upload_media_type === 'video' &&
 			!direct_video_public_id &&
-			(post_video_trim_end_seconds - post_video_trim_start_seconds >
-				MAX_POST_VIDEO_DURATION_SECONDS ||
-				estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES)
+			estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES
 		) {
 			event.preventDefault();
 			submitting_post = false;
@@ -1134,7 +1134,7 @@
 
 			post_video_duration_seconds = video_metadata.duration_seconds;
 			post_video_trim_start_seconds = 0;
-			post_video_trim_end_seconds = Math.min(60, video_metadata.duration_seconds);
+			post_video_trim_end_seconds = video_metadata.duration_seconds;
 			video_trim_preview_focus = 'start';
 		} else {
 			const image_metadata = await new Promise<{ height: number; width: number }>(
@@ -1465,6 +1465,9 @@
 
 	type CloudinaryVideoUploadResponse = {
 		bytes?: number;
+		error?: {
+			message?: string;
+		};
 		public_id?: string;
 		secure_url?: string;
 	};
@@ -1522,11 +1525,17 @@
 		return payload as SignedVideoUploadResponse;
 	}
 
-	function upload_to_cloudinary_with_progress(
+	function get_cloudinary_upload_id() {
+		return typeof crypto.randomUUID === 'function'
+			? crypto.randomUUID()
+			: `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	}
+
+	function build_cloudinary_upload_form_data(
 		signed_upload: SignedVideoUploadResponse,
-		file: File,
-		on_progress: (progress_percent: number) => void
-	): Promise<CloudinaryVideoUploadResponse & { error?: { message?: string } }> {
+		file_part: Blob,
+		file_name: string
+	) {
 		const upload_form_data = new FormData();
 
 		for (const [key, value] of Object.entries(signed_upload.params)) {
@@ -1540,7 +1549,51 @@
 
 		upload_form_data.set('api_key', signed_upload.apiKey);
 		upload_form_data.set('signature', signed_upload.signature);
-		upload_form_data.set('file', file);
+		upload_form_data.set('file', file_part, file_name);
+
+		return upload_form_data;
+	}
+
+	function parse_cloudinary_upload_response(
+		request: XMLHttpRequest,
+		file: File
+	): CloudinaryVideoUploadResponse {
+		let payload: CloudinaryVideoUploadResponse;
+
+		try {
+			payload = JSON.parse(request.responseText || '{}') as CloudinaryVideoUploadResponse;
+		} catch (error) {
+			console.error('Cloudinary video upload response could not be parsed', {
+				error,
+				file_size: file.size,
+				response_text: request.responseText,
+				status: request.status
+			});
+			throw new Error('Video upload failed. Please try again.', { cause: error });
+		}
+
+		if ((request.status < 200 || request.status >= 300) && !payload.error?.message) {
+			console.error('Cloudinary video upload failed without a readable error message', {
+				file_size: file.size,
+				response_text: request.responseText,
+				status: request.status
+			});
+			throw new Error('Video upload failed. Please try again.');
+		}
+
+		return payload;
+	}
+
+	function upload_cloudinary_video_part(params: {
+		file: File;
+		file_part: Blob;
+		on_progress: (loaded_bytes: number) => void;
+		signed_upload: SignedVideoUploadResponse;
+		content_range?: string;
+		upload_id?: string;
+	}): Promise<CloudinaryVideoUploadResponse> {
+		const { content_range, file, file_part, on_progress, signed_upload, upload_id } = params;
+		const upload_form_data = build_cloudinary_upload_form_data(signed_upload, file_part, file.name);
 
 		return new Promise((resolve, reject) => {
 			const request = new XMLHttpRequest();
@@ -1551,27 +1604,18 @@
 					return;
 				}
 
-				on_progress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+				on_progress(event.loaded);
 			};
 
 			request.onload = () => {
 				active_video_upload_xhr = undefined;
 
-				let payload: CloudinaryVideoUploadResponse & { error?: { message?: string } };
 				try {
-					payload = JSON.parse(request.responseText || '{}') as typeof payload;
-				} catch {
-					reject(new Error('Video upload failed. Please try again.'));
-					return;
-				}
-
-				if (request.status < 200 || request.status >= 300) {
+					const payload = parse_cloudinary_upload_response(request, file);
 					resolve(payload);
-					return;
+				} catch (error) {
+					reject(error);
 				}
-
-				on_progress(100);
-				resolve(payload);
 			};
 
 			request.onerror = () => {
@@ -1585,8 +1629,85 @@
 			};
 
 			request.open('POST', signed_upload.uploadUrl);
+
+			if (content_range && upload_id) {
+				request.setRequestHeader('Content-Range', content_range);
+				request.setRequestHeader('X-Unique-Upload-Id', upload_id);
+			}
+
 			request.send(upload_form_data);
 		});
+	}
+
+	async function upload_to_cloudinary_in_single_request(
+		signed_upload: SignedVideoUploadResponse,
+		file: File,
+		on_progress: (progress_percent: number) => void
+	): Promise<CloudinaryVideoUploadResponse> {
+		const payload = await upload_cloudinary_video_part({
+			file,
+			file_part: file,
+			on_progress: (loaded_bytes) => {
+				on_progress(Math.min(99, Math.round((loaded_bytes / file.size) * 100)));
+			},
+			signed_upload
+		});
+
+		on_progress(100);
+		return payload;
+	}
+
+	async function upload_to_cloudinary_in_chunks(
+		signed_upload: SignedVideoUploadResponse,
+		file: File,
+		on_progress: (progress_percent: number) => void
+	): Promise<CloudinaryVideoUploadResponse> {
+		const upload_id = get_cloudinary_upload_id();
+		let uploaded_bytes = 0;
+		let last_payload: CloudinaryVideoUploadResponse = {};
+
+		while (uploaded_bytes < file.size) {
+			const chunk_start = uploaded_bytes;
+			const chunk_end_exclusive = Math.min(chunk_start + CLOUDINARY_VIDEO_CHUNK_BYTES, file.size);
+			const chunk_end = chunk_end_exclusive - 1;
+			const file_part = file.slice(chunk_start, chunk_end_exclusive);
+
+			last_payload = await upload_cloudinary_video_part({
+				content_range: `bytes ${chunk_start}-${chunk_end}/${file.size}`,
+				file,
+				file_part,
+				on_progress: (chunk_loaded_bytes) => {
+					const total_loaded_bytes = Math.min(
+						file.size,
+						chunk_start + Math.min(chunk_loaded_bytes, file_part.size)
+					);
+					on_progress(Math.min(99, Math.round((total_loaded_bytes / file.size) * 100)));
+				},
+				signed_upload,
+				upload_id
+			});
+
+			if (last_payload.error) {
+				return last_payload;
+			}
+
+			uploaded_bytes = chunk_end_exclusive;
+		}
+
+		on_progress(100);
+		return last_payload;
+	}
+
+	function upload_to_cloudinary_with_progress(
+		signed_upload: SignedVideoUploadResponse,
+		file: File,
+		on_progress: (progress_percent: number) => void
+	): Promise<CloudinaryVideoUploadResponse> {
+		if (file.size > CLOUDINARY_CHUNKED_VIDEO_THRESHOLD_BYTES) {
+			return upload_to_cloudinary_in_chunks(signed_upload, file, on_progress);
+		}
+
+		return upload_to_cloudinary_in_single_request(signed_upload, file, on_progress);
 	}
 
 	async function upload_direct_trimmed_video(
@@ -1801,10 +1922,6 @@
 	function validate_video_editor_range() {
 		if (post_video_trim_end_seconds <= post_video_trim_start_seconds) {
 			return 'Choose a valid start and end time for the video clip.';
-		}
-
-		if (post_video_trim_end_seconds - post_video_trim_start_seconds > 60) {
-			return 'Trim the video to 60 seconds or less before posting.';
 		}
 
 		if (estimated_trimmed_video_bytes > MAX_POST_VIDEO_OUTPUT_BYTES) {
@@ -3332,11 +3449,6 @@
 								</div>
 							</div>
 
-							{#if post_video_duration_seconds > 60}
-								<p class="mt-3 text-sm text-amber-200">
-									This video is longer than 1 minute. Trim it to 60 seconds or less before posting.
-								</p>
-							{/if}
 							<p class="mt-3 text-sm text-white/68">
 								Original source size: {current_video_source_bytes <= 0
 									? '0'

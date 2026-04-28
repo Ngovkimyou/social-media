@@ -3,8 +3,7 @@ import type { RequestHandler } from './$types';
 import { create_signed_video_upload } from '$lib/server/cloudinary';
 import { get_profile_owner_by_username } from '$lib/server/utilities/profile';
 
-const MAX_POST_VIDEO_DURATION_SECONDS = 60;
-const MAX_POST_VIDEO_SOURCE_BYTES = 200 * 1024 * 1024;
+const MAX_POST_VIDEO_SOURCE_BYTES = 99 * 1024 * 1024;
 const ALLOWED_VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
 const TRIM_START_TOLERANCE_SECONDS = 0.05;
 const TRIM_END_TOLERANCE_SECONDS = 0.25;
@@ -31,7 +30,7 @@ const validate_payload = (payload: VideoSignaturePayload): string | undefined =>
 	const video_duration_seconds = as_number(payload.video_duration_seconds);
 
 	if (!file_size || file_size <= 0 || file_size > MAX_POST_VIDEO_SOURCE_BYTES) {
-		return 'Video source must be 200MB or smaller before trimming.';
+		return 'Video source must be 100MB or smaller. Trim or compress the video before uploading.';
 	}
 
 	if (!ALLOWED_VIDEO_MIME_TYPES.has(file_type)) {
@@ -48,10 +47,6 @@ const validate_payload = (payload: VideoSignaturePayload): string | undefined =>
 		trim_end_seconds > video_duration_seconds + 0.25
 	) {
 		return 'Choose a valid video trim range before posting.';
-	}
-
-	if (trim_end_seconds - trim_start_seconds > MAX_POST_VIDEO_DURATION_SECONDS) {
-		return `Video clips must be ${MAX_POST_VIDEO_DURATION_SECONDS} seconds or shorter after trimming.`;
 	}
 
 	return undefined;
