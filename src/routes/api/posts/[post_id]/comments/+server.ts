@@ -133,8 +133,8 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: 'Comment cannot be empty' }, { status: 400 });
 	}
 
-	if (content.length > 2000) {
-		return json({ error: 'Comment is too long (max 2000 characters)' }, { status: 400 });
+	if (content.length > 500) {
+		return json({ error: 'Comment is too long (max 500 characters)' }, { status: 400 });
 	}
 
 	if (count_links(content) > MAX_COMMENT_LINKS) {
