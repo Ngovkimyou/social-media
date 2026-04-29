@@ -324,7 +324,7 @@
 
 <!-- Bottom Tab (fixed) -->
 <nav
-	class="fixed right-0 bottom-0 left-0 isolate z-120 h-15 w-full border-t border-white/8 bg-[#09051C] shadow-[0_-18px_36px_rgba(9,5,28,0.96)] backdrop-blur-none supports-backdrop-filter:backdrop-blur-none md:hidden"
+	class="fixed right-0 bottom-0 left-0 isolate z-40 h-15 w-full border-t border-white/8 bg-[#09051C] shadow-[0_-18px_36px_rgba(9,5,28,0.96)] backdrop-blur-none supports-backdrop-filter:backdrop-blur-none md:hidden"
 	data-sveltekit-preload-code="viewport"
 	data-nonselectable-ui="true"
 >
