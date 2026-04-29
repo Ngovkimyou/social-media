@@ -135,6 +135,11 @@
 	let deleting_post_id = $state<string | undefined>();
 	let hiding_post_id = $state<string | undefined>();
 	let post_delete_error = $state('');
+	let edited_posts = $state<Record<string, Pick<PostFeedPost, 'content' | 'updated_at'>>>({});
+	let editing_post = $state<PostFeedPost | undefined>();
+	let editing_post_content = $state('');
+	let is_saving_post_edit = $state(false);
+	let post_edit_error = $state('');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
@@ -172,6 +177,34 @@
 		if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
 		const days = Math.floor(seconds / 86400);
 		return `${days} day${days === 1 ? '' : 's'} ago`;
+	}
+
+	function is_edited(created_at: Date, updated_at: Date) {
+		return new Date(updated_at).getTime() - new Date(created_at).getTime() > 1000;
+	}
+
+	function get_post_content(post: PostFeedPost) {
+		return edited_posts[String(post.id)]?.content ?? post.content;
+	}
+
+	function get_post_updated_at(post: PostFeedPost) {
+		return edited_posts[String(post.id)]?.updated_at ?? post.updated_at;
+	}
+
+	function get_display_post(post: PostFeedPost): PostFeedPost {
+		const edited_post = edited_posts[String(post.id)];
+		return edited_post
+			? {
+					...post,
+					content: edited_post.content,
+					updated_at: edited_post.updated_at
+				}
+			: post;
+	}
+
+	function get_post_edited_label(post: PostFeedPost) {
+		const updated_at = get_post_updated_at(post);
+		return is_edited(post.created_at, updated_at) ? `Edited ${time_ago(updated_at)}` : '';
 	}
 
 	function toggle_caption(caption_id: string) {
@@ -288,7 +321,7 @@
 	}
 
 	function open_post_detail(post: PostFeedPost) {
-		detail_post = post;
+		detail_post = get_display_post(post);
 	}
 
 	function close_post_detail() {
@@ -316,6 +349,82 @@
 
 	function can_delete_post(post: PostFeedPost) {
 		return Boolean(current_user_id) && post.author_id === current_user_id;
+	}
+
+	function apply_post_update(updated_post: Pick<PostFeedPost, 'id' | 'content' | 'updated_at'>) {
+		const key = String(updated_post.id);
+		edited_posts = {
+			...edited_posts,
+			[key]: {
+				content: updated_post.content,
+				updated_at: new Date(updated_post.updated_at)
+			}
+		};
+
+		if (detail_post?.id === updated_post.id) {
+			detail_post = {
+				...detail_post,
+				content: updated_post.content,
+				updated_at: new Date(updated_post.updated_at)
+			};
+		}
+	}
+
+	function begin_edit_post(post: PostFeedPost) {
+		editing_post = get_display_post(post);
+		editing_post_content = get_post_content(post);
+		post_edit_error = '';
+		open_post_actions_menu_id = undefined;
+	}
+
+	function cancel_edit_post() {
+		if (is_saving_post_edit) {
+			return;
+		}
+
+		editing_post = undefined;
+		editing_post_content = '';
+		post_edit_error = '';
+	}
+
+	async function save_post_edit() {
+		if (!editing_post || is_saving_post_edit) {
+			return;
+		}
+
+		const content = editing_post_content.trim();
+		if (content.length > 1000) {
+			post_edit_error = 'Post caption is too long (max 1000 characters).';
+			return;
+		}
+
+		is_saving_post_edit = true;
+		post_edit_error = '';
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(String(editing_post.id))}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ content })
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error ?? 'Unable to edit post right now.');
+			}
+
+			const updated_post = (await response.json()) as Pick<
+				PostFeedPost,
+				'id' | 'content' | 'created_at' | 'updated_at'
+			>;
+			apply_post_update(updated_post);
+			editing_post = undefined;
+			editing_post_content = '';
+		} catch (error) {
+			post_edit_error = error instanceof Error ? error.message : 'Unable to edit post right now.';
+		} finally {
+			is_saving_post_edit = false;
+		}
 	}
 
 	function can_hide_post(post: PostFeedPost) {
@@ -975,8 +1084,30 @@
 	}
 
 	function toggle_video_preview_panel(panel: 'brightness' | 'volume') {
+		if (video_preview_should_ignore_next_click) {
+			video_preview_should_ignore_next_click = false;
+			return;
+		}
+
 		active_video_preview_panel = active_video_preview_panel === panel ? undefined : panel;
 		show_video_preview_controls();
+	}
+
+	function begin_video_preview_setting_button_drag(
+		event: PointerEvent,
+		panel: 'brightness' | 'volume'
+	) {
+		event.stopPropagation();
+		video_preview_should_ignore_next_click = false;
+		video_preview_setting_drag_state = {
+			has_moved: false,
+			panel,
+			pointer_id: event.pointerId,
+			start_value: panel === 'brightness' ? video_preview_brightness : video_preview_volume,
+			start_x: event.clientX,
+			start_y: event.clientY,
+			target: event.currentTarget as HTMLElement
+		};
 	}
 
 	function handle_video_preview_volume_input(event: Event) {
@@ -2072,7 +2203,9 @@
 						{subtitle}
 					</p>
 				{/if}
-				<h2 class="truncate text-2xl font-bold text-white md:text-4xl">{title}</h2>
+				<h2 class="truncate text-2xl font-bold text-white md:text-4xl" data-nonselectable-ui="true">
+					{title}
+				</h2>
 			</div>
 		</div>
 
@@ -2177,6 +2310,27 @@
 											{#if can_delete_post(post)}
 												<button
 													type="button"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-sky-200 transition-colors hover:bg-sky-400/15 hover:text-white"
+													role="menuitem"
+													onclick={() => begin_edit_post(post)}
+												>
+													<span>Edit</span>
+													<svg
+														aria-hidden="true"
+														class="h-4 w-4"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path d="M12 20h9" />
+														<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+													</svg>
+												</button>
+												<button
+													type="button"
 													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
 													role="menuitem"
 													disabled={deleting_post_id === post.id}
@@ -2279,7 +2433,7 @@
 										></video>
 									</button>
 								{/if}
-								{#if post.content}
+								{#if get_post_content(post)}
 									{#if expanded_captions[caption_key('grid', post.id)]}
 										<button
 											type="button"
@@ -2291,8 +2445,13 @@
 												<p
 													class="user-content-text text-sm leading-6 whitespace-pre-line text-white"
 												>
-													{post.content}
+													{get_post_content(post)}
 												</p>
+												{#if get_post_edited_label(post)}
+													<p class="mt-2 text-xs font-medium text-white/45">
+														{get_post_edited_label(post)}
+													</p>
+												{/if}
 												{#if overflowing_captions[caption_key('grid', post.id)]}
 													<span
 														class="mt-3 inline-block text-xs font-semibold tracking-wide text-sky-300"
@@ -2320,8 +2479,13 @@
 													use:measure_caption={caption_key('grid', post.id)}
 													class="user-content-text caption-preview text-sm leading-5 whitespace-pre-line text-white"
 												>
-													{post.content}
+													{get_post_content(post)}
 												</p>
+												{#if get_post_edited_label(post)}
+													<p class="mt-1 text-[0.68rem] font-medium text-white/45">
+														{get_post_edited_label(post)}
+													</p>
+												{/if}
 											</button>
 											{#if overflowing_captions[caption_key('grid', post.id)]}
 												<button
@@ -2506,6 +2670,27 @@
 											{#if can_delete_post(post)}
 												<button
 													type="button"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-sky-200 transition-colors hover:bg-sky-400/15 hover:text-white"
+													role="menuitem"
+													onclick={() => begin_edit_post(post)}
+												>
+													<span>Edit</span>
+													<svg
+														aria-hidden="true"
+														class="h-4 w-4"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
+														<path d="M12 20h9" />
+														<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+													</svg>
+												</button>
+												<button
+													type="button"
 													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
 													role="menuitem"
 													disabled={deleting_post_id === post.id}
@@ -2603,7 +2788,7 @@
 										></video>
 									</button>
 								{/if}
-								{#if post.content}
+								{#if get_post_content(post)}
 									{#if expanded_captions[caption_key('feed', post.id)]}
 										<button
 											type="button"
@@ -2615,8 +2800,13 @@
 												<p
 													class="user-content-text text-sm leading-6 whitespace-pre-line text-white"
 												>
-													{post.content}
+													{get_post_content(post)}
 												</p>
+												{#if get_post_edited_label(post)}
+													<p class="mt-2 text-xs font-medium text-white/45">
+														{get_post_edited_label(post)}
+													</p>
+												{/if}
 												{#if overflowing_captions[caption_key('feed', post.id)]}
 													<span
 														class="mt-3 inline-block text-xs font-semibold tracking-wide text-sky-300"
@@ -2644,8 +2834,13 @@
 													use:measure_caption={caption_key('feed', post.id)}
 													class="user-content-text caption-preview text-sm leading-5 whitespace-pre-line text-white"
 												>
-													{post.content}
+													{get_post_content(post)}
 												</p>
+												{#if get_post_edited_label(post)}
+													<p class="mt-1 text-[0.68rem] font-medium text-white/45">
+														{get_post_edited_label(post)}
+													</p>
+												{/if}
 											</button>
 											{#if overflowing_captions[caption_key('feed', post.id)]}
 												<button
@@ -2839,6 +3034,69 @@
 	</div>
 </div>
 
+{#if editing_post}
+	<div
+		class="fixed inset-0 z-155 grid place-items-center bg-black/70 px-4 backdrop-blur-md"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Edit post"
+		transition:fade={{ duration: 160 }}
+	>
+		<div
+			class="w-full max-w-lg rounded-3xl border border-white/12 bg-[#120b2b] p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] md:p-5"
+		>
+			<div class="flex items-center justify-between gap-3" data-nonselectable-ui="true">
+				<p class="text-sm font-semibold tracking-[0.18em] text-white/55 uppercase">Edit post</p>
+				<button
+					type="button"
+					class="grid h-9 w-9 place-items-center rounded-full border border-rose-300/30 bg-[rgba(76,25,38,0.88)] text-base text-rose-100 shadow-[inset_0_0_16px_rgba(251,113,133,0.06),0_10px_24px_rgba(0,0,0,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-300/55 hover:bg-[rgba(190,24,93,0.52)] hover:text-white hover:shadow-[inset_0_0_18px_rgba(251,113,133,0.1),0_0_18px_rgba(251,113,133,0.18),0_12px_28px_rgba(0,0,0,0.22)]"
+					onclick={cancel_edit_post}
+					disabled={is_saving_post_edit}
+					aria-label="Close edit post"
+				>
+					x
+				</button>
+			</div>
+			<textarea
+				bind:value={editing_post_content}
+				maxlength={1000}
+				rows={6}
+				class="edit-content-scrollbar mt-4 min-h-36 w-full resize-none rounded-2xl border border-white/12 bg-white/8 px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-white/35 focus:border-sky-200/45"
+				placeholder="Write a caption..."
+				disabled={is_saving_post_edit}
+			></textarea>
+			<div class="mt-2 flex items-center justify-between gap-3" data-nonselectable-ui="true">
+				<p class="text-xs text-rose-200" aria-live="polite">{post_edit_error}</p>
+				<span
+					class={`shrink-0 text-xs tabular-nums ${editing_post_content.length > 1000 ? 'text-rose-300' : 'text-white/45'}`}
+				>
+					{editing_post_content.length}/1000
+				</span>
+			</div>
+			<div class="mt-4 grid grid-cols-2 gap-3" data-nonselectable-ui="true">
+				<button
+					type="button"
+					class="rounded-2xl border border-white/12 bg-white/8 px-4 py-3 text-sm font-semibold text-white/75 transition-colors hover:bg-white/14 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+					onclick={cancel_edit_post}
+					disabled={is_saving_post_edit}
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					class="rounded-2xl border border-sky-200/25 bg-sky-300/14 px-4 py-3 text-sm font-semibold text-sky-100 transition-colors hover:bg-sky-300/22 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+					onclick={() => {
+						void save_post_edit();
+					}}
+					disabled={is_saving_post_edit || editing_post_content.length > 1000}
+				>
+					{is_saving_post_edit ? 'Saving...' : 'Save'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 {#if detail_post}
 	<PostDetailModal
 		post={detail_post}
@@ -2851,6 +3109,7 @@
 			handle_post_comment_count_change(detail_post!.id, next_count)}
 		on_like={() => toggle_like(detail_post!.id)}
 		on_share={() => toggle_share(detail_post!.id)}
+		on_post_update={apply_post_update}
 		on_video_preview={(src, alt) => open_video_preview(src, alt)}
 	/>
 {/if}
@@ -3067,6 +3326,11 @@
 								type="button"
 								class="video-preview-icon-button"
 								data-video-preview-control="true"
+								onpointerdown={(event) =>
+									begin_video_preview_setting_button_drag(event, 'brightness')}
+								onpointermove={move_video_preview_setting_drag}
+								onpointerup={end_video_preview_drag}
+								onpointercancel={cancel_video_preview_drag}
 								onclick={() => toggle_video_preview_panel('brightness')}
 								aria-label="Adjust brightness"
 								aria-pressed={active_video_preview_panel === 'brightness'}
@@ -3171,6 +3435,10 @@
 								type="button"
 								class="video-preview-icon-button"
 								data-video-preview-control="true"
+								onpointerdown={(event) => begin_video_preview_setting_button_drag(event, 'volume')}
+								onpointermove={move_video_preview_setting_drag}
+								onpointerup={end_video_preview_drag}
+								onpointercancel={cancel_video_preview_drag}
 								onclick={() => toggle_video_preview_panel('volume')}
 								aria-label="Adjust volume"
 								aria-pressed={active_video_preview_panel === 'volume'}

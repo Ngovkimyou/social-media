@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade, scale } from 'svelte/transition';
 	import { onMount, tick } from 'svelte';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import ProgressiveImage from '$lib/components/ProgressiveImage.svelte';
 	import type { PostFeedPost } from '$lib/types/post-feed';
@@ -16,6 +17,7 @@
 		on_comment_count_change?: (count: number) => void;
 		on_like: () => void;
 		on_share: () => void;
+		on_post_update?: (post: Pick<PostFeedPost, 'id' | 'content' | 'updated_at'>) => void;
 		on_video_preview?: (src: string, alt: string) => void;
 	};
 
@@ -29,12 +31,14 @@
 		on_comment_count_change,
 		on_like,
 		on_share,
+		on_post_update,
 		on_video_preview
 	}: Props = $props();
 
 	const current_user_id = $derived(
 		(page.data as { current_user_id?: string }).current_user_id ?? ''
 	);
+	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 
 	let panel_el = $state<HTMLDivElement | undefined>();
 	let comment_list = $state<PostComment[]>([]);
@@ -45,8 +49,18 @@
 	let comment_input = $state('');
 	let is_submitting = $state(false);
 	let submit_error = $state('');
+	let post_content = $state('');
+	let post_updated_at = $state<Date>(new Date(0));
+	let is_editing_post = $state(false);
+	let edit_post_content = $state('');
+	let is_saving_post_edit = $state(false);
+	let post_edit_error = $state('');
 	let confirm_delete_id = $state<string>();
 	let deleting_comment_id = $state<string>();
+	let editing_comment_id = $state<string>();
+	let editing_comment_content = $state('');
+	let saving_comment_id = $state<string>();
+	let comment_edit_error = $state('');
 	let comment_count = $state(0);
 	let expanded_comments = $state<Record<string, boolean>>({});
 	let overflowing_comments = $state<Record<string, boolean>>({});
@@ -62,6 +76,7 @@
 	let inline_video_active_setting = $state<'brightness' | 'volume' | undefined>();
 	let inline_video_touch_setting_panel = $state<'brightness' | 'volume' | undefined>();
 	let is_media_unavailable = $state(false);
+	let is_image_preview_open = $state(false);
 	let inline_video_click_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let inline_video_controls_timeout = $state<ReturnType<typeof setTimeout> | undefined>();
 	let inline_video_seek_pointer_id = $state<number | undefined>();
@@ -111,9 +126,35 @@
 	const inline_video_drag_click_suppression_distance = 12;
 	const inline_video_setting_drag_sensitivity = 0.65;
 
+	$effect(() => {
+		post_content = post.content;
+		post_updated_at = post.updated_at;
+		edit_post_content = post.content;
+		is_editing_post = false;
+		post_edit_error = '';
+	});
+
 	function set_comment_count(next_count: number) {
 		comment_count = next_count;
 		on_comment_count_change?.(next_count);
+	}
+
+	function get_profile_href(username: string) {
+		return resolve(
+			`/profile/${encodeURIComponent(username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
+		);
+	}
+
+	function is_edited(created_at: Date, updated_at: Date) {
+		return new Date(updated_at).getTime() - new Date(created_at).getTime() > 1000;
+	}
+
+	function get_edited_label(created_at: Date, updated_at: Date) {
+		return is_edited(created_at, updated_at) ? `Edited ${time_ago(updated_at)}` : '';
+	}
+
+	function can_edit_post() {
+		return Boolean(current_user_id) && post.author_id === current_user_id;
 	}
 
 	function toggle_comment(comment_id: string) {
@@ -625,6 +666,15 @@
 		);
 	}
 
+	function open_inline_image_preview() {
+		if (!post.media_url || post.media_type !== 'image') return;
+		is_image_preview_open = true;
+	}
+
+	function close_inline_image_preview() {
+		is_image_preview_open = false;
+	}
+
 	function mark_media_available() {
 		is_media_unavailable = false;
 	}
@@ -650,7 +700,29 @@
 
 	function handle_inline_video_setting_click(event: MouseEvent, setting: 'brightness' | 'volume') {
 		event.stopPropagation();
+		if (inline_video_should_ignore_next_click) {
+			inline_video_should_ignore_next_click = false;
+			return;
+		}
+
 		toggle_inline_video_setting(setting);
+	}
+
+	function begin_inline_video_setting_button_drag(
+		event: PointerEvent,
+		panel: 'brightness' | 'volume'
+	) {
+		event.stopPropagation();
+		inline_video_should_ignore_next_click = false;
+		inline_video_setting_drag_state = {
+			has_moved: false,
+			panel,
+			pointer_id: event.pointerId,
+			start_value: panel === 'brightness' ? inline_video_brightness : inline_video_volume,
+			start_x: event.clientX,
+			start_y: event.clientY,
+			target: event.currentTarget as HTMLElement
+		};
 	}
 
 	function time_ago(date: Date): string {
@@ -739,6 +811,132 @@
 			submit_error = 'Something went wrong. Please try again.';
 		} finally {
 			is_submitting = false;
+		}
+	}
+
+	function begin_post_edit() {
+		edit_post_content = post_content;
+		post_edit_error = '';
+		is_editing_post = true;
+	}
+
+	function cancel_post_edit() {
+		if (is_saving_post_edit) {
+			return;
+		}
+
+		is_editing_post = false;
+		edit_post_content = post_content;
+		post_edit_error = '';
+	}
+
+	async function save_post_edit() {
+		if (!can_edit_post() || is_saving_post_edit) {
+			return;
+		}
+
+		const content = edit_post_content.trim();
+		if (content.length > 1000) {
+			post_edit_error = 'Post caption is too long (max 1000 characters).';
+			return;
+		}
+
+		is_saving_post_edit = true;
+		post_edit_error = '';
+
+		try {
+			const response = await fetch(`/api/posts/${encodeURIComponent(String(post.id))}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ content })
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error ?? 'Unable to edit post right now.');
+			}
+
+			const updated_post = (await response.json()) as Pick<
+				PostFeedPost,
+				'id' | 'content' | 'created_at' | 'updated_at'
+			>;
+			post_content = updated_post.content;
+			post_updated_at = new Date(updated_post.updated_at);
+			edit_post_content = updated_post.content;
+			is_editing_post = false;
+			on_post_update?.(updated_post);
+		} catch (error) {
+			post_edit_error = error instanceof Error ? error.message : 'Unable to edit post right now.';
+		} finally {
+			is_saving_post_edit = false;
+		}
+	}
+
+	function begin_comment_edit(comment: PostComment) {
+		editing_comment_id = comment.id;
+		editing_comment_content = comment.content;
+		comment_edit_error = '';
+		confirm_delete_id = undefined;
+	}
+
+	function cancel_comment_edit() {
+		if (saving_comment_id) {
+			return;
+		}
+
+		editing_comment_id = undefined;
+		editing_comment_content = '';
+		comment_edit_error = '';
+	}
+
+	async function save_comment_edit(comment_id: string) {
+		if (saving_comment_id) {
+			return;
+		}
+
+		const content = editing_comment_content.trim();
+		if (content.length === 0) {
+			comment_edit_error = 'Comment cannot be empty.';
+			return;
+		}
+
+		if (content.length > 500) {
+			comment_edit_error = 'Comment is too long (max 500 characters).';
+			return;
+		}
+
+		saving_comment_id = comment_id;
+		comment_edit_error = '';
+
+		try {
+			const response = await fetch(`/api/comments/${encodeURIComponent(comment_id)}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ content })
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error ?? 'Unable to edit comment right now.');
+			}
+
+			const updated_comment = (await response.json()) as PostComment;
+			comment_list = comment_list.map((comment) =>
+				comment.id === comment_id
+					? {
+							...comment,
+							content: updated_comment.content,
+							updated_at: new Date(updated_comment.updated_at)
+						}
+					: comment
+			);
+			editing_comment_id = undefined;
+			editing_comment_content = '';
+		} catch (error) {
+			comment_edit_error =
+				error instanceof Error ? error.message : 'Unable to edit comment right now.';
+		} finally {
+			saving_comment_id = undefined;
 		}
 	}
 
@@ -889,6 +1087,12 @@
 
 <svelte:window
 	onkeydown={(e) => {
+		if (is_image_preview_open && e.key === 'Escape') {
+			e.preventDefault();
+			close_inline_image_preview();
+			return;
+		}
+
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			on_close();
@@ -899,6 +1103,9 @@
 <div
 	class="fixed inset-0 z-150 flex h-dvh w-screen items-start justify-center overflow-hidden bg-black/85 p-0 backdrop-blur-md md:items-center md:p-6"
 	role="presentation"
+	style={drag_close_state
+		? `transform: translate3d(${drag_close_offset_x}px, ${drag_close_offset_y}px, 0) scale(0.985); opacity: 0.92;`
+		: undefined}
 	onclick={(e) => {
 		if (e.target === e.currentTarget) on_close();
 	}}
@@ -922,9 +1129,6 @@
 		tabindex="-1"
 		onkeydown={handle_inline_video_keydown}
 		class="comment-preview-panel relative flex h-dvh w-screen max-w-full flex-col overflow-x-hidden overflow-y-auto bg-[#0d0921] shadow-[inset_1px_-1px_40px_0px_#CD82FF44,0_20px_80px_rgba(0,0,0,0.7)] outline-none md:h-full md:max-h-[88dvh] md:max-w-5xl md:flex-row md:overflow-hidden md:rounded-2xl"
-		style={drag_close_state
-			? `transform: translate3d(${drag_close_offset_x}px, ${drag_close_offset_y}px, 0) scale(0.985); opacity: 0.92;`
-			: undefined}
 		transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 	>
 		<!-- Left: Media -->
@@ -942,19 +1146,50 @@
 					</p>
 				</div>
 			{:else if post.media_url && post.media_type === 'image'}
-				<ProgressiveImage
-					src={post.media_display_url ?? post.media_url}
-					srcset={post.media_display_srcset}
-					alt={`${post.author_name}'s post`}
-					wrapper_class="h-full w-full"
-					img_class="h-full w-full object-contain"
-					skeleton_class="rounded-none"
-					loading="eager"
-					decoding="async"
-					fetchpriority="high"
-					on_load={mark_media_available}
-					on_error={mark_media_unavailable}
-				/>
+				<div class="relative h-full w-full bg-black">
+					<ProgressiveImage
+						src={post.media_display_url ?? post.media_url}
+						srcset={post.media_display_srcset}
+						alt={`${post.author_name}'s post`}
+						wrapper_class="h-full w-full"
+						img_class="h-full w-full object-contain"
+						skeleton_class="rounded-none"
+						loading="eager"
+						decoding="async"
+						fetchpriority="high"
+						on_load={mark_media_available}
+						on_error={mark_media_unavailable}
+					/>
+					<button
+						type="button"
+						data-comment-preview-control="true"
+						class="comment-video-expand-button pointer-events-auto absolute top-3 right-3 z-20"
+						onclick={open_inline_image_preview}
+						aria-label={`Open ${post.author_name}'s image preview`}
+					>
+						<svg viewBox="0 0 24 24" aria-hidden="true" class="comment-video-expand-svg">
+							<path
+								d="M8.2 4.5H4.5v3.7M4.5 4.5l5.7 5.7M15.8 19.5h3.7v-3.7M19.5 19.5l-5.7-5.7"
+								fill="none"
+								stroke="currentColor"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+							/>
+							<rect
+								x="7.3"
+								y="7.3"
+								width="9.4"
+								height="9.4"
+								rx="2.2"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.45"
+								opacity="0.55"
+							/>
+						</svg>
+					</button>
+				</div>
 			{:else if post.media_url && post.media_type === 'video'}
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 				<div
@@ -1016,7 +1251,11 @@
 										: inline_video_volume}%
 								</span>
 								{#if inline_video_touch_setting_panel === 'brightness'}
-									<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-setting-icon">
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="video-preview-gesture-setting-icon"
+									>
 										<circle
 											cx="12"
 											cy="12"
@@ -1034,7 +1273,11 @@
 										/>
 									</svg>
 								{:else}
-									<svg viewBox="0 0 24 24" aria-hidden="true" class="video-preview-setting-icon">
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="video-preview-gesture-setting-icon"
+									>
 										<path
 											d="M4.5 14.4h3.7l4.2 3.2V6.4L8.2 9.6H4.5z"
 											fill="none"
@@ -1138,6 +1381,11 @@
 										data-comment-preview-control="true"
 										data-video-preview-control="true"
 										class="video-preview-icon-button"
+										onpointerdown={(event) =>
+											begin_inline_video_setting_button_drag(event, 'brightness')}
+										onpointermove={move_inline_video_drag}
+										onpointerup={end_inline_video_drag}
+										onpointercancel={cancel_inline_video_drag}
 										onclick={(event) => handle_inline_video_setting_click(event, 'brightness')}
 										aria-pressed={inline_video_active_setting === 'brightness'}
 										aria-label="Adjust brightness"
@@ -1248,6 +1496,11 @@
 										data-comment-preview-control="true"
 										data-video-preview-control="true"
 										class="video-preview-icon-button"
+										onpointerdown={(event) =>
+											begin_inline_video_setting_button_drag(event, 'volume')}
+										onpointermove={move_inline_video_drag}
+										onpointerup={end_inline_video_drag}
+										onpointercancel={cancel_inline_video_drag}
 										onclick={(event) => handle_inline_video_setting_click(event, 'volume')}
 										aria-pressed={inline_video_active_setting === 'volume'}
 										aria-label="Adjust volume"
@@ -1331,29 +1584,35 @@
 				<div
 					class="sticky top-0 z-30 -mx-4 flex items-center gap-3 border-b border-white/8 bg-[#0d0921]/92 px-4 py-3 backdrop-blur-md md:-mr-3"
 				>
-					<div class="flex min-w-0 flex-1 items-center gap-3">
-						{#if post.author_avatar}
-							<ProgressiveImage
-								src={post.author_avatar}
-								alt={post.author_name}
-								wrapper_class="h-9 w-9 shrink-0 rounded-full"
-								img_class="h-full w-full rounded-full object-cover"
-								skeleton_class="rounded-full"
-								loading="eager"
-								decoding="async"
-							/>
-						{:else}
-							<div
-								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white"
-							>
-								{post.author_name?.[0]?.toUpperCase() ?? '?'}
-							</div>
-						{/if}
+					<a
+						href={get_profile_href(post.author_username)}
+						class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85 focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d0921]"
+						aria-label={`Open ${post.author_name}'s profile`}
+					>
+						<div class="h-9 w-9 shrink-0 rounded-full">
+							{#if post.author_avatar}
+								<ProgressiveImage
+									src={post.author_avatar}
+									alt={post.author_name}
+									wrapper_class="h-full w-full rounded-full"
+									img_class="h-full w-full rounded-full object-cover"
+									skeleton_class="rounded-full"
+									loading="eager"
+									decoding="async"
+								/>
+							{:else}
+								<div
+									class="flex h-full w-full items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white"
+								>
+									{post.author_name?.[0]?.toUpperCase() ?? '?'}
+								</div>
+							{/if}
+						</div>
 						<div class="min-w-0 flex-1">
 							<p class="truncate text-sm font-semibold text-white">{post.author_name}</p>
 							<p class="truncate text-xs text-white/40">@{post.author_username}</p>
 						</div>
-					</div>
+					</a>
 					<button
 						type="button"
 						onclick={on_close}
@@ -1375,11 +1634,82 @@
 						</svg>
 					</button>
 				</div>
-				{#if post.content}
-					<p class="mt-4 text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80">
-						{post.content}
-					</p>
-					<p class="mt-1 text-xs text-white/35">{time_ago(post.created_at)}</p>
+				{#if is_editing_post}
+					<div class="mt-4 rounded-2xl border border-white/12 bg-white/6 p-3">
+						<textarea
+							bind:value={edit_post_content}
+							maxlength={1000}
+							rows={5}
+							disabled={is_saving_post_edit}
+							class="edit-content-scrollbar min-h-28 w-full resize-none rounded-xl border border-white/12 bg-black/18 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-white/35 focus:border-sky-200/45 disabled:opacity-60"
+							placeholder="Write a caption..."
+						></textarea>
+						<div class="mt-2 flex items-center justify-between gap-3" data-nonselectable-ui="true">
+							<p class="text-xs text-rose-200" aria-live="polite">{post_edit_error}</p>
+							<span
+								class={`shrink-0 text-xs tabular-nums ${edit_post_content.length > 1000 ? 'text-rose-300' : 'text-white/45'}`}
+							>
+								{edit_post_content.length}/1000
+							</span>
+						</div>
+						<div class="mt-3 grid grid-cols-2 gap-2" data-nonselectable-ui="true">
+							<button
+								type="button"
+								class="rounded-xl border border-white/12 bg-white/8 px-3 py-2 text-xs font-semibold text-white/72 transition-colors hover:bg-white/14 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+								onclick={cancel_post_edit}
+								disabled={is_saving_post_edit}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								class="rounded-xl border border-sky-200/35 bg-sky-400/18 px-3 py-2 text-xs font-semibold text-sky-100 transition-colors hover:bg-sky-400/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+								onclick={() => {
+									void save_post_edit();
+								}}
+								disabled={is_saving_post_edit || edit_post_content.length > 1000}
+							>
+								{is_saving_post_edit ? 'Saving...' : 'Save'}
+							</button>
+						</div>
+					</div>
+				{:else if post_content}
+					<div class="mt-4">
+						<div class="flex items-start gap-3">
+							<p
+								class="min-w-0 flex-1 text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
+							>
+								{post_content}
+							</p>
+							{#if can_edit_post()}
+								<button
+									type="button"
+									class="shrink-0 rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/14 hover:text-white"
+									onclick={begin_post_edit}
+									data-nonselectable-ui="true"
+								>
+									Edit
+								</button>
+							{/if}
+						</div>
+						<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/35">
+							<span>{time_ago(post.created_at)}</span>
+							{#if get_edited_label(post.created_at, post_updated_at)}
+								<span data-nonselectable-ui="true">/</span>
+								<span>{get_edited_label(post.created_at, post_updated_at)}</span>
+							{/if}
+						</div>
+					</div>
+				{:else if can_edit_post()}
+					<div class="mt-4" data-nonselectable-ui="true">
+						<button
+							type="button"
+							class="rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/14 hover:text-white"
+							onclick={begin_post_edit}
+						>
+							Add caption
+						</button>
+					</div>
 				{/if}
 
 				<div class="mt-4 border-t border-white/10 pt-4">
@@ -1436,25 +1766,35 @@
 									<div
 										class="comment-card-container min-w-0 rounded-[1.1rem] border border-white/12 bg-[linear-gradient(135deg,rgba(255,255,255,0.13),rgba(255,255,255,0.055))] px-4 py-3 pl-9 shadow-[0_18px_45px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md sm:rounded-[1.35rem] sm:px-5 sm:py-4 sm:pl-10"
 									>
-										{#if comment.author_avatar}
-											<ProgressiveImage
-												src={comment.author_avatar}
-												alt={comment.author_name}
-												wrapper_class="comment-card-avatar z-10 shrink-0 rounded-full ring-3 ring-[#0d0921]"
-												img_class="h-full w-full rounded-full object-cover"
-												skeleton_class="rounded-full"
-												loading="lazy"
-												decoding="async"
-											/>
-										{:else}
-											<div
-												class="comment-card-avatar z-10 flex shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white ring-3 ring-[#0d0921]"
-											>
-												{comment.author_name?.[0]?.toUpperCase() ?? '?'}
-											</div>
-										{/if}
+										<a
+											href={get_profile_href(comment.author_username)}
+											class="comment-card-avatar z-10 block shrink-0 rounded-full ring-3 ring-[#0d0921] transition-opacity outline-none hover:opacity-85 focus-visible:ring-sky-300/70"
+											aria-label={`Open ${comment.author_name}'s profile`}
+										>
+											{#if comment.author_avatar}
+												<ProgressiveImage
+													src={comment.author_avatar}
+													alt={comment.author_name}
+													wrapper_class="h-full w-full rounded-full"
+													img_class="h-full w-full rounded-full object-cover"
+													skeleton_class="rounded-full"
+													loading="lazy"
+													decoding="async"
+												/>
+											{:else}
+												<div
+													class="flex h-full w-full items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white"
+												>
+													{comment.author_name?.[0]?.toUpperCase() ?? '?'}
+												</div>
+											{/if}
+										</a>
 										<div class="flex flex-wrap items-start gap-3">
-											<div class="min-w-0 flex-1">
+											<a
+												href={get_profile_href(comment.author_username)}
+												class="min-w-0 flex-1 rounded-lg transition-opacity outline-none hover:opacity-85 focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d0921]"
+												aria-label={`Open ${comment.author_name}'s profile`}
+											>
 												<p class="truncate text-sm font-semibold text-white">
 													{comment.author_name}
 												</p>
@@ -1463,7 +1803,7 @@
 												>
 													{time_ago(comment.created_at)}
 												</p>
-											</div>
+											</a>
 											{#if comment.author_id === current_user_id}
 												{#if confirm_delete_id === comment.id}
 													<div class="flex shrink-0 items-center justify-end gap-1">
@@ -1485,32 +1825,88 @@
 														</button>
 													</div>
 												{:else}
-													<button
-														type="button"
-														onclick={() => (confirm_delete_id = comment.id)}
-														class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-rose-300/30 bg-[rgba(76,25,38,0.88)] text-rose-100 shadow-[inset_0_0_16px_rgba(251,113,133,0.06),0_10px_24px_rgba(0,0,0,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-300/55 hover:bg-[rgba(190,24,93,0.52)] hover:text-white hover:shadow-[inset_0_0_18px_rgba(251,113,133,0.1),0_0_18px_rgba(251,113,133,0.18),0_12px_28px_rgba(0,0,0,0.22)]"
-														aria-label="Delete comment"
-													>
-														<svg
-															class="h-4 w-4"
-															viewBox="0 0 24 24"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="2.2"
-															stroke-linecap="round"
-															stroke-linejoin="round"
+													<div class="flex shrink-0 items-center justify-end gap-1">
+														<button
+															type="button"
+															onclick={() => begin_comment_edit(comment)}
+															class="rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-sky-400/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+															disabled={editing_comment_id === comment.id ||
+																Boolean(saving_comment_id)}
 														>
-															<path d="M3 6h18" />
-															<path d="M8 6V4h8v2" />
-															<path d="M19 6l-1 14H6L5 6" />
-															<path d="M10 11v5M14 11v5" />
-														</svg>
-													</button>
+															Edit
+														</button>
+														<button
+															type="button"
+															onclick={() => (confirm_delete_id = comment.id)}
+															class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-rose-300/30 bg-[rgba(76,25,38,0.88)] text-rose-100 shadow-[inset_0_0_16px_rgba(251,113,133,0.06),0_10px_24px_rgba(0,0,0,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-300/55 hover:bg-[rgba(190,24,93,0.52)] hover:text-white hover:shadow-[inset_0_0_18px_rgba(251,113,133,0.1),0_0_18px_rgba(251,113,133,0.18),0_12px_28px_rgba(0,0,0,0.22)]"
+															aria-label="Delete comment"
+														>
+															<svg
+																class="h-4 w-4"
+																viewBox="0 0 24 24"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="2.2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path d="M3 6h18" />
+																<path d="M8 6V4h8v2" />
+																<path d="M19 6l-1 14H6L5 6" />
+																<path d="M10 11v5M14 11v5" />
+															</svg>
+														</button>
+													</div>
 												{/if}
 											{/if}
 										</div>
 										<div class="my-3 h-px bg-white/10"></div>
-										{#if expanded_comments[comment.id]}
+										{#if editing_comment_id === comment.id}
+											<div>
+												<textarea
+													bind:value={editing_comment_content}
+													maxlength={500}
+													rows={4}
+													disabled={saving_comment_id === comment.id}
+													class="edit-content-scrollbar min-h-24 w-full resize-none rounded-xl border border-white/12 bg-black/18 px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-white/35 focus:border-sky-200/45 disabled:opacity-60"
+												></textarea>
+												<div
+													class="mt-2 flex items-center justify-between gap-3"
+													data-nonselectable-ui="true"
+												>
+													<p class="text-xs text-rose-200" aria-live="polite">
+														{comment_edit_error}
+													</p>
+													<span
+														class={`shrink-0 text-xs tabular-nums ${editing_comment_content.length > 500 ? 'text-rose-300' : 'text-white/45'}`}
+													>
+														{editing_comment_content.length}/500
+													</span>
+												</div>
+												<div class="mt-3 grid grid-cols-2 gap-2" data-nonselectable-ui="true">
+													<button
+														type="button"
+														onclick={cancel_comment_edit}
+														disabled={saving_comment_id === comment.id}
+														class="rounded-xl border border-white/12 bg-white/8 px-3 py-2 text-xs font-semibold text-white/72 transition-colors hover:bg-white/14 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+													>
+														Cancel
+													</button>
+													<button
+														type="button"
+														onclick={() => {
+															void save_comment_edit(comment.id);
+														}}
+														disabled={saving_comment_id === comment.id ||
+															editing_comment_content.trim().length === 0 ||
+															editing_comment_content.length > 500}
+														class="rounded-xl border border-sky-200/35 bg-sky-400/18 px-3 py-2 text-xs font-semibold text-sky-100 transition-colors hover:bg-sky-400/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+													>
+														{saving_comment_id === comment.id ? 'Saving...' : 'Save'}
+													</button>
+												</div>
+											</div>
+										{:else if expanded_comments[comment.id]}
 											<button
 												type="button"
 												class="block w-full text-left"
@@ -1522,6 +1918,11 @@
 												>
 													{comment.content}
 												</p>
+												{#if get_edited_label(comment.created_at, comment.updated_at)}
+													<p class="mt-2 text-xs font-medium text-white/40">
+														{get_edited_label(comment.created_at, comment.updated_at)}
+													</p>
+												{/if}
 												{#if overflowing_comments[comment.id]}
 													<span
 														class="mt-2 inline-block text-xs font-semibold tracking-wide text-sky-300"
@@ -1546,6 +1947,11 @@
 												>
 													{comment.content}
 												</p>
+												{#if get_edited_label(comment.created_at, comment.updated_at)}
+													<p class="mt-2 text-xs font-medium text-white/40">
+														{get_edited_label(comment.created_at, comment.updated_at)}
+													</p>
+												{/if}
 												{#if overflowing_comments[comment.id]}
 													<span
 														class="mt-2 inline-block text-xs font-semibold tracking-wide text-sky-300"
@@ -1679,6 +2085,55 @@
 	</div>
 </div>
 
+{#if is_image_preview_open && post.media_url && post.media_type === 'image'}
+	<div
+		class="fixed inset-0 z-170 flex cursor-zoom-out items-center justify-center bg-black/94 px-3 py-6 backdrop-blur-md md:px-6"
+		role="dialog"
+		aria-modal="true"
+		aria-label={`${post.author_name}'s image preview`}
+		tabindex="0"
+		data-comment-preview-control="true"
+		transition:fade={{ duration: 160 }}
+		onclick={(event) => {
+			if (event.target === event.currentTarget) close_inline_image_preview();
+		}}
+		onkeydown={(event) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				close_inline_image_preview();
+			}
+		}}
+	>
+		<ProgressiveImage
+			src={post.media_display_url ?? post.media_url}
+			srcset={post.media_display_srcset}
+			alt={`${post.author_name}'s post`}
+			wrapper_class="max-h-full max-w-full"
+			img_class="max-h-[calc(100dvh-3rem)] max-w-full object-contain"
+			skeleton_class="rounded-2xl"
+			loading="eager"
+			decoding="async"
+			fetchpriority="high"
+		/>
+		<button
+			type="button"
+			class="comment-video-expand-button pointer-events-auto absolute top-4 right-4 z-10"
+			onclick={close_inline_image_preview}
+			aria-label="Close image preview"
+		>
+			<svg viewBox="0 0 24 24" aria-hidden="true" class="comment-video-expand-svg">
+				<path
+					d="M18 6 6 18M6 6l12 12"
+					fill="none"
+					stroke="currentColor"
+					stroke-linecap="round"
+					stroke-width="2.2"
+				/>
+			</svg>
+		</button>
+	</div>
+{/if}
+
 <style>
 	.comment-preview-panel {
 		scroll-padding-top: 4.25rem;
@@ -1719,6 +2174,35 @@
 
 	.comment-input-field::-webkit-scrollbar {
 		display: none;
+	}
+
+	.edit-content-scrollbar {
+		scrollbar-gutter: stable;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(205, 130, 255, 0.8) rgba(255, 255, 255, 0.04);
+	}
+
+	.edit-content-scrollbar::-webkit-scrollbar {
+		width: 0.9rem;
+	}
+
+	.edit-content-scrollbar::-webkit-scrollbar-track {
+		margin-block: 0.75rem;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.04);
+		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+	}
+
+	.edit-content-scrollbar::-webkit-scrollbar-thumb {
+		border: 0.28rem solid transparent;
+		border-radius: 999px;
+		background: linear-gradient(180deg, rgba(255, 167, 218, 0.95), rgba(125, 212, 255, 0.92))
+			padding-box;
+		box-shadow: 0 0 18px rgba(205, 130, 255, 0.32);
+	}
+
+	.edit-content-scrollbar::-webkit-scrollbar-thumb:hover {
+		background: linear-gradient(180deg, rgba(255, 193, 229, 1), rgba(151, 224, 255, 1)) padding-box;
 	}
 
 	.comment-detail-scroll {

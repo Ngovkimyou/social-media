@@ -146,6 +146,7 @@ export async function get_home_feed_page(
 			author_id: posts.author_id,
 			content: posts.content,
 			created_at: posts.created_at,
+			updated_at: posts.updated_at,
 			author_name: user.name,
 			author_username: profiles.username,
 			author_avatar: user.image
@@ -272,6 +273,7 @@ export async function get_home_feed_page(
 			author_id: row.author_id,
 			content: row.content,
 			created_at: row.created_at,
+			updated_at: row.updated_at,
 			like_count: interaction_data.like_count_by_post.get(row.id) ?? 0,
 			has_liked: interaction_data.liked_post_ids.has(row.id),
 			share_count: interaction_data.share_count_by_post.get(row.id) ?? 0,

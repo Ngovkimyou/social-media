@@ -2,6 +2,7 @@ export type PostComment = {
 	id: string;
 	content: string;
 	created_at: Date;
+	updated_at: Date;
 	author_id: string;
 	author_name: string;
 	author_username: string;

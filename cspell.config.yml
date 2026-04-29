@@ -58,7 +58,9 @@ words:
   - msnv
   - neondatabase
   - NGOV
+  - nonselectable
   - nosniff
+  - nums
   - OneDrive
   - opsz
   - paraglide
@@ -72,12 +74,12 @@ words:
   - Rachna
   - remoteip
   - SENG
+  - Sinya
   - sonarjs
   - sslmode
   - storybook
   - sveltekit
   - SvelteKit
-  - Sinya
   - tailwindcss
   - timestamptz
   - tsquery
@@ -85,4 +87,3 @@ words:
   - upserted
   - vitest
   - wght
-  - nonselectable

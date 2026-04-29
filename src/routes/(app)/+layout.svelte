@@ -46,7 +46,6 @@
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let isNetworkOnline = $state(true);
 	let about_background_music_element = $state<HTMLAudioElement>();
-	let should_retry_about_background_music = $state(false);
 
 	function is_about_path(pathname: string) {
 		return pathname === about_href || pathname.endsWith('/about');
@@ -58,16 +57,13 @@
 		}
 
 		about_background_music_element.volume = 0.35;
-		should_retry_about_background_music = false;
 		about_background_music_element.load();
 
 		if (!about_background_music_element.paused) {
 			return;
 		}
 
-		void about_background_music_element.play().catch(() => {
-			should_retry_about_background_music = true;
-		});
+		void about_background_music_element.play().catch(() => {});
 	}
 
 	function pause_about_background_music() {
@@ -77,7 +73,6 @@
 
 		about_background_music_element.pause();
 		about_background_music_element.currentTime = 0;
-		should_retry_about_background_music = false;
 	}
 
 	function should_start_about_background_music_from_event(event: Event) {
@@ -94,7 +89,7 @@
 		const about_link = target.closest<HTMLAnchorElement>('a[href]');
 
 		if (!about_link) {
-			return is_about_path(page.url.pathname) && should_retry_about_background_music;
+			return false;
 		}
 
 		return is_about_path(new URL(about_link.href, window.location.href).pathname);
@@ -240,15 +235,10 @@
 	<BackgroundVideoPostStatus />
 
 	{#if hasnavigation_skeleton_visible}
-		<div
-			class="nav_skeleton fixed right-0 left-0 z-70 {isnavigating_to_profile ||
-			isnavigating_to_profile_post
-				? 'top-0 bottom-0'
-				: 'top-18 bottom-18'} md:top-0 md:bottom-0"
-		>
+		<div class="nav_skeleton fixed inset-y-0 right-0 left-0 z-70 overflow-hidden">
 			{#if isnavigating_to_home || isnavigating_to_profile_post}
 				<section
-					class="home_skeleton_screen flex h-screen min-h-0 flex-col overflow-hidden text-white"
+					class="home_skeleton_screen flex h-full min-h-0 w-full flex-col overflow-hidden text-white"
 				>
 					<div class="flex items-center justify-between p-4 md:p-6 lg:p-8">
 						<div class="skeleton h-8 w-24 rounded-lg md:h-12 md:w-40"></div>
@@ -286,7 +276,7 @@
 				</section>
 			{:else if isnavigating_to_search}
 				<section
-					class="search_skeleton_screen search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
+					class="search_skeleton_screen search_panel h-full w-full overflow-x-hidden overflow-y-auto overscroll-none p-4 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
 				>
 					<div class="mx-auto w-full max-w-none">
 						<div class="skeleton h-10 w-35 rounded-lg md:h-12 md:w-50"></div>

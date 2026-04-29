@@ -69,6 +69,62 @@ export async function delete_post(
 	return { success: true };
 }
 
+export async function update_post(
+	post_id: string,
+	user_id: string,
+	content: string
+): Promise<
+	| {
+			success: true;
+			post: {
+				id: string;
+				content: string;
+				created_at: Date;
+				updated_at: Date;
+			};
+	  }
+	| { success: false; error?: string }
+> {
+	const db = get_db();
+	const existing = await db
+		.select({ id: posts.id, author_id: posts.author_id })
+		.from(posts)
+		.where(and(eq(posts.id, post_id), isNull(posts.deleted_at)))
+		.limit(1);
+	const existing_post = existing[0];
+
+	if (!existing_post) {
+		return { success: false, error: 'Post not found' };
+	}
+
+	if (existing_post.author_id !== user_id) {
+		return { success: false, error: 'Forbidden' };
+	}
+
+	const updated_at = new Date();
+	const updated_rows = await db
+		.update(posts)
+		.set({ content, updated_at })
+		.where(eq(posts.id, post_id))
+		.returning({
+			id: posts.id,
+			content: posts.content,
+			created_at: posts.created_at,
+			updated_at: posts.updated_at
+		});
+
+	const updated_post = updated_rows[0];
+
+	if (!updated_post) {
+		return { success: false, error: 'Post not found' };
+	}
+
+	return {
+		success: true,
+		post: updated_post
+	};
+}
+
 export async function hide_post_for_user(
 	post_id: string,
 	user_id: string

@@ -3,6 +3,7 @@ export type PostFeedPost = {
 	author_id: string;
 	content: string;
 	created_at: Date;
+	updated_at: Date;
 	like_count: number;
 	has_liked: boolean;
 	share_count: number;
