@@ -1,10 +1,12 @@
 <script lang="ts">
 	import './profile.css';
+	import { enhance } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onDestroy, tick } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageProps } from './$types';
 	import LanguageDropdown from '$lib/components/LanguageDropdown.svelte';
 	import { build_responsive_image_source } from '$lib/utilities/responsive-image';
@@ -64,6 +66,7 @@
 	let upload_modal_open = $state(false);
 	let upload_media_type = $state<'image' | 'video'>('image');
 	let is_phone_country_dropdown_open = $state(false);
+	let is_saving_profile_details = $state(false);
 	let upload_modal_backdrop = $state<HTMLDivElement | undefined>();
 	let image_preview_backdrop = $state<HTMLDivElement | undefined>();
 	let image_editor_backdrop = $state<HTMLDivElement | undefined>();
@@ -368,6 +371,22 @@
 		is_editing_profile = false;
 		reset_profile_edit_fields();
 	}
+
+	const handle_update_profile_details_submit: SubmitFunction = () => {
+		is_saving_profile_details = true;
+
+		return async ({ result, update }) => {
+			try {
+				if (result.type === 'success' || result.type === 'redirect') {
+					is_editing_profile = false;
+				}
+
+				await update({ reset: false });
+			} finally {
+				is_saving_profile_details = false;
+			}
+		};
+	};
 
 	function reset_profile_edit_fields() {
 		edit_profile_name = data['profile'].name ?? data['profile'].username;
@@ -2104,6 +2123,8 @@
 
 <div
 	class="profile-scroll flex h-[calc(100dvh-4.5rem)] justify-center overflow-y-auto overscroll-x-none overscroll-y-none bg-[#0a0b1e] text-white md:h-screen"
+	inert={is_saving_profile_details}
+	aria-busy={is_saving_profile_details}
 >
 	<div
 		class="flex min-h-full w-full max-w-6xl flex-col px-2 pt-2 pb-40 shadow-2xl md:min-h-screen md:p-2"
@@ -2387,7 +2408,12 @@
 			</div>
 		</div>
 
-		<form method="post" action="?/update_profile_details" class="contents">
+		<form
+			method="post"
+			action="?/update_profile_details"
+			class="contents"
+			use:enhance={handle_update_profile_details_submit}
+		>
 			<div
 				class="profile-identity-frame mt-16 text-center md:mt-30 {is_editing_profile
 					? 'profile-identity-frame-edit'
@@ -2734,16 +2760,18 @@
 								type="button"
 								onclick={cancel_profile_editing}
 								class="editor-action-secondary rounded-2xl px-4 py-2.5 text-sm font-semibold text-white/78 transition-all duration-180 hover:scale-[0.99] hover:bg-white/10 active:scale-[0.97] min-[420px]:py-3"
+								disabled={is_saving_profile_details}
 								transition:scale={{ duration: 160, start: 0.96, opacity: 0.65 }}
 							>
 								Cancel
 							</button>
 							<button
 								type="submit"
-								class="editor-action-primary rounded-2xl px-4 py-2.5 text-sm font-semibold text-[#CD82FF] transition-all duration-180 hover:scale-[0.99] active:scale-[0.97] min-[420px]:py-3"
+								class="editor-action-primary rounded-2xl px-4 py-2.5 text-sm font-semibold text-[#CD82FF] transition-all duration-180 hover:scale-[0.99] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-55 min-[420px]:py-3"
+								disabled={is_saving_profile_details}
 								transition:scale={{ duration: 160, start: 0.96, opacity: 0.65 }}
 							>
-								Save changes
+								{is_saving_profile_details ? 'Saving...' : 'Save changes'}
 							</button>
 						</div>
 					</div>
@@ -3727,6 +3755,21 @@
 		>
 			<span class="editor-processing-spinner" aria-hidden="true"></span>
 			<span>Updating...</span>
+		</div>
+	</div>
+{/if}
+
+{#if is_saving_profile_details}
+	<div
+		class="fixed inset-0 z-90 grid cursor-wait place-items-center bg-black/38 backdrop-blur-[2px]"
+		aria-live="polite"
+		data-nonselectable-ui="true"
+	>
+		<div
+			class="flex items-center gap-3 rounded-full border border-white/12 bg-[rgba(8,7,24,0.9)] px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_60px_rgba(0,0,0,0.38)]"
+		>
+			<span class="editor-processing-spinner" aria-hidden="true"></span>
+			<span>Saving changes...</span>
 		</div>
 	</div>
 {/if}

@@ -204,6 +204,16 @@
 		is_mobile_settings_open = false;
 		persist_current_home_scroll_position();
 	};
+
+	const handle_about_navigation_click: MouseEventHandler<HTMLAnchorElement> = (event) => {
+		handle_navigation_away_from_home(event);
+
+		if (typeof document === 'undefined') {
+			return;
+		}
+
+		document.dispatchEvent(new CustomEvent('about-background-music:play'));
+	};
 	let logout_dialog: HTMLDialogElement;
 	const handle_logout = (event: SubmitEvent & { currentTarget: EventTarget & HTMLFormElement }) => {
 		event.preventDefault();
@@ -305,7 +315,7 @@
 				>
 					<a
 						href={about_href}
-						onclick={handle_navigation_away_from_home}
+						onclick={handle_about_navigation_click}
 						data-sveltekit-preload-data="hover"
 						class={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/8 ${ison_about ? 'bg-white/10 text-[#7DD4FF]' : ''}`}
 					>
@@ -324,7 +334,7 @@
 
 <!-- Bottom Tab (fixed) -->
 <nav
-	class="fixed right-0 bottom-0 left-0 isolate z-120 h-15 w-full border-t border-white/8 bg-[#09051C] shadow-[0_-18px_36px_rgba(9,5,28,0.96)] backdrop-blur-none supports-backdrop-filter:backdrop-blur-none md:hidden"
+	class="fixed right-0 bottom-0 left-0 isolate z-40 h-15 w-full border-t border-white/8 bg-[#09051C] shadow-[0_-18px_36px_rgba(9,5,28,0.96)] backdrop-blur-none supports-backdrop-filter:backdrop-blur-none md:hidden"
 	data-sveltekit-preload-code="viewport"
 	data-nonselectable-ui="true"
 >
@@ -580,7 +590,7 @@
 
 		<a
 			href={about_href}
-			onclick={handle_navigation_away_from_home}
+			onclick={handle_about_navigation_click}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_about ? active_link : ''}`}
 		>
