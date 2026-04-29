@@ -47,10 +47,6 @@
 	let isNetworkOnline = $state(true);
 	let about_background_music_element = $state<HTMLAudioElement>();
 
-	function is_about_path(pathname: string) {
-		return pathname === about_href || pathname.endsWith('/about');
-	}
-
 	function play_about_background_music() {
 		if (!about_background_music_element) {
 			return;
@@ -75,36 +71,6 @@
 		about_background_music_element.currentTime = 0;
 	}
 
-	function should_start_about_background_music_from_event(event: Event) {
-		if (typeof window === 'undefined') {
-			return false;
-		}
-
-		const target = event.target;
-
-		if (!(target instanceof Element)) {
-			return false;
-		}
-
-		const about_link = target.closest<HTMLAnchorElement>('a[href]');
-
-		if (!about_link) {
-			return false;
-		}
-
-		return is_about_path(new URL(about_link.href, window.location.href).pathname);
-	}
-
-	function handle_about_background_music_activation(event: Event) {
-		if (should_start_about_background_music_from_event(event)) {
-			play_about_background_music();
-		}
-	}
-
-	function cleanup_about_background_music() {
-		pause_about_background_music();
-	}
-
 	onMount(() => {
 		isNetworkOnline = navigator.onLine;
 
@@ -118,13 +84,6 @@
 
 		window.addEventListener('online', handle_online);
 		window.addEventListener('offline', handle_offline);
-		document.addEventListener('pointerdown', handle_about_background_music_activation, {
-			capture: true
-		});
-		document.addEventListener('click', handle_about_background_music_activation, { capture: true });
-		document.addEventListener('keydown', handle_about_background_music_activation, {
-			capture: true
-		});
 		document.addEventListener('about-background-music:play', play_about_background_music);
 
 		void preloadCode(home_href);
@@ -159,29 +118,24 @@
 		return () => {
 			window.removeEventListener('online', handle_online);
 			window.removeEventListener('offline', handle_offline);
-			document.removeEventListener('pointerdown', handle_about_background_music_activation, {
-				capture: true
-			});
-			document.removeEventListener('click', handle_about_background_music_activation, {
-				capture: true
-			});
-			document.removeEventListener('keydown', handle_about_background_music_activation, {
-				capture: true
-			});
 			document.removeEventListener('about-background-music:play', play_about_background_music);
 			about_background_video_preloader.remove();
 		};
 	});
 
+	function cleanup_about_music() {
+		pause_about_background_music();
+	}
+
 	$effect(() => {
-		if (!is_about_path(page.url.pathname)) {
+		if (!(page.url.pathname === about_href || page.url.pathname.endsWith('/about'))) {
 			pause_about_background_music();
 			return;
 		}
 
 		play_about_background_music();
 
-		return cleanup_about_background_music;
+		return cleanup_about_music;
 	});
 
 	$effect(() => {

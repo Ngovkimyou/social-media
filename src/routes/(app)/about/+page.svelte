@@ -10,19 +10,6 @@
 	let is_background_video_ready = $state(false);
 	let has_requested_music = $state(false);
 
-	function can_play_webm_video() {
-		if (typeof document === 'undefined') {
-			return true;
-		}
-
-		const probe = document.createElement('video');
-		return (
-			probe.canPlayType('video/webm; codecs="vp9"').length > 0 ||
-			probe.canPlayType('video/webm; codecs="vp8"').length > 0 ||
-			probe.canPlayType('video/webm').length > 0
-		);
-	}
-
 	function request_background_music() {
 		if (typeof document === 'undefined') {
 			return;
@@ -47,12 +34,6 @@
 	}
 
 	onMount(() => {
-		is_background_video_supported = can_play_webm_video();
-
-		if (!is_background_video_supported) {
-			return;
-		}
-
 		play_background_video();
 		document.addEventListener('visibilitychange', play_background_video);
 
@@ -244,7 +225,7 @@
 
 	<button
 		type="button"
-		class="fixed top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-20 grid h-10 w-10 place-items-center rounded-full border border-white/15 bg-black/35 text-white/85 shadow-[0_12px_34px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/12 hover:text-white"
+		class="fixed top-[max(5rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-20 grid h-10 w-10 place-items-center rounded-full border border-white/15 bg-black/35 text-white/85 shadow-[0_12px_34px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/12 hover:text-white md:top-[max(1rem,env(safe-area-inset-top))]"
 		aria-label="Play background music"
 		aria-pressed={has_requested_music}
 		onclick={request_background_music}
