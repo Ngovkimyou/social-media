@@ -165,7 +165,7 @@
 	></script>
 </svelte:head>
 
-<div class="body" aria-busy={is_submitting}>
+<div class="body" aria-busy={is_submitting} data-nonselectable-ui="true">
 	<div class="login-container">
 		<div class="form-container">
 			<h1 class="login-title">Login</h1>

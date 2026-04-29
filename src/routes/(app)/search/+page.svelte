@@ -413,7 +413,7 @@
 <section
 	class="search_panel h-screen overflow-x-hidden overflow-y-auto overscroll-none bg-[#0B0425] p-4 pb-10 text-white shadow-[0_0_50px_rgba(20,5,60,0.8)] md:p-8"
 >
-	<h1 class="text-2xl font-bold tracking-wide md:text-4xl">Search</h1>
+	<h1 class="text-2xl font-bold tracking-wide md:text-4xl" data-nonselectable-ui="true">Search</h1>
 
 	<label for="search-users" class="mt-4 block cursor-pointer md:mt-6">
 		<span class="sr-only">Search users</span>
@@ -432,6 +432,7 @@
 				bind:value={query}
 				type="search"
 				placeholder="Search username"
+				data-nonselectable-empty-input="true"
 				class="w-full cursor-pointer! border-none bg-transparent p-0 pr-8 text-lg text-white ring-0 outline-none placeholder:text-white/70 focus:cursor-pointer! focus:border-none focus:ring-0"
 				autocomplete="off"
 				spellcheck="false"
@@ -454,7 +455,7 @@
 	<div class="mt-6 space-y-3">
 		{#if trimmed_query.length < 1}
 			<div class="flex items-center justify-between gap-3">
-				<p class="text-lg text-[#7DD4FF]">Recent</p>
+				<p class="text-lg text-[#7DD4FF]" data-nonselectable-ui="true">Recent</p>
 				{#if has_recent_users}
 					<button
 						type="button"

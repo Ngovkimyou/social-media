@@ -1383,7 +1383,7 @@
 				{/if}
 
 				<div class="mt-4 border-t border-white/10 pt-4">
-					<div class="mb-5 flex items-center justify-between">
+					<div class="mb-5 flex items-center justify-between" data-nonselectable-ui="true">
 						<p class="text-xs font-semibold tracking-wider text-white/35 uppercase">Comments</p>
 						<span
 							class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/55"
@@ -1577,7 +1577,7 @@
 			<div
 				class="fixed right-0 bottom-0 left-0 z-50 shrink-0 border-t border-white/10 bg-[#0d0921] px-4 pt-3 pb-[calc(1.65rem+env(safe-area-inset-bottom))] shadow-[0_-18px_36px_rgba(13,9,33,0.98)] md:static md:bg-transparent md:py-4 md:shadow-none"
 			>
-				<div class="flex items-center gap-4">
+				<div class="flex items-center gap-4" data-nonselectable-ui="true">
 					<div class="flex items-center gap-2">
 						<button
 							type="button"

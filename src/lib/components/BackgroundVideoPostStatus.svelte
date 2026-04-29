@@ -97,6 +97,7 @@
 	<div
 		class="fixed right-4 bottom-4 z-70 hidden w-[min(calc(100vw-2rem),24rem)] overflow-hidden rounded-2xl border border-white/15 bg-[radial-gradient(circle_at_12%_0%,rgba(125,212,255,0.18),transparent_34%),radial-gradient(circle_at_100%_0%,rgba(205,130,255,0.22),transparent_38%),linear-gradient(145deg,rgba(18,14,35,0.9),rgba(9,8,24,0.84))] p-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_20px_60px_rgba(0,0,0,0.42),0_0_34px_rgba(125,212,255,0.12)] backdrop-blur-xl md:block"
 		aria-live="polite"
+		data-nonselectable-ui="true"
 	>
 		<div
 			class="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-[#7DD4FF]/70 to-transparent"
@@ -188,6 +189,7 @@
 	<div
 		class="fixed top-[calc(max(0.75rem,env(safe-area-inset-top))+4.25rem)] right-4 z-70 md:hidden"
 		aria-live="polite"
+		data-nonselectable-ui="true"
 	>
 		{#if is_mobile_video_cancel_revealed && is_active}
 			<button
@@ -256,6 +258,7 @@
 	{#if active_post.is_cancel_confirming}
 		<div
 			class="fixed inset-0 z-80 grid place-items-center bg-black/52 px-4 backdrop-blur-sm md:hidden"
+			data-nonselectable-ui="true"
 			transition:fade={{ duration: 160 }}
 		>
 			<div
@@ -287,7 +290,10 @@
 	{/if}
 
 	{#if active_post.status === 'complete'}
-		<div class="pointer-events-none fixed inset-0 z-80 grid place-items-center px-4">
+		<div
+			class="pointer-events-none fixed inset-0 z-80 grid place-items-center px-4"
+			data-nonselectable-ui="true"
+		>
 			<div
 				class="pointer-events-auto w-full max-w-xs rounded-2xl border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(125,212,255,0.16),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.16),transparent_42%),linear-gradient(145deg,rgba(18,14,35,0.96),rgba(9,8,24,0.92))] p-4 text-center text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_24px_70px_rgba(0,0,0,0.46)] backdrop-blur-xl"
 				transition:scale={{ duration: 190, start: 0.9, opacity: 0.4 }}
