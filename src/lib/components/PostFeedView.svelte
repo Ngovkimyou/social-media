@@ -2072,7 +2072,9 @@
 						{subtitle}
 					</p>
 				{/if}
-				<h2 class="truncate text-2xl font-bold text-white md:text-4xl">{title}</h2>
+				<h2 class="truncate text-2xl font-bold text-white md:text-4xl" data-nonselectable-ui="true">
+					{title}
+				</h2>
 			</div>
 		</div>
 

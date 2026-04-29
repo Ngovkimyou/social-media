@@ -53,19 +53,10 @@
 			return;
 		}
 
-		const retry_media = () => {
-			play_background_video();
-			request_background_music();
-		};
-
 		play_background_video();
-		window.addEventListener('pointerdown', retry_media, { capture: true, passive: true });
-		window.addEventListener('touchstart', retry_media, { capture: true, passive: true });
 		document.addEventListener('visibilitychange', play_background_video);
 
 		return () => {
-			window.removeEventListener('pointerdown', retry_media, { capture: true });
-			window.removeEventListener('touchstart', retry_media, { capture: true });
 			document.removeEventListener('visibilitychange', play_background_video);
 		};
 	});
