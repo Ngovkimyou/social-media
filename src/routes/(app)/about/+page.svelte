@@ -10,19 +10,6 @@
 	let is_background_video_ready = $state(false);
 	let has_requested_music = $state(false);
 
-	function can_play_webm_video() {
-		if (typeof document === 'undefined') {
-			return true;
-		}
-
-		const probe = document.createElement('video');
-		return (
-			probe.canPlayType('video/webm; codecs="vp9"').length > 0 ||
-			probe.canPlayType('video/webm; codecs="vp8"').length > 0 ||
-			probe.canPlayType('video/webm').length > 0
-		);
-	}
-
 	function request_background_music() {
 		if (typeof document === 'undefined') {
 			return;
@@ -47,12 +34,6 @@
 	}
 
 	onMount(() => {
-		is_background_video_supported = can_play_webm_video();
-
-		if (!is_background_video_supported) {
-			return;
-		}
-
 		const retry_media = () => {
 			play_background_video();
 			request_background_music();
