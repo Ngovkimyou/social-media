@@ -229,7 +229,7 @@
 	};
 </script>
 
-<dialog bind:this={logout_dialog}>
+<dialog bind:this={logout_dialog} data-nonselectable-ui="true">
 	<h1>Would you like to logout?</h1>
 	<form method="POST" action={sign_out_action} class="actions" use:enhance={handle_sign_out_submit}>
 		<button type="submit">Confirm</button>
@@ -239,7 +239,10 @@
 </dialog>
 
 <!-- Top Tab (scrolls naturally) -->
-<div class="flex h-15 w-full items-center justify-between bg-[#09051C] px-6 md:hidden">
+<div
+	class="flex h-15 w-full items-center justify-between bg-[#09051C] px-6 md:hidden"
+	data-nonselectable-ui="true"
+>
 	<a
 		href={home_href}
 		onclick={handle_home_navigation_click}
@@ -323,6 +326,7 @@
 <nav
 	class="fixed right-0 bottom-0 left-0 isolate z-40 h-15 w-full border-t border-white/8 bg-[#09051C] shadow-[0_-18px_36px_rgba(9,5,28,0.96)] backdrop-blur-none supports-backdrop-filter:backdrop-blur-none md:hidden"
 	data-sveltekit-preload-code="viewport"
+	data-nonselectable-ui="true"
 >
 	<div class="absolute inset-0 z-0 bg-[#09051C]" aria-hidden="true"></div>
 	<div class="relative z-10 flex h-full w-full items-center justify-around bg-[#09051C]">
@@ -413,6 +417,7 @@
 	class={`fixed top-0 left-0 hidden h-screen flex-col gap-15 overflow-hidden bg-[#09051C] text-white transition-[width,padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${desktop_aside_class}`}
 	style={`width: ${$desktop_sidebar_width};`}
 	data-sveltekit-preload-code="viewport"
+	data-nonselectable-ui="true"
 >
 	<div class="flex h-16 items-center justify-center">
 		<a
@@ -643,7 +648,12 @@
 </aside>
 
 {#if is_signing_out}
-	<div class="logout-blocking-overlay" role="status" aria-live="polite">
+	<div
+		class="logout-blocking-overlay"
+		role="status"
+		aria-live="polite"
+		data-nonselectable-ui="true"
+	>
 		<span class="logout-overlay-spinner" aria-hidden="true"></span>
 		<span>Logging out...</span>
 	</div>

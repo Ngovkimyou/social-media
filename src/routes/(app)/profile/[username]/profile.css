@@ -272,9 +272,19 @@
 	top: 50%;
 	left: 0.75rem;
 	z-index: 10;
-	pointer-events: none;
+	pointer-events: auto;
+	cursor: text;
+	user-select: none;
+	-webkit-user-select: none;
 	transform: translateY(-50%);
 	filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.45));
+}
+
+.profile-edit-username-prefix {
+	pointer-events: auto;
+	cursor: text;
+	user-select: none;
+	-webkit-user-select: none;
 }
 
 .profile-edit-input {

@@ -2340,6 +2340,7 @@
 
 							<div
 								class="2xl:pt:6 mx-6 flex items-center gap-6 pt-5 pb-5 md:gap-4 md:pt-4 md:pb-4 2xl:pb-6"
+								data-nonselectable-ui="true"
 							>
 								<div class="flex items-center gap-2">
 									<button
@@ -2663,6 +2664,7 @@
 
 							<div
 								class="mx-2 flex items-center gap-5 px-4 py-5 md:gap-6 md:px-5 2xl:pt-6 2xl:pb-6"
+								data-nonselectable-ui="true"
 							>
 								<div class="flex items-center gap-2">
 									<button
