@@ -2396,7 +2396,11 @@
 				{#if is_editing_profile}
 					<div class="profile-identity-state profile-identity-edit">
 						<label class="profile-inline-edit-label mx-auto block">
-							<span class="profile-edit-pencil text-lg text-sky-300" aria-hidden="true">✎</span>
+							<span
+								class="profile-edit-pencil text-lg text-sky-300"
+								aria-hidden="true"
+								data-nonselectable-ui="true">✎</span
+							>
 							<input
 								name="name"
 								bind:value={edit_profile_name}
@@ -2415,9 +2419,14 @@
 							</span>
 						</label>
 						<label class="profile-inline-edit-label mx-auto mt-0.5 block">
-							<span class="profile-edit-pencil text-base text-sky-300" aria-hidden="true">✎</span>
 							<span
-								class="pointer-events-none absolute top-1/2 left-9 z-10 -translate-y-1/2 text-sm text-slate-400"
+								class="profile-edit-pencil text-base text-sky-300"
+								aria-hidden="true"
+								data-nonselectable-ui="true">✎</span
+							>
+							<span
+								class="profile-edit-username-prefix absolute top-1/2 left-9 z-10 -translate-y-1/2 text-sm text-slate-400"
+								data-nonselectable-ui="true"
 								aria-hidden="true">@</span
 							>
 							<input
@@ -2472,6 +2481,7 @@
 			{#if !is_editing_profile}
 				<div
 					class="mx-auto mt-6 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-6 md:gap-10"
+					data-nonselectable-ui="true"
 				>
 					<div class="text-center">
 						<div class="text-2xl font-bold text-sky-400">{data['stats'].post_count}</div>
@@ -2507,6 +2517,7 @@
 
 				<span
 					class="absolute -top-3 left-6 z-10 rounded-2xl bg-[#0a0b1e] px-3 text-xs font-semibold tracking-wide text-purple-400"
+					data-nonselectable-ui="true"
 				>
 					ABOUT
 				</span>
@@ -2517,6 +2528,7 @@
 							<label
 								for="edit-profile-bio"
 								class="block text-xs font-semibold tracking-wide text-slate-400 uppercase"
+								data-nonselectable-ui="true"
 							>
 								Bio
 							</label>
@@ -2552,7 +2564,9 @@
 										Reset
 									</button>
 								</div>
-								<p class="text-[11px] text-slate-500">{edit_profile_bio.length}/200</p>
+								<p class="text-[11px] text-slate-500" data-nonselectable-ui="true">
+									{edit_profile_bio.length}/200
+								</p>
 							</div>
 						</div>
 
@@ -2625,6 +2639,7 @@
 									/>
 									<label
 										class="email-visibility-toggle absolute top-1/2 right-1.5 flex -translate-y-1/2 cursor-pointer items-center gap-1.5 px-1 py-0.5 text-[10px] font-semibold text-slate-300 transition-colors hover:text-white"
+										data-nonselectable-ui="true"
 										title={edit_profile_email_visible
 											? 'Email is visible to the public'
 											: 'Email is hidden from the public'}
@@ -2970,6 +2985,7 @@
 		aria-busy={submitting_post}
 		tabindex="0"
 		bind:this={upload_modal_backdrop}
+		data-nonselectable-ui="true"
 		transition:fade={{ duration: 180 }}
 		onclick={(event) => {
 			if (event.target === event.currentTarget && !submitting_post) {
@@ -3096,7 +3112,7 @@
 										<span>{data['profile'].username.slice(0, 1).toUpperCase()}</span>
 									{/if}
 								</div>
-								<div>
+								<div data-selectable-text="true">
 									<p class="text-xs font-semibold text-white md:text-sm">{profile_display_name}</p>
 									<p class="text-xs text-slate-400">@{data['profile'].username}</p>
 								</div>
@@ -3202,6 +3218,7 @@
 			<div
 				class="absolute inset-0 z-80 grid cursor-wait place-items-center bg-black/38 backdrop-blur-[2px]"
 				aria-live="polite"
+				data-nonselectable-ui="true"
 			>
 				<div
 					class="flex items-center gap-3 rounded-full border border-white/12 bg-[rgba(8,7,24,0.9)] px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_60px_rgba(0,0,0,0.38)]"
@@ -3222,6 +3239,7 @@
 		aria-label="Image actions"
 		tabindex="0"
 		bind:this={image_actions_backdrop}
+		data-nonselectable-ui="true"
 		transition:fade={{ duration: 160 }}
 		onclick={(event) => {
 			if (event.target === event.currentTarget) {
@@ -3288,6 +3306,7 @@
 					: 'Edit profile image'}
 		tabindex="0"
 		bind:this={image_editor_backdrop}
+		data-nonselectable-ui="true"
 		transition:fade={{ duration: 180 }}
 		onclick={(event) => {
 			if (event.target === event.currentTarget && !is_applying_image_editor) {
@@ -3684,6 +3703,7 @@
 			<div
 				class="absolute inset-0 z-80 grid cursor-wait place-items-center bg-black/38 backdrop-blur-[2px]"
 				aria-live="polite"
+				data-nonselectable-ui="true"
 			>
 				<div
 					class="flex items-center gap-3 rounded-full border border-white/12 bg-[rgba(8,7,24,0.86)] px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_60px_rgba(0,0,0,0.38)]"

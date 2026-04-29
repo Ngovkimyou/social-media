@@ -21,6 +21,57 @@ body {
 	color: #ffffff;
 }
 
+img,
+video,
+canvas,
+svg,
+[data-nonselectable-asset='true'] {
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-user-drag: none;
+}
+
+img,
+video,
+[data-nonselectable-asset='true'] {
+	-webkit-touch-callout: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable=''],
+[contenteditable='true'],
+.user-content-text {
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+input[data-nonselectable-empty-input='true']:placeholder-shown {
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+button,
+button *,
+[role='button'],
+[role='button'] *,
+[role='tab'],
+[role='tab'] *,
+[role='switch'],
+[role='switch'] *,
+[data-nonselectable-ui='true'],
+[data-nonselectable-ui='true'] * {
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+[data-selectable-text='true'],
+[data-selectable-text='true'] * {
+	user-select: text;
+	-webkit-user-select: text;
+}
+
 .auth-password-input::-ms-reveal,
 .auth-password-input::-ms-clear {
 	display: none;

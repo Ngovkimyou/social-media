@@ -217,6 +217,7 @@
 
 <section
 	class="about-credit-screen relative isolate flex h-[calc(100dvh-4rem)] items-start justify-center overflow-y-auto px-4 text-center text-white md:h-screen md:px-8"
+	data-nonselectable-ui="true"
 >
 	<video
 		bind:this={background_video_element}

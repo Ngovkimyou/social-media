@@ -93,6 +93,7 @@
 		onerror={() => {
 			mark_errored();
 		}}
+		draggable="false"
 		class={`${img_class} transition-opacity duration-300 ${isloaded_state ? 'opacity-100' : 'opacity-0'}`}
 	/>
 </div>

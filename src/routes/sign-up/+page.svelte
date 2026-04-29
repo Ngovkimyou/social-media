@@ -125,7 +125,7 @@
 	<link rel="preload" as="image" href="/assets/Pixel Art.gif" media="(min-width: 900px)" />
 </svelte:head>
 
-<div class="body" aria-busy={is_submitting}>
+<div class="body" aria-busy={is_submitting} data-nonselectable-ui="true">
 	<div class="login-container">
 		<div class="form-container">
 			<h1 class="login-title">Sign Up</h1>
