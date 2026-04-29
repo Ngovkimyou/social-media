@@ -3,20 +3,24 @@
 	import { onMount } from 'svelte';
 
 	const about_background_video_src = `${base}/video/About-Background.webm`;
-	const about_background_fallback_src = `${base}/assets/Pixel Art.gif`;
+	const about_background_video_mp4_src = `${base}/video/About-Background.mp4`;
 
 	let background_video_element = $state<HTMLVideoElement>();
 	let is_background_video_supported = $state(true);
 	let is_background_video_ready = $state(false);
-	let has_requested_music = $state(false);
+	let is_music_playing = $state(false);
 
-	function request_background_music() {
+	function toggle_background_music() {
 		if (typeof document === 'undefined') {
 			return;
 		}
 
-		has_requested_music = true;
-		document.dispatchEvent(new CustomEvent('about-background-music:play'));
+		document.dispatchEvent(new CustomEvent('about-background-music:toggle'));
+	}
+
+	function handle_music_state(event: Event) {
+		const custom_event = event as CustomEvent<{ is_playing?: boolean }>;
+		is_music_playing = Boolean(custom_event.detail?.is_playing);
 	}
 
 	function play_background_video() {
@@ -36,9 +40,12 @@
 	onMount(() => {
 		play_background_video();
 		document.addEventListener('visibilitychange', play_background_video);
+		document.addEventListener('about-background-music:state', handle_music_state);
+		document.dispatchEvent(new CustomEvent('about-background-music:request-state'));
 
 		return () => {
 			document.removeEventListener('visibilitychange', play_background_video);
+			document.removeEventListener('about-background-music:state', handle_music_state);
 		};
 	});
 
@@ -194,7 +201,6 @@
 	<video
 		bind:this={background_video_element}
 		class="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-[0.08]"
-		src={about_background_video_src}
 		autoplay
 		muted
 		loop
@@ -210,38 +216,63 @@
 		onerror={() => {
 			is_background_video_supported = false;
 		}}
-	></video>
+	>
+		<source src={about_background_video_mp4_src} type="video/mp4" />
+		<source src={about_background_video_src} type="video/webm" />
+	</video>
 
 	{#if !is_background_video_supported || !is_background_video_ready}
-		<img
-			src={about_background_fallback_src}
-			alt=""
-			class="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-[0.08]"
+		<div
+			class="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top,rgba(125,212,255,0.10),transparent_34%),radial-gradient(circle_at_bottom,rgba(205,130,255,0.12),transparent_36%),#050816]"
 			aria-hidden="true"
-			loading="eager"
-			decoding="async"
-		/>
+		></div>
 	{/if}
 
 	<button
 		type="button"
-		class="fixed top-[max(5rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-20 grid h-10 w-10 place-items-center rounded-full border border-white/15 bg-black/35 text-white/85 shadow-[0_12px_34px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/12 hover:text-white md:top-[max(1rem,env(safe-area-inset-top))]"
-		aria-label="Play background music"
-		aria-pressed={has_requested_music}
-		onclick={request_background_music}
+		class={`fixed top-[max(5rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-20 grid h-10 w-10 place-items-center rounded-full border text-white/90 shadow-[0_12px_34px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:text-white md:top-[max(1rem,env(safe-area-inset-top))] ${
+			is_music_playing
+				? 'border-sky-200/45 bg-sky-400/18 shadow-[0_0_22px_rgba(125,212,255,0.18),0_12px_34px_rgba(0,0,0,0.35)] hover:bg-sky-400/28'
+				: 'border-rose-200/35 bg-rose-500/16 shadow-[0_0_22px_rgba(251,113,133,0.14),0_12px_34px_rgba(0,0,0,0.35)] hover:bg-rose-500/24'
+		}`}
+		aria-label={is_music_playing ? 'Turn off background music' : 'Turn on background music'}
+		aria-pressed={is_music_playing}
+		onclick={toggle_background_music}
 	>
-		<svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5">
-			<path
-				d="M9 17.2V7.7l8-2v9.4"
-				fill="none"
-				stroke="currentColor"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				stroke-width="2"
-			/>
-			<circle cx="6.7" cy="17.2" r="2.3" fill="none" stroke="currentColor" stroke-width="2" />
-			<circle cx="14.7" cy="15.1" r="2.3" fill="none" stroke="currentColor" stroke-width="2" />
-		</svg>
+		{#if is_music_playing}
+			<svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5">
+				<path
+					d="M9 17.2V7.7l8-2v9.4"
+					fill="none"
+					stroke="currentColor"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+				/>
+				<circle cx="6.7" cy="17.2" r="2.3" fill="none" stroke="currentColor" stroke-width="2" />
+				<circle cx="14.7" cy="15.1" r="2.3" fill="none" stroke="currentColor" stroke-width="2" />
+			</svg>
+		{:else}
+			<svg viewBox="0 0 24 24" aria-hidden="true" class="h-5 w-5">
+				<path
+					d="M8.7 16.9V7.8l7.6-1.9v8.8"
+					fill="none"
+					stroke="currentColor"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+				/>
+				<circle cx="6.5" cy="16.9" r="2.1" fill="none" stroke="currentColor" stroke-width="2" />
+				<circle cx="13.9" cy="14.9" r="2.1" fill="none" stroke="currentColor" stroke-width="2" />
+				<path
+					d="M4.5 4.5 19.5 19.5"
+					fill="none"
+					stroke="currentColor"
+					stroke-linecap="round"
+					stroke-width="2.4"
+				/>
+			</svg>
+		{/if}
 	</button>
 
 	<div class="about-credit-track relative z-10 flex w-full flex-col items-center">

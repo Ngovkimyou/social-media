@@ -47,19 +47,38 @@
 	let isNetworkOnline = $state(true);
 	let about_background_music_element = $state<HTMLAudioElement>();
 
+	function notify_about_background_music_state() {
+		if (typeof document === 'undefined') {
+			return;
+		}
+
+		document.dispatchEvent(
+			new CustomEvent('about-background-music:state', {
+				detail: {
+					is_playing: Boolean(
+						about_background_music_element && !about_background_music_element.paused
+					)
+				}
+			})
+		);
+	}
+
 	function play_about_background_music() {
 		if (!about_background_music_element) {
 			return;
 		}
 
 		about_background_music_element.volume = 0.35;
-		about_background_music_element.load();
 
 		if (!about_background_music_element.paused) {
+			notify_about_background_music_state();
 			return;
 		}
 
-		void about_background_music_element.play().catch(() => {});
+		void about_background_music_element
+			.play()
+			.then(notify_about_background_music_state)
+			.catch(notify_about_background_music_state);
 	}
 
 	function pause_about_background_music() {
@@ -69,6 +88,24 @@
 
 		about_background_music_element.pause();
 		about_background_music_element.currentTime = 0;
+		notify_about_background_music_state();
+	}
+
+	function toggle_about_background_music() {
+		if (!about_background_music_element || about_background_music_element.paused) {
+			play_about_background_music();
+			return;
+		}
+
+		pause_about_background_music();
+	}
+
+	function should_autoplay_about_music() {
+		if (typeof window === 'undefined') {
+			return false;
+		}
+
+		return window.matchMedia('(min-width: 768px)').matches;
 	}
 
 	onMount(() => {
@@ -85,6 +122,11 @@
 		window.addEventListener('online', handle_online);
 		window.addEventListener('offline', handle_offline);
 		document.addEventListener('about-background-music:play', play_about_background_music);
+		document.addEventListener('about-background-music:toggle', toggle_about_background_music);
+		document.addEventListener(
+			'about-background-music:request-state',
+			notify_about_background_music_state
+		);
 
 		void preloadCode(home_href);
 		void preloadData(home_href);
@@ -119,6 +161,11 @@
 			window.removeEventListener('online', handle_online);
 			window.removeEventListener('offline', handle_offline);
 			document.removeEventListener('about-background-music:play', play_about_background_music);
+			document.removeEventListener('about-background-music:toggle', toggle_about_background_music);
+			document.removeEventListener(
+				'about-background-music:request-state',
+				notify_about_background_music_state
+			);
 			about_background_video_preloader.remove();
 		};
 	});
@@ -133,7 +180,11 @@
 			return;
 		}
 
-		play_about_background_music();
+		if (should_autoplay_about_music()) {
+			play_about_background_music();
+		} else {
+			notify_about_background_music_state();
+		}
 
 		return cleanup_about_music;
 	});
