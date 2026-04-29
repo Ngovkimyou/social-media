@@ -91,6 +91,7 @@ export async function get_comments_by_post_id(
 				id: comments.id,
 				content: comments.content,
 				created_at: comments.created_at,
+				updated_at: comments.updated_at,
 				author_id: comments.author_id,
 				author_name: user.name,
 				author_username: profiles.username,
@@ -138,6 +139,7 @@ export async function get_comments_by_post_id(
 		id: row.id,
 		content: row.content,
 		created_at: row.created_at,
+		updated_at: row.updated_at,
 		author_id: row.author_id,
 		author_name: row.author_name,
 		author_username: row.author_username ?? 'user',
@@ -208,11 +210,83 @@ export async function create_comment(
 		id,
 		content,
 		created_at: new Date(),
+		updated_at: new Date(),
 		author_id,
 		author_name: author?.name ?? 'User',
 		author_username: author?.username ?? 'user',
 		// eslint-disable-next-line unicorn/no-null
 		author_avatar: author?.image ?? null
+	};
+}
+
+export async function update_comment(
+	comment_id: string,
+	user_id: string,
+	content: string
+): Promise<{ success: true; comment: PostComment } | { success: false; error?: string }> {
+	await initialize_comment_indexes();
+	const db = get_db();
+
+	const existing = await db
+		.select({
+			id: comments.id,
+			author_id: comments.author_id
+		})
+		.from(comments)
+		.where(and(eq(comments.id, comment_id), isNull(comments.deleted_at)))
+		.limit(1);
+
+	const existing_comment = existing[0];
+
+	if (!existing_comment) {
+		return { success: false, error: 'Comment not found' };
+	}
+
+	if (existing_comment.author_id !== user_id) {
+		return { success: false, error: 'Forbidden' };
+	}
+
+	const updated_at = new Date();
+	const updated_rows = await db
+		.update(comments)
+		.set({ content, updated_at })
+		.where(eq(comments.id, comment_id))
+		.returning({
+			id: comments.id,
+			content: comments.content,
+			created_at: comments.created_at,
+			updated_at: comments.updated_at,
+			author_id: comments.author_id
+		});
+
+	const updated_comment = updated_rows[0];
+
+	if (!updated_comment) {
+		return { success: false, error: 'Comment not found' };
+	}
+
+	const author_rows = await db
+		.select({ name: user.name, image: user.image, username: profiles.username })
+		.from(user)
+		.leftJoin(profiles, eq(profiles.user_id, user.id))
+		.where(eq(user.id, user_id))
+		.limit(1);
+
+	const author = author_rows[0];
+
+	return {
+		success: true,
+		comment: {
+			id: updated_comment.id,
+			content: updated_comment.content,
+			created_at: updated_comment.created_at,
+			updated_at: updated_comment.updated_at,
+			author_id: updated_comment.author_id,
+			author_name: author?.name ?? 'User',
+			author_username: author?.username ?? 'user',
+			// eslint-disable-next-line unicorn/no-null
+			author_avatar: author?.image ?? null
+		}
 	};
 }
 

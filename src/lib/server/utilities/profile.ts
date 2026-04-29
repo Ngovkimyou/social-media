@@ -371,6 +371,7 @@ const get_shared_posts_by_user_id = async (
 			author_id: posts.author_id,
 			content: posts.content,
 			created_at: posts.created_at,
+			updated_at: posts.updated_at,
 			media_url: media.url,
 			media_type: media.type,
 			author_name: auth_user.name,
@@ -484,6 +485,7 @@ const get_shared_posts_by_user_id = async (
 			author_id: row.author_id,
 			content: row.content,
 			created_at: row.created_at,
+			updated_at: row.updated_at,
 			like_count: like_count_by_post.get(row.id) ?? 0,
 			has_liked: liked_post_ids.has(row.id),
 			share_count: share_count_by_post.get(row.id) ?? 0,
@@ -544,6 +546,7 @@ export const get_profile_posts_by_username = async (
 			author_id: posts.author_id,
 			content: posts.content,
 			created_at: posts.created_at,
+			updated_at: posts.updated_at,
 			media_url: media.url,
 			media_type: media.type
 		})
@@ -645,6 +648,7 @@ export const get_profile_posts_by_username = async (
 			author_id: row.author_id,
 			content: row.content,
 			created_at: row.created_at,
+			updated_at: row.updated_at,
 			like_count: like_count_by_post.get(row.id) ?? 0,
 			has_liked: liked_post_ids.has(row.id),
 			share_count: share_count_by_post.get(row.id) ?? 0,
