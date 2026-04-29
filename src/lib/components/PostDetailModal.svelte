@@ -1684,7 +1684,7 @@
 							{#if can_edit_post()}
 								<button
 									type="button"
-									class="shrink-0 rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/14 hover:text-white"
+									class="shrink-0 rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-sky-100 shadow-[0_0_18px_rgba(125,212,255,0.12)] transition-colors hover:bg-sky-400/28 hover:text-white"
 									onclick={begin_post_edit}
 									data-nonselectable-ui="true"
 								>
@@ -1704,7 +1704,7 @@
 					<div class="mt-4" data-nonselectable-ui="true">
 						<button
 							type="button"
-							class="rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/14 hover:text-white"
+							class="rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-sky-100 shadow-[0_0_18px_rgba(125,212,255,0.12)] transition-colors hover:bg-sky-400/28 hover:text-white"
 							onclick={begin_post_edit}
 						>
 							Add caption
@@ -1829,7 +1829,7 @@
 														<button
 															type="button"
 															onclick={() => begin_comment_edit(comment)}
-															class="rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-sky-400/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+															class="rounded-full border border-sky-200/35 bg-sky-400/18 px-3 py-1.5 text-xs font-semibold text-sky-100 shadow-[0_0_18px_rgba(125,212,255,0.12)] transition-colors hover:bg-sky-400/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
 															disabled={editing_comment_id === comment.id ||
 																Boolean(saving_comment_id)}
 														>
