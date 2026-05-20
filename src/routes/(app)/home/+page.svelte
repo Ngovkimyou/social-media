@@ -88,21 +88,32 @@
 
 	function merge_posts(
 		existing_posts: PostFeedPost[],
-		incoming_posts: Array<Omit<PostFeedPost, 'created_at'> & { created_at: string | Date }>
+		incoming_posts: Array<
+			Omit<PostFeedPost, 'created_at' | 'updated_at' | 'shared_at'> & {
+				created_at: string | Date;
+				updated_at: string | Date;
+				shared_at?: string | Date;
+			}
+		>
 	): PostFeedPost[] {
 		const merged_posts = [...existing_posts];
-		const seen_post_ids = new SvelteSet(existing_posts.map((post) => post.id));
+		const seen_post_ids = new SvelteSet(existing_posts.map((post) => post.feed_item_id ?? post.id));
 
 		for (const post of incoming_posts) {
-			if (seen_post_ids.has(post.id)) {
+			const feed_item_id = post.feed_item_id ?? post.id;
+
+			if (seen_post_ids.has(feed_item_id)) {
 				continue;
 			}
 
+			const { created_at, updated_at, shared_at, ...post_rest } = post;
 			merged_posts.push({
-				...post,
-				created_at: new Date(post.created_at)
+				...post_rest,
+				created_at: new Date(created_at),
+				updated_at: new Date(updated_at),
+				...(shared_at ? { shared_at: new Date(shared_at) } : {})
 			});
-			seen_post_ids.add(post.id);
+			seen_post_ids.add(feed_item_id);
 		}
 
 		return merged_posts;
@@ -130,7 +141,13 @@
 			}
 
 			const payload = (await response.json()) as {
-				posts: Array<Omit<PostFeedPost, 'created_at'> & { created_at: string }>;
+				posts: Array<
+					Omit<PostFeedPost, 'created_at' | 'updated_at' | 'shared_at'> & {
+						created_at: string;
+						updated_at: string;
+						shared_at?: string;
+					}
+				>;
 				has_more: boolean;
 				next_cursor?: string;
 			};

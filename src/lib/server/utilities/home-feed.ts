@@ -1,5 +1,6 @@
 import { HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 import { get_db } from '$lib/server/db';
+import { alias } from 'drizzle-orm/pg-core';
 import {
 	comments,
 	hidden_posts,
@@ -16,7 +17,7 @@ import { initialize_hidden_posts_table } from '$lib/server/utilities/posts';
 import type { PostFeedPost } from '$lib/types/post-feed';
 import { build_responsive_image_source } from '$lib/utilities/responsive-image';
 import { build_responsive_video_source } from '$lib/utilities/responsive-video';
-import { and, asc, count, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 type HomeFeedCursor = {
 	created_at: string;
@@ -34,6 +35,23 @@ type FeedInteractionData = {
 	liked_post_ids: Set<string>;
 	share_count_by_post: Map<string, number>;
 	shared_post_ids: Set<string>;
+};
+
+type HomeFeedRow = {
+	feed_item_id: string;
+	id: string;
+	author_id: string;
+	content: string;
+	created_at: Date;
+	updated_at: Date;
+	author_name: string;
+	author_username: string | null;
+	author_avatar: string | null;
+	shared_at?: Date;
+	shared_by_user_id?: string;
+	shared_by_name?: string;
+	shared_by_username?: string | null;
+	shared_by_avatar?: string | null;
 };
 
 async function get_feed_interaction_data(params: {
@@ -130,6 +148,62 @@ function decode_home_feed_cursor(cursor?: string): HomeFeedCursor | undefined {
 	}
 }
 
+function get_feed_media_data(
+	post_media_row:
+		| {
+				media_url: string | null;
+				media_type: 'image' | 'video' | null;
+		  }
+		| undefined
+): Pick<
+	PostFeedPost,
+	'media_display_srcset' | 'media_display_url' | 'media_poster_url' | 'media_url' | 'media_type'
+> {
+	const responsive_media =
+		post_media_row?.media_type === 'image' && post_media_row.media_url
+			? build_responsive_image_source(post_media_row.media_url, {
+					widths: [480, 720, 960, 1200, 1600],
+					fit: 'limit',
+					quality: 'auto'
+				})
+			: undefined;
+	const responsive_video =
+		post_media_row?.media_type === 'video' && post_media_row.media_url
+			? build_responsive_video_source(post_media_row.media_url)
+			: undefined;
+
+	return {
+		media_display_srcset: responsive_media?.srcset,
+		media_display_url: responsive_media?.src ?? responsive_video?.src,
+		media_poster_url: responsive_video?.poster,
+		media_url: post_media_row?.media_url,
+		media_type: post_media_row?.media_type
+	};
+}
+
+function get_shared_feed_data(
+	row: HomeFeedRow,
+	ensured_usernames: Map<string, string>
+): Partial<
+	Pick<
+		PostFeedPost,
+		'shared_at' | 'shared_by_user_id' | 'shared_by_name' | 'shared_by_username' | 'shared_by_avatar'
+	>
+> {
+	if (!row.shared_by_user_id) {
+		return {};
+	}
+
+	return {
+		...(row.shared_at ? { shared_at: row.shared_at } : {}),
+		shared_by_user_id: row.shared_by_user_id,
+		...(row.shared_by_name ? { shared_by_name: row.shared_by_name } : {}),
+		shared_by_username:
+			row.shared_by_username ?? ensured_usernames.get(row.shared_by_user_id) ?? 'user',
+		...(row.shared_by_avatar ? { shared_by_avatar: row.shared_by_avatar } : {})
+	};
+}
+
 export async function get_home_feed_page(
 	limit = HOME_FEED_PAGE_SIZE,
 	cursor?: string,
@@ -139,56 +213,137 @@ export async function get_home_feed_page(
 	const db = get_db();
 	const normalized_limit = Math.max(1, Math.min(limit, 30));
 	const decoded_cursor = decode_home_feed_cursor(cursor);
+	const share_user = alias(user, 'share_user');
+	const share_profiles = alias(profiles, 'share_profiles');
+	const share_tie_id = sql<string>`${post_shares.user_id} || ':' || ${post_shares.post_id}`;
 
-	const page_rows = await db
-		.select({
-			id: posts.id,
-			author_id: posts.author_id,
-			content: posts.content,
-			created_at: posts.created_at,
-			updated_at: posts.updated_at,
-			author_name: user.name,
-			author_username: profiles.username,
-			author_avatar: user.image
-		})
-		.from(posts)
-		.innerJoin(user, eq(posts.author_id, user.id))
-		.leftJoin(profiles, eq(profiles.user_id, user.id))
-		.leftJoin(
-			hidden_posts,
-			and(
-				eq(hidden_posts.post_id, posts.id),
-				eq(hidden_posts.user_id, viewer_user_id ?? '__anonymous__')
+	const [post_rows, share_rows] = await Promise.all([
+		db
+			.select({
+				feed_item_id: sql<string>`'post:' || ${posts.id}`,
+				id: posts.id,
+				author_id: posts.author_id,
+				content: posts.content,
+				created_at: posts.created_at,
+				updated_at: posts.updated_at,
+				author_name: user.name,
+				author_username: profiles.username,
+				author_avatar: user.image
+			})
+			.from(posts)
+			.innerJoin(user, eq(posts.author_id, user.id))
+			.leftJoin(profiles, eq(profiles.user_id, user.id))
+			.leftJoin(
+				hidden_posts,
+				and(
+					eq(hidden_posts.post_id, posts.id),
+					eq(hidden_posts.user_id, viewer_user_id ?? '__anonymous__')
+				)
 			)
-		)
-		.where(
-			and(
-				isNull(posts.deleted_at),
-				isNull(hidden_posts.post_id),
-				decoded_cursor
-					? or(
-							lt(posts.created_at, new Date(decoded_cursor.created_at)),
-							and(
-								eq(posts.created_at, new Date(decoded_cursor.created_at)),
-								lt(posts.id, decoded_cursor.id)
+			.where(
+				and(
+					isNull(posts.deleted_at),
+					isNull(hidden_posts.post_id),
+					decoded_cursor
+						? or(
+								lt(posts.created_at, new Date(decoded_cursor.created_at)),
+								and(
+									eq(posts.created_at, new Date(decoded_cursor.created_at)),
+									lt(posts.id, decoded_cursor.id.replace(/^post:/, ''))
+								)
 							)
-						)
-					: undefined
+						: undefined
+				)
 			)
-		)
-		.orderBy(desc(posts.created_at), desc(posts.id))
-		.limit(normalized_limit + 1);
+			.orderBy(desc(posts.created_at), desc(posts.id))
+			.limit(normalized_limit + 1),
+		db
+			.select({
+				feed_item_id: sql<string>`'share:' || ${post_shares.user_id} || ':' || ${post_shares.post_id}`,
+				id: posts.id,
+				author_id: posts.author_id,
+				content: posts.content,
+				created_at: posts.created_at,
+				updated_at: posts.updated_at,
+				author_name: user.name,
+				author_username: profiles.username,
+				author_avatar: user.image,
+				shared_at: post_shares.created_at,
+				shared_by_user_id: post_shares.user_id,
+				shared_by_name: share_user.name,
+				shared_by_username: share_profiles.username,
+				shared_by_avatar: share_user.image
+			})
+			.from(post_shares)
+			.innerJoin(posts, eq(post_shares.post_id, posts.id))
+			.innerJoin(user, eq(posts.author_id, user.id))
+			.innerJoin(share_user, eq(post_shares.user_id, share_user.id))
+			.leftJoin(profiles, eq(profiles.user_id, user.id))
+			.leftJoin(share_profiles, eq(share_profiles.user_id, share_user.id))
+			.leftJoin(
+				hidden_posts,
+				and(
+					eq(hidden_posts.post_id, posts.id),
+					eq(hidden_posts.user_id, viewer_user_id ?? '__anonymous__')
+				)
+			)
+			.where(
+				and(
+					isNull(posts.deleted_at),
+					isNull(hidden_posts.post_id),
+					decoded_cursor
+						? or(
+								lt(post_shares.created_at, new Date(decoded_cursor.created_at)),
+								and(
+									eq(post_shares.created_at, new Date(decoded_cursor.created_at)),
+									lt(share_tie_id, decoded_cursor.id.replace(/^share:/, ''))
+								)
+							)
+						: undefined
+				)
+			)
+			.orderBy(desc(post_shares.created_at), desc(share_tie_id))
+			.limit(normalized_limit + 1)
+	]);
+
+	const page_rows: HomeFeedRow[] = [
+		...(post_rows as HomeFeedRow[]),
+		...(share_rows as HomeFeedRow[])
+	]
+		.sort((left, right) => {
+			const right_time = (right.shared_at ?? right.created_at).getTime();
+			const left_time = (left.shared_at ?? left.created_at).getTime();
+
+			if (right_time !== left_time) {
+				return right_time - left_time;
+			}
+
+			return right.feed_item_id.localeCompare(left.feed_item_id);
+		})
+		.slice(0, normalized_limit + 1);
 
 	const missing_profile_rows = page_rows.filter((row) => !row.author_username);
+	const missing_share_profile_rows = page_rows.filter(
+		(row) => row.shared_by_user_id && !row.shared_by_username
+	);
 	const ensured_usernames = new Map<string, string>();
 
-	if (missing_profile_rows.length > 0) {
+	if (missing_profile_rows.length > 0 || missing_share_profile_rows.length > 0) {
 		const resolved_usernames = await Promise.all(
-			missing_profile_rows.map(async (row) => ({
-				user_id: row.author_id,
-				username: await ensure_profile_for_user({
+			[
+				...missing_profile_rows.map((row) => ({
 					user_id: row.author_id,
 					name: row.author_name
+				})),
+				...missing_share_profile_rows.map((row) => ({
+					user_id: row.shared_by_user_id!,
+					name: row.shared_by_name ?? 'User'
+				}))
+			].map(async (row) => ({
+				user_id: row.user_id,
+				username: await ensure_profile_for_user({
+					user_id: row.user_id,
+					name: row.name
 				})
 			}))
 		);
@@ -255,20 +410,9 @@ export async function get_home_feed_page(
 
 	const feed_posts: PostFeedPost[] = visible_rows.map((row) => {
 		const post_media_row = first_media_by_post.get(row.id);
-		const responsive_media =
-			post_media_row?.media_type === 'image' && post_media_row.media_url
-				? build_responsive_image_source(post_media_row.media_url, {
-						widths: [480, 720, 960, 1200, 1600],
-						fit: 'limit',
-						quality: 'auto'
-					})
-				: undefined;
-		const responsive_video =
-			post_media_row?.media_type === 'video' && post_media_row.media_url
-				? build_responsive_video_source(post_media_row.media_url)
-				: undefined;
 
 		return {
+			feed_item_id: row.feed_item_id,
 			id: row.id,
 			author_id: row.author_id,
 			content: row.content,
@@ -281,11 +425,8 @@ export async function get_home_feed_page(
 			author_name: row.author_name,
 			author_username: row.author_username ?? ensured_usernames.get(row.author_id) ?? 'user',
 			author_avatar: row.author_avatar,
-			media_display_srcset: responsive_media?.srcset,
-			media_display_url: responsive_media?.src ?? responsive_video?.src,
-			media_poster_url: responsive_video?.poster,
-			media_url: post_media_row?.media_url,
-			media_type: post_media_row?.media_type,
+			...get_shared_feed_data(row, ensured_usernames),
+			...get_feed_media_data(post_media_row),
 			comment_count: comment_count_by_post.get(row.id) ?? 0
 		};
 	});
@@ -295,8 +436,8 @@ export async function get_home_feed_page(
 	const next_cursor =
 		has_more && last_post
 			? encode_home_feed_cursor({
-					created_at: last_post.created_at.toISOString(),
-					id: last_post.id
+					created_at: (last_post.shared_at ?? last_post.created_at).toISOString(),
+					id: last_post.feed_item_id
 				})
 			: undefined;
 

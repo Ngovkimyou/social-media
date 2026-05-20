@@ -1,4 +1,5 @@
 export type PostFeedPost = {
+	feed_item_id?: string;
 	id: string;
 	author_id: string;
 	content: string;
@@ -11,6 +12,11 @@ export type PostFeedPost = {
 	author_name: string;
 	author_username: string;
 	author_avatar: string | null;
+	shared_at?: Date;
+	shared_by_user_id?: string;
+	shared_by_name?: string;
+	shared_by_username?: string;
+	shared_by_avatar?: string | null;
 	media_display_srcset: string | undefined;
 	media_display_url: string | undefined;
 	media_poster_url: string | undefined;

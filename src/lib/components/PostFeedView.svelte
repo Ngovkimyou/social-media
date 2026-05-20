@@ -165,6 +165,56 @@
 		return `${view}-${String(post_id)}`;
 	}
 
+	function get_feed_item_key(post: PostFeedPost) {
+		return post.feed_item_id ?? post.id;
+	}
+
+	function get_post_display_time(post: PostFeedPost) {
+		return post.shared_at ?? post.created_at;
+	}
+
+	function is_shared_feed_item(post: PostFeedPost) {
+		return Boolean(post.shared_at && post.shared_by_user_id);
+	}
+
+	function is_self_repost(post: PostFeedPost) {
+		return is_shared_feed_item(post) && post.shared_by_user_id === post.author_id;
+	}
+
+	function get_avatar_initial(name: string | undefined) {
+		return name?.[0]?.toUpperCase() ?? '?';
+	}
+
+	function get_profile_href(username: string | undefined, post_id: string | number) {
+		return resolve(
+			`/profile/${encodeURIComponent(username ?? 'user')}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(String(post_id))}`
+		);
+	}
+
+	function get_post_header_profile_href(post: PostFeedPost) {
+		return get_profile_href(post.shared_by_username ?? post.author_username, post.id);
+	}
+
+	function navigate_to_profile(
+		event: MouseEvent | KeyboardEvent,
+		username: string | undefined,
+		post_id: string | number
+	) {
+		event.preventDefault();
+		event.stopPropagation();
+		void goto(get_profile_href(username, post_id));
+	}
+
+	function handle_profile_name_keydown(
+		event: KeyboardEvent,
+		username: string | undefined,
+		post_id: string | number
+	) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			navigate_to_profile(event, username, post_id);
+		}
+	}
+
 	function time_ago(date: Date): string {
 		const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
 		if (seconds < 60) return 'a few moments ago';
@@ -1927,7 +1977,10 @@
 			return false;
 		}
 
-		const target_post = post_elements.get(focus_post_id);
+		const target_post =
+			post_elements.get(focus_post_id) ??
+			post_elements.get(`post:${focus_post_id}`) ??
+			Array.from(post_elements).find(([post_id]) => post_id.endsWith(`:${focus_post_id}`))?.[1];
 
 		if (!target_post) {
 			return false;
@@ -2245,9 +2298,9 @@
 			<div
 				class="post-feed-grid grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-2.5 lg:grid-cols-3 lg:gap-4 xl:gap-6 2xl:gap-8"
 			>
-				{#each visible_posts as post, index (post.id)}
+				{#each visible_posts as post, index (get_feed_item_key(post))}
 					<div
-						use:register_post_element={post.id}
+						use:register_post_element={get_feed_item_key(post)}
 						class="post-feed-card relative overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
 					>
 						<div
@@ -2255,13 +2308,56 @@
 						>
 							<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
 								<a
-									href={resolve(
-										`/profile/${encodeURIComponent(post.author_username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
-									)}
+									href={get_post_header_profile_href(post)}
 									class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85"
-									aria-label={`Open ${post.author_name}'s profile`}
+									aria-label={`Open ${is_shared_feed_item(post) ? (post.shared_by_name ?? 'user') : post.author_name}'s profile`}
 								>
-									{#if post.author_avatar}
+									{#if is_shared_feed_item(post)}
+										<div class="relative h-11 w-11 shrink-0 md:h-12 md:w-12" aria-hidden="true">
+											<div
+												class="absolute top-0 left-0 z-10 h-8 w-8 overflow-hidden rounded-full ring-2 ring-[#18112d] md:h-9 md:w-9"
+											>
+												{#if post.shared_by_avatar}
+													<ProgressiveImage
+														src={post.shared_by_avatar}
+														alt={post.shared_by_name ?? 'Shared by'}
+														wrapper_class="h-full w-full"
+														img_class="h-full w-full object-cover"
+														skeleton_class="rounded-full"
+														loading="lazy"
+														decoding="async"
+													/>
+												{:else}
+													<div
+														class="flex h-full w-full items-center justify-center bg-white/20 text-xs font-bold text-white"
+													>
+														{get_avatar_initial(post.shared_by_name)}
+													</div>
+												{/if}
+											</div>
+											<div
+												class="absolute right-0 bottom-0 z-0 h-8 w-8 overflow-hidden rounded-full ring-2 ring-[#18112d] md:h-9 md:w-9"
+											>
+												{#if post.author_avatar}
+													<ProgressiveImage
+														src={post.author_avatar}
+														alt={post.author_name}
+														wrapper_class="h-full w-full"
+														img_class="h-full w-full object-cover"
+														skeleton_class="rounded-full"
+														loading="lazy"
+														decoding="async"
+													/>
+												{:else}
+													<div
+														class="flex h-full w-full items-center justify-center bg-white/20 text-xs font-bold text-white"
+													>
+														{get_avatar_initial(post.author_name)}
+													</div>
+												{/if}
+											</div>
+										</div>
+									{:else if post.author_avatar}
 										<ProgressiveImage
 											src={post.author_avatar}
 											alt={post.author_name}
@@ -2275,15 +2371,58 @@
 										<div
 											class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white md:h-12 md:w-12 md:text-sm"
 										>
-											{post.author_name?.[0]?.toUpperCase() ?? '?'}
+											{get_avatar_initial(post.author_name)}
 										</div>
 									{/if}
 									<div class="min-w-0 overflow-hidden md:flex md:flex-col">
-										<span class="block truncate text-base font-semibold text-white"
-											>{post.author_name}</span
-										>
+										{#if is_shared_feed_item(post)}
+											<span class="block truncate text-sm font-semibold text-white md:text-base">
+												{#if is_self_repost(post)}
+													<span
+														role="link"
+														tabindex="0"
+														class="cursor-pointer transition-opacity hover:opacity-80"
+														onclick={(event) =>
+															navigate_to_profile(event, post.author_username, post.id)}
+														onkeydown={(event) =>
+															handle_profile_name_keydown(event, post.author_username, post.id)}
+													>
+														{post.author_name}
+													</span>
+													<span class="font-medium text-white/55"> reposted this content</span>
+												{:else}
+													<span
+														role="link"
+														tabindex="0"
+														class="cursor-pointer transition-opacity hover:opacity-80"
+														onclick={(event) =>
+															navigate_to_profile(event, post.shared_by_username, post.id)}
+														onkeydown={(event) =>
+															handle_profile_name_keydown(event, post.shared_by_username, post.id)}
+													>
+														{post.shared_by_name ?? 'User'}
+													</span>
+													<span class="font-medium text-white/55"> shared from </span>
+													<span
+														role="link"
+														tabindex="0"
+														class="cursor-pointer transition-opacity hover:opacity-80"
+														onclick={(event) =>
+															navigate_to_profile(event, post.author_username, post.id)}
+														onkeydown={(event) =>
+															handle_profile_name_keydown(event, post.author_username, post.id)}
+													>
+														{post.author_name}
+													</span>
+												{/if}
+											</span>
+										{:else}
+											<span class="block truncate text-base font-semibold text-white"
+												>{post.author_name}</span
+											>
+										{/if}
 										<span class="block truncate text-sm text-white/50 md:text-sm"
-											>{time_ago(post.created_at)}</span
+											>{time_ago(get_post_display_time(post))}</span
 										>
 									</div>
 								</a>
@@ -2292,9 +2431,9 @@
 										type="button"
 										class="shrink-0 rounded-full p-2 text-white/50 transition-colors hover:bg-white/8 hover:text-white"
 										aria-haspopup="menu"
-										aria-expanded={open_post_actions_menu_id === post.id}
+										aria-expanded={open_post_actions_menu_id === get_feed_item_key(post)}
 										aria-label="Post options"
-										onclick={() => toggle_post_actions_menu(post.id)}
+										onclick={() => toggle_post_actions_menu(get_feed_item_key(post))}
 									>
 										<img
 											src="/images/home-screen/three-dots-icon.avif"
@@ -2302,7 +2441,7 @@
 											class="h-3 w-auto md:h-2 xl:h-3"
 										/>
 									</button>
-									{#if open_post_actions_menu_id === post.id}
+									{#if open_post_actions_menu_id === get_feed_item_key(post)}
 										<div
 											class="absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
 											role="menu"
@@ -2609,9 +2748,9 @@
 			</div>
 		{:else}
 			<div class="flex flex-col items-center gap-5 md:gap-8">
-				{#each visible_posts as post, index (post.id)}
+				{#each visible_posts as post, index (get_feed_item_key(post))}
 					<div
-						use:register_post_element={post.id}
+						use:register_post_element={get_feed_item_key(post)}
 						class="post-feed-card relative w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
 					>
 						<div
@@ -2619,13 +2758,56 @@
 						>
 							<div class="flex items-center gap-3 px-5 pt-5 md:gap-3">
 								<a
-									href={resolve(
-										`/profile/${encodeURIComponent(post.author_username)}?returnTo=${encodeURIComponent(current_return_to)}&returnPostId=${encodeURIComponent(post.id)}`
-									)}
+									href={get_post_header_profile_href(post)}
 									class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85"
-									aria-label={`Open ${post.author_name}'s profile`}
+									aria-label={`Open ${is_shared_feed_item(post) ? (post.shared_by_name ?? 'user') : post.author_name}'s profile`}
 								>
-									{#if post.author_avatar}
+									{#if is_shared_feed_item(post)}
+										<div class="relative h-11 w-11 shrink-0 md:h-12 md:w-12" aria-hidden="true">
+											<div
+												class="absolute top-0 left-0 z-10 h-8 w-8 overflow-hidden rounded-full ring-2 ring-[#18112d] md:h-9 md:w-9"
+											>
+												{#if post.shared_by_avatar}
+													<ProgressiveImage
+														src={post.shared_by_avatar}
+														alt={post.shared_by_name ?? 'Shared by'}
+														wrapper_class="h-full w-full"
+														img_class="h-full w-full object-cover"
+														skeleton_class="rounded-full"
+														loading="lazy"
+														decoding="async"
+													/>
+												{:else}
+													<div
+														class="flex h-full w-full items-center justify-center bg-white/20 text-xs font-bold text-white"
+													>
+														{get_avatar_initial(post.shared_by_name)}
+													</div>
+												{/if}
+											</div>
+											<div
+												class="absolute right-0 bottom-0 z-0 h-8 w-8 overflow-hidden rounded-full ring-2 ring-[#18112d] md:h-9 md:w-9"
+											>
+												{#if post.author_avatar}
+													<ProgressiveImage
+														src={post.author_avatar}
+														alt={post.author_name}
+														wrapper_class="h-full w-full"
+														img_class="h-full w-full object-cover"
+														skeleton_class="rounded-full"
+														loading="lazy"
+														decoding="async"
+													/>
+												{:else}
+													<div
+														class="flex h-full w-full items-center justify-center bg-white/20 text-xs font-bold text-white"
+													>
+														{get_avatar_initial(post.author_name)}
+													</div>
+												{/if}
+											</div>
+										</div>
+									{:else if post.author_avatar}
 										<ProgressiveImage
 											src={post.author_avatar}
 											alt={post.author_name}
@@ -2639,15 +2821,58 @@
 										<div
 											class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white md:h-11 md:w-11 md:text-sm"
 										>
-											{post.author_name?.[0]?.toUpperCase() ?? '?'}
+											{get_avatar_initial(post.author_name)}
 										</div>
 									{/if}
 									<div class="min-w-0 overflow-hidden md:flex md:flex-col">
-										<span class="block truncate text-base font-semibold text-white md:text-xl"
-											>{post.author_name}</span
-										>
+										{#if is_shared_feed_item(post)}
+											<span class="block truncate text-sm font-semibold text-white md:text-base">
+												{#if is_self_repost(post)}
+													<span
+														role="link"
+														tabindex="0"
+														class="cursor-pointer transition-opacity hover:opacity-80"
+														onclick={(event) =>
+															navigate_to_profile(event, post.author_username, post.id)}
+														onkeydown={(event) =>
+															handle_profile_name_keydown(event, post.author_username, post.id)}
+													>
+														{post.author_name}
+													</span>
+													<span class="font-medium text-white/55"> reposted this content</span>
+												{:else}
+													<span
+														role="link"
+														tabindex="0"
+														class="cursor-pointer transition-opacity hover:opacity-80"
+														onclick={(event) =>
+															navigate_to_profile(event, post.shared_by_username, post.id)}
+														onkeydown={(event) =>
+															handle_profile_name_keydown(event, post.shared_by_username, post.id)}
+													>
+														{post.shared_by_name ?? 'User'}
+													</span>
+													<span class="font-medium text-white/55"> shared from </span>
+													<span
+														role="link"
+														tabindex="0"
+														class="cursor-pointer transition-opacity hover:opacity-80"
+														onclick={(event) =>
+															navigate_to_profile(event, post.author_username, post.id)}
+														onkeydown={(event) =>
+															handle_profile_name_keydown(event, post.author_username, post.id)}
+													>
+														{post.author_name}
+													</span>
+												{/if}
+											</span>
+										{:else}
+											<span class="block truncate text-base font-semibold text-white md:text-xl"
+												>{post.author_name}</span
+											>
+										{/if}
 										<span class="block truncate text-sm text-white/50 md:text-sm"
-											>{time_ago(post.created_at)}</span
+											>{time_ago(get_post_display_time(post))}</span
 										>
 									</div>
 								</a>
@@ -2656,13 +2881,13 @@
 										type="button"
 										class="shrink-0 rounded-full p-2 text-white/50 transition-colors hover:bg-white/8 hover:text-white"
 										aria-haspopup="menu"
-										aria-expanded={open_post_actions_menu_id === post.id}
+										aria-expanded={open_post_actions_menu_id === get_feed_item_key(post)}
 										aria-label="Post options"
-										onclick={() => toggle_post_actions_menu(post.id)}
+										onclick={() => toggle_post_actions_menu(get_feed_item_key(post))}
 									>
 										<img src="/images/home-screen/three-dots-icon.avif" alt="" class="h-3 w-auto" />
 									</button>
-									{#if open_post_actions_menu_id === post.id}
+									{#if open_post_actions_menu_id === get_feed_item_key(post)}
 										<div
 											class="absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
 											role="menu"
