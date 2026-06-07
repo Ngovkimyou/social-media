@@ -92,23 +92,10 @@ async function initialize_hidden_comments_table(): Promise<void> {
 		return hidden_comment_init_promise;
 	}
 
-	hidden_comment_init_promise = (async () => {
-		const db = get_db();
-		await db.execute(sql`
-			create table if not exists hidden_comment (
-				comment_id text not null references "comment"(id) on delete cascade,
-				user_id text not null references "user"(id) on delete cascade,
-				created_at timestamp not null default now(),
-				primary key (comment_id, user_id)
-			)
-		`);
-		await db.execute(sql`
-			create index if not exists hidden_comment_comment_id_idx on hidden_comment (comment_id)
-		`);
-		await db.execute(sql`
-			create index if not exists hidden_comment_user_id_idx on hidden_comment (user_id)
-		`);
-	})();
+	hidden_comment_init_promise = initialize_comment_user_action_table({
+		index_prefix: 'hidden_comment',
+		table_name: 'hidden_comment'
+	});
 
 	return hidden_comment_init_promise;
 }
@@ -118,25 +105,40 @@ async function initialize_comment_likes_table(): Promise<void> {
 		return comment_like_init_promise;
 	}
 
-	comment_like_init_promise = (async () => {
-		const db = get_db();
-		await db.execute(sql`
-			create table if not exists comment_like (
-				comment_id text not null references "comment"(id) on delete cascade,
-				user_id text not null references "user"(id) on delete cascade,
-				created_at timestamp not null default now(),
-				primary key (comment_id, user_id)
-			)
-		`);
-		await db.execute(sql`
-			create index if not exists comment_like_comment_id_idx on comment_like (comment_id)
-		`);
-		await db.execute(sql`
-			create index if not exists comment_like_user_id_idx on comment_like (user_id)
-		`);
-	})();
+	comment_like_init_promise = initialize_comment_user_action_table({
+		index_prefix: 'comment_like',
+		table_name: 'comment_like'
+	});
 
 	return comment_like_init_promise;
+}
+
+async function initialize_comment_user_action_table(options: {
+	index_prefix: 'comment_like' | 'hidden_comment';
+	table_name: 'comment_like' | 'hidden_comment';
+}): Promise<void> {
+	const db = get_db();
+
+	await db.execute(
+		sql.raw(`
+		create table if not exists ${options.table_name} (
+			comment_id text not null references "comment"(id) on delete cascade,
+			user_id text not null references "user"(id) on delete cascade,
+			created_at timestamp not null default now(),
+			primary key (comment_id, user_id)
+		)
+	`)
+	);
+	await db.execute(
+		sql.raw(
+			`create index if not exists ${options.index_prefix}_comment_id_idx on ${options.table_name} (comment_id)`
+		)
+	);
+	await db.execute(
+		sql.raw(
+			`create index if not exists ${options.index_prefix}_user_id_idx on ${options.table_name} (user_id)`
+		)
+	);
 }
 
 export async function commentable_post_exists(post_id: string): Promise<boolean> {

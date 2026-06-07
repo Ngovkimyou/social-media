@@ -155,41 +155,28 @@ export const comments = pgTable(
 	]
 );
 
-export const hidden_comments = pgTable(
-	'hidden_comment',
-	{
-		comment_id: text('comment_id')
-			.notNull()
-			.references(() => comments.id, { onDelete: 'cascade' }),
-		user_id: text('user_id')
-			.notNull()
-			.references(() => auth_user.id, { onDelete: 'cascade' }),
-		created_at: timestamp('created_at').defaultNow().notNull()
-	},
-	(table) => [
-		primaryKey({ columns: [table.comment_id, table.user_id] }),
-		index('hidden_comment_comment_id_idx').on(table.comment_id),
-		index('hidden_comment_user_id_idx').on(table.user_id)
-	]
-);
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const comment_user_action_table = (table_name: string, index_prefix: string) =>
+	pgTable(
+		table_name,
+		{
+			comment_id: text('comment_id')
+				.notNull()
+				.references(() => comments.id, { onDelete: 'cascade' }),
+			user_id: text('user_id')
+				.notNull()
+				.references(() => auth_user.id, { onDelete: 'cascade' }),
+			created_at: timestamp('created_at').defaultNow().notNull()
+		},
+		(table) => [
+			primaryKey({ columns: [table.comment_id, table.user_id] }),
+			index(`${index_prefix}_comment_id_idx`).on(table.comment_id),
+			index(`${index_prefix}_user_id_idx`).on(table.user_id)
+		]
+	);
 
-export const comment_likes = pgTable(
-	'comment_like',
-	{
-		comment_id: text('comment_id')
-			.notNull()
-			.references(() => comments.id, { onDelete: 'cascade' }),
-		user_id: text('user_id')
-			.notNull()
-			.references(() => auth_user.id, { onDelete: 'cascade' }),
-		created_at: timestamp('created_at').defaultNow().notNull()
-	},
-	(table) => [
-		primaryKey({ columns: [table.comment_id, table.user_id] }),
-		index('comment_like_comment_id_idx').on(table.comment_id),
-		index('comment_like_user_id_idx').on(table.user_id)
-	]
-);
+export const hidden_comments = comment_user_action_table('hidden_comment', 'hidden_comment');
+export const comment_likes = comment_user_action_table('comment_like', 'comment_like');
 
 export const follows = pgTable(
 	'follow',
