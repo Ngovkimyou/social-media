@@ -18,6 +18,7 @@
 	type BackPath = '/profile' | `/profile/${string}`;
 	type PostPath = `/profile/${string}/posts/${string}` | `/profile/${string}/shared/${string}`;
 	const last_home_state_storage_key = 'post-feed-last-home-state';
+	const pending_comment_return_storage_key = 'post-feed-pending-comment-return';
 
 	type Props = {
 		posts: PostFeedPost[];
@@ -142,10 +143,13 @@
 	let post_edit_error = $state('');
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let hasConsumedFocusPost = $state(false);
+	// eslint-disable-next-line @typescript-eslint/naming-convention
+	let hasConsumedOpenPost = $state(false);
 	const post_elements = new SvelteMap<string, HTMLElement>();
 	const prewarmed_media_urls = new SvelteSet<string>();
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	const focus_post_id = $derived(page.url.searchParams.get('focusPost')?.trim() ?? '');
+	const open_post_id = $derived(page.url.searchParams.get('openPost')?.trim() ?? '');
 	const visible_posts = $derived(posts.filter((post) => !hidden_post_ids[post.id]));
 	const has_infinite_feed = $derived(Boolean(on_load_more));
 	const grid_loading_placeholders = Array.from({ length: 6 }, (_, index) => index);
@@ -2001,6 +2005,81 @@
 		return true;
 	}
 
+	function restore_open_post_detail() {
+		if (!open_post_id || hasConsumedOpenPost) {
+			return false;
+		}
+
+		const target_post = visible_posts.find((post) => String(post.id) === open_post_id);
+
+		if (!target_post) {
+			return false;
+		}
+
+		hasConsumedOpenPost = true;
+		open_post_detail(target_post);
+		const cleaned_url = new URL(page.url);
+		cleaned_url.searchParams.delete('openPost');
+		const cleaned_href = `${cleaned_url.pathname}${cleaned_url.search}${cleaned_url.hash}`;
+		skip_next_scroll_restore = true;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		void goto(cleaned_href, {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true
+		});
+		return true;
+	}
+
+	function restore_pending_comment_return() {
+		if (typeof window === 'undefined') {
+			return false;
+		}
+
+		try {
+			const raw_pending_return = sessionStorage.getItem(pending_comment_return_storage_key);
+
+			if (!raw_pending_return) {
+				return false;
+			}
+
+			const pending_return = JSON.parse(raw_pending_return) as {
+				created_at?: number;
+				post_id?: string;
+				return_to?: string;
+			};
+			const is_stale =
+				typeof pending_return.created_at !== 'number' ||
+				Date.now() - pending_return.created_at > 2 * 60 * 1000;
+			const current_href = `${page.url.pathname}${page.url.search}${page.url.hash}`;
+
+			if (is_stale) {
+				sessionStorage.removeItem(pending_comment_return_storage_key);
+				return false;
+			}
+
+			if (!pending_return.post_id || pending_return.return_to !== current_href) {
+				return false;
+			}
+
+			const target_post = visible_posts.find((post) => String(post.id) === pending_return.post_id);
+
+			if (!target_post) {
+				return false;
+			}
+
+			sessionStorage.removeItem(pending_comment_return_storage_key);
+			post_elements
+				.get(pending_return.post_id)
+				?.scrollIntoView({ block: 'start', behavior: 'auto' });
+			open_post_detail(target_post);
+			return true;
+		} catch {
+			sessionStorage.removeItem(pending_comment_return_storage_key);
+			return false;
+		}
+	}
+
 	function request_more_posts() {
 		if (!has_more || is_loading_more || !on_load_more) {
 			return;
@@ -2133,6 +2212,14 @@
 				return;
 			}
 
+			if (restore_pending_comment_return()) {
+				return;
+			}
+
+			if (restore_open_post_detail()) {
+				return;
+			}
+
 			restore_scroll_position();
 			maybe_load_more();
 		});
@@ -2179,6 +2266,14 @@
 		void tick().then(() => {
 			refresh_load_more_observer();
 			if (restore_focus_post()) {
+				return;
+			}
+
+			if (restore_pending_comment_return()) {
+				return;
+			}
+
+			if (restore_open_post_detail()) {
 				return;
 			}
 
@@ -2443,8 +2538,9 @@
 									</button>
 									{#if open_post_actions_menu_id === get_feed_item_key(post)}
 										<div
-											class="absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
+											class="post-actions-menu absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
 											role="menu"
+											transition:scale={{ duration: 120 }}
 										>
 											{#if can_delete_post(post)}
 												<button
@@ -2889,8 +2985,9 @@
 									</button>
 									{#if open_post_actions_menu_id === get_feed_item_key(post)}
 										<div
-											class="absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
+											class="post-actions-menu absolute top-full right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#120b2b]/95 p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur-md"
 											role="menu"
+											transition:scale={{ duration: 120 }}
 										>
 											{#if can_delete_post(post)}
 												<button

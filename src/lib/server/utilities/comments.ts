@@ -1,7 +1,7 @@
 import { get_db } from '$lib/server/db';
 import { comments, posts, profiles, user } from '$lib/server/db/schema';
 import type { CommentPage, PostComment } from '$lib/types/comment';
-import { and, count, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 const COMMENT_PAGE_SIZE = 20;
 let comment_index_init_promise: Promise<void> | undefined;
@@ -10,6 +10,11 @@ type CommentCursor = {
 	created_at: string;
 	id: string;
 };
+
+function nullable<T>(value: T | undefined): T | null {
+	// eslint-disable-next-line unicorn/no-null
+	return value ?? null;
+}
 
 function encode_comment_cursor(cursor: CommentCursor): string {
 	return Buffer.from(JSON.stringify(cursor)).toString('base64url');
@@ -47,6 +52,22 @@ async function initialize_comment_indexes(): Promise<void> {
 			on "comment" (post_id, deleted_at, created_at desc, id desc)
 		`
 		)
+		.then(() =>
+			get_db().execute(sql`alter table "comment" add column if not exists parent_comment_id text`)
+		)
+		.then(() =>
+			get_db().execute(sql`alter table "comment" add column if not exists reply_to_comment_id text`)
+		)
+		.then(() =>
+			get_db().execute(
+				sql`create index if not exists comment_parent_comment_id_idx on "comment" (parent_comment_id)`
+			)
+		)
+		.then(() =>
+			get_db().execute(
+				sql`create index if not exists comment_reply_to_comment_id_idx on "comment" (reply_to_comment_id)`
+			)
+		)
 		.then(() => {})
 		.catch((error) => {
 			console.warn(
@@ -79,8 +100,9 @@ export async function get_comments_by_post_id(
 	const decoded_cursor = decode_comment_cursor(cursor);
 
 	const base_where = and(eq(comments.post_id, post_id), isNull(comments.deleted_at));
+	const top_level_where = and(base_where, isNull(comments.parent_comment_id));
 
-	const [post_row, rows, count_rows] = await Promise.all([
+	const [post_row, top_rows, count_rows] = await Promise.all([
 		db
 			.select({ id: posts.id })
 			.from(posts)
@@ -95,14 +117,16 @@ export async function get_comments_by_post_id(
 				author_id: comments.author_id,
 				author_name: user.name,
 				author_username: profiles.username,
-				author_avatar: user.image
+				author_avatar: user.image,
+				parent_comment_id: comments.parent_comment_id,
+				reply_to_comment_id: comments.reply_to_comment_id
 			})
 			.from(comments)
 			.innerJoin(user, eq(comments.author_id, user.id))
 			.leftJoin(profiles, eq(profiles.user_id, user.id))
 			.where(
 				and(
-					base_where,
+					top_level_where,
 					decoded_cursor
 						? or(
 								lt(comments.created_at, new Date(decoded_cursor.created_at)),
@@ -124,8 +148,8 @@ export async function get_comments_by_post_id(
 	}
 
 	const total_count = count_rows[0]?.value ?? 0;
-	const visible_rows = rows.slice(0, normalized_limit);
-	const has_more = rows.length > normalized_limit;
+	const visible_rows = top_rows.slice(0, normalized_limit);
+	const has_more = top_rows.length > normalized_limit;
 	const last_comment = visible_rows.at(-1);
 	const next_cursor =
 		has_more && last_comment
@@ -135,16 +159,101 @@ export async function get_comments_by_post_id(
 				})
 			: undefined;
 
-	const page_comments: PostComment[] = visible_rows.map((row) => ({
-		id: row.id,
-		content: row.content,
-		created_at: row.created_at,
-		updated_at: row.updated_at,
-		author_id: row.author_id,
-		author_name: row.author_name,
-		author_username: row.author_username ?? 'user',
-		author_avatar: row.author_avatar
-	}));
+	const top_comment_ids = visible_rows.map((row) => row.id);
+	const reply_rows =
+		top_comment_ids.length === 0
+			? []
+			: await db
+					.select({
+						id: comments.id,
+						content: comments.content,
+						created_at: comments.created_at,
+						updated_at: comments.updated_at,
+						author_id: comments.author_id,
+						author_name: user.name,
+						author_username: profiles.username,
+						author_avatar: user.image,
+						parent_comment_id: comments.parent_comment_id,
+						reply_to_comment_id: comments.reply_to_comment_id
+					})
+					.from(comments)
+					.innerJoin(user, eq(comments.author_id, user.id))
+					.leftJoin(profiles, eq(profiles.user_id, user.id))
+					.where(and(base_where, inArray(comments.parent_comment_id, top_comment_ids)))
+					.orderBy(asc(comments.created_at), asc(comments.id));
+
+	const reply_to_ids = [
+		...new Set(
+			[...visible_rows, ...reply_rows]
+				.map((row) => row.reply_to_comment_id)
+				.filter((id): id is string => Boolean(id))
+		)
+	];
+	const reply_to_author_rows =
+		reply_to_ids.length === 0
+			? []
+			: await db
+					.select({
+						id: comments.id,
+						author_id: comments.author_id,
+						author_name: user.name,
+						author_username: profiles.username
+					})
+					.from(comments)
+					.innerJoin(user, eq(comments.author_id, user.id))
+					.leftJoin(profiles, eq(profiles.user_id, user.id))
+					.where(inArray(comments.id, reply_to_ids));
+	const reply_to_author_by_id = new Map(
+		reply_to_author_rows.map((row) => [
+			row.id,
+			{
+				author_id: row.author_id,
+				author_name: row.author_name,
+				author_username: row.author_username ?? 'user'
+			}
+		])
+	);
+
+	const map_comment_row = (
+		row: (typeof visible_rows)[number] | (typeof reply_rows)[number]
+	): PostComment => {
+		const reply_to_author = row.reply_to_comment_id
+			? reply_to_author_by_id.get(row.reply_to_comment_id)
+			: undefined;
+
+		return {
+			id: row.id,
+			parent_comment_id: row.parent_comment_id,
+			reply_to_comment_id: row.reply_to_comment_id,
+			reply_to_author_id: nullable(reply_to_author?.author_id),
+			reply_to_author_name: nullable(reply_to_author?.author_name),
+			reply_to_author_username: nullable(reply_to_author?.author_username),
+			content: row.content,
+			created_at: row.created_at,
+			updated_at: row.updated_at,
+			author_id: row.author_id,
+			author_name: row.author_name,
+			author_username: row.author_username ?? 'user',
+			author_avatar: row.author_avatar
+		};
+	};
+
+	const replies_by_parent = new Map<string, PostComment[]>();
+	for (const reply of reply_rows.map(map_comment_row)) {
+		if (!reply.parent_comment_id) {
+			continue;
+		}
+
+		replies_by_parent.set(reply.parent_comment_id, [
+			...(replies_by_parent.get(reply.parent_comment_id) ?? []),
+			reply
+		]);
+	}
+
+	const page_comments: PostComment[] = visible_rows.flatMap((row) => [
+		map_comment_row(row),
+		...(replies_by_parent.get(row.id) ?? [])
+	]);
 
 	return next_cursor
 		? { comments: page_comments, has_more, next_cursor, total_count }
@@ -179,7 +288,8 @@ export async function has_recent_duplicate_comment(
 export async function create_comment(
 	post_id: string,
 	author_id: string,
-	content: string
+	content: string,
+	reply_to_comment_id?: string
 ): Promise<PostComment | undefined> {
 	await initialize_comment_indexes();
 	const db = get_db();
@@ -195,7 +305,49 @@ export async function create_comment(
 		return undefined;
 	}
 
-	await db.insert(comments).values({ id, post_id, author_id, content });
+	let parent_comment_id: string | undefined;
+	let normalized_reply_to_comment_id: string | undefined;
+	let reply_to_author_id: string | undefined;
+	let reply_to_author_name: string | undefined;
+	let reply_to_author_username: string | undefined;
+
+	if (reply_to_comment_id) {
+		const reply_to_rows = await db
+			.select({
+				id: comments.id,
+				post_id: comments.post_id,
+				parent_comment_id: comments.parent_comment_id,
+				author_id: comments.author_id,
+				author_name: user.name,
+				author_username: profiles.username
+			})
+			.from(comments)
+			.innerJoin(user, eq(comments.author_id, user.id))
+			.leftJoin(profiles, eq(profiles.user_id, user.id))
+			.where(and(eq(comments.id, reply_to_comment_id), isNull(comments.deleted_at)))
+			.limit(1);
+
+		const reply_to_comment = reply_to_rows[0];
+
+		if (reply_to_comment?.post_id !== post_id) {
+			return undefined;
+		}
+
+		parent_comment_id = reply_to_comment.parent_comment_id ?? reply_to_comment.id;
+		normalized_reply_to_comment_id = reply_to_comment.id;
+		reply_to_author_id = reply_to_comment.author_id;
+		reply_to_author_name = reply_to_comment.author_name;
+		reply_to_author_username = reply_to_comment.author_username ?? 'user';
+	}
+
+	await db.insert(comments).values({
+		id,
+		post_id,
+		author_id,
+		content,
+		parent_comment_id,
+		reply_to_comment_id: normalized_reply_to_comment_id
+	});
 
 	const author_rows = await db
 		.select({ name: user.name, image: user.image, username: profiles.username })
@@ -208,6 +360,11 @@ export async function create_comment(
 
 	return {
 		id,
+		parent_comment_id: nullable(parent_comment_id),
+		reply_to_comment_id: nullable(normalized_reply_to_comment_id),
+		reply_to_author_id: nullable(reply_to_author_id),
+		reply_to_author_name: nullable(reply_to_author_name),
+		reply_to_author_username: nullable(reply_to_author_username),
 		content,
 		created_at: new Date(),
 		updated_at: new Date(),
@@ -253,6 +410,8 @@ export async function update_comment(
 		.where(eq(comments.id, comment_id))
 		.returning({
 			id: comments.id,
+			parent_comment_id: comments.parent_comment_id,
+			reply_to_comment_id: comments.reply_to_comment_id,
 			content: comments.content,
 			created_at: comments.created_at,
 			updated_at: comments.updated_at,
@@ -273,11 +432,33 @@ export async function update_comment(
 		.limit(1);
 
 	const author = author_rows[0];
+	let reply_to_author_name: string | undefined;
+	let reply_to_author_username: string | undefined;
+	let reply_to_author_id: string | undefined;
+
+	if (updated_comment.reply_to_comment_id) {
+		const reply_to_author_rows = await db
+			.select({ id: user.id, name: user.name, username: profiles.username })
+			.from(comments)
+			.innerJoin(user, eq(comments.author_id, user.id))
+			.leftJoin(profiles, eq(profiles.user_id, user.id))
+			.where(eq(comments.id, updated_comment.reply_to_comment_id))
+			.limit(1);
+
+		reply_to_author_id = reply_to_author_rows[0]?.id;
+		reply_to_author_name = reply_to_author_rows[0]?.name;
+		reply_to_author_username = reply_to_author_rows[0]?.username ?? undefined;
+	}
 
 	return {
 		success: true,
 		comment: {
 			id: updated_comment.id,
+			parent_comment_id: updated_comment.parent_comment_id,
+			reply_to_comment_id: updated_comment.reply_to_comment_id,
+			reply_to_author_id: nullable(reply_to_author_id),
+			reply_to_author_name: nullable(reply_to_author_name),
+			reply_to_author_username: nullable(reply_to_author_username),
 			content: updated_comment.content,
 			created_at: updated_comment.created_at,
 			updated_at: updated_comment.updated_at,
@@ -293,12 +474,16 @@ export async function update_comment(
 export async function delete_comment(
 	comment_id: string,
 	user_id: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: true; deleted_count: number } | { success: false; error?: string }> {
 	await initialize_comment_indexes();
 	const db = get_db();
 
 	const existing = await db
-		.select({ id: comments.id, author_id: comments.author_id })
+		.select({
+			id: comments.id,
+			author_id: comments.author_id,
+			parent_comment_id: comments.parent_comment_id
+		})
 		.from(comments)
 		.where(and(eq(comments.id, comment_id), isNull(comments.deleted_at)))
 		.limit(1);
@@ -313,7 +498,16 @@ export async function delete_comment(
 		return { success: false, error: 'Forbidden' };
 	}
 
-	await db.update(comments).set({ deleted_at: new Date() }).where(eq(comments.id, comment_id));
+	const deleted_at = new Date();
+	const deleted_rows = await db
+		.update(comments)
+		.set({ deleted_at })
+		.where(
+			existing_comment.parent_comment_id
+				? eq(comments.id, comment_id)
+				: or(eq(comments.id, comment_id), eq(comments.parent_comment_id, comment_id))
+		)
+		.returning({ id: comments.id });
 
-	return { success: true };
+	return { success: true, deleted_count: deleted_rows.length };
 }

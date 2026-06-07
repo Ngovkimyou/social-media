@@ -1,10 +1,10 @@
 <script lang="ts">
 	import './profile.css';
 	import { enhance } from '$app/forms';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll, preloadCode, preloadData } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { onDestroy, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageProps } from './$types';
@@ -61,6 +61,8 @@
 		return raw_value;
 	});
 	const return_post_id = $derived(page.url.searchParams.get('returnPostId')?.trim() ?? '');
+	const return_open_post_id = $derived(page.url.searchParams.get('returnOpenPostId')?.trim() ?? '');
+	const pending_comment_return_storage_key = 'post-feed-pending-comment-return';
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	let upload_modal_open = $state(false);
@@ -2012,14 +2014,77 @@
 		await apply_crop_editor(editor);
 	}
 
+	function get_return_target_href() {
+		if (!return_to) {
+			return resolve('/home');
+		}
+
+		const target_url = new URL(return_to, page.url.origin);
+
+		if (return_post_id) {
+			target_url.searchParams.set('focusPost', return_post_id);
+		}
+
+		if (return_open_post_id) {
+			target_url.searchParams.set('openPost', return_open_post_id);
+		}
+
+		return `${target_url.pathname}${target_url.search}${target_url.hash}`;
+	}
+
+	function has_pending_comment_return() {
+		if (!return_open_post_id || typeof window === 'undefined') {
+			return false;
+		}
+
+		try {
+			const raw_pending_return = sessionStorage.getItem(pending_comment_return_storage_key);
+
+			if (!raw_pending_return) {
+				return false;
+			}
+
+			const pending_return = JSON.parse(raw_pending_return) as {
+				created_at?: number;
+				post_id?: string;
+				return_to?: string;
+			};
+
+			return (
+				pending_return.post_id === return_open_post_id &&
+				pending_return.return_to === return_to &&
+				typeof pending_return.created_at === 'number' &&
+				Date.now() - pending_return.created_at <= 2 * 60 * 1000
+			);
+		} catch {
+			sessionStorage.removeItem(pending_comment_return_storage_key);
+			return false;
+		}
+	}
+
+	function preload_return_target() {
+		if (!return_to) {
+			return;
+		}
+
+		const target_href = has_pending_comment_return() ? return_to : get_return_target_href();
+		void preloadCode(target_href);
+		void preloadData(target_href);
+	}
+
 	async function handle_return_navigation() {
-		if (return_to) {
-			const separator = return_to.includes('?') ? '&' : '?';
-			const target_href = return_post_id
-				? `${return_to}${separator}focusPost=${encodeURIComponent(return_post_id)}`
-				: return_to;
+		if (has_pending_comment_return() && return_to) {
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(target_href);
+			void goto(return_to, {
+				keepFocus: true,
+				noScroll: true
+			});
+			return;
+		}
+
+		if (return_to) {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(get_return_target_href());
 			return;
 		}
 
@@ -2097,6 +2162,10 @@
 		}, 2500);
 	}
 
+	onMount(() => {
+		preload_return_target();
+	});
+
 	onDestroy(() => {
 		clear_post_preview();
 		clear_image_editor_drag_hint_timeout();
@@ -2136,6 +2205,8 @@
 					onclick={() => {
 						void handle_return_navigation();
 					}}
+					onpointerenter={preload_return_target}
+					onfocus={preload_return_target}
 					class="absolute top-4 left-4 z-40 block transition-transform duration-200 hover:scale-105 md:top-6 md:left-6"
 					aria-label="Go back"
 				>

@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { MouseEventHandler } from 'svelte/elements';
-	import { goto } from '$app/navigation';
+	import { goto, preloadCode, preloadData } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { Pathname } from '$app/types';
 	import { page } from '$app/state';
@@ -143,26 +143,29 @@
 				return home_href;
 			}
 
-			const saved_return_href = saved_state.return_href?.startsWith('/home')
-				? saved_state.return_href
-				: home_href;
-
-			if (!saved_state.anchor_post_id || saved_return_href.includes('focusPost=')) {
-				return saved_return_href;
-			}
-
-			const separator = saved_return_href.includes('?') ? '&' : '?';
-			return `${saved_return_href}${separator}focusPost=${encodeURIComponent(saved_state.anchor_post_id)}`;
+			return saved_state.return_href?.startsWith('/home') ? saved_state.return_href : home_href;
 		} catch {
 			return home_href;
 		}
 	}
 
+	function preload_route(href: string) {
+		void preloadCode(href);
+		void preloadData(href);
+	}
+
+	function preload_home_return() {
+		preload_route(build_home_return_href());
+	}
+
 	const handle_home_navigation_click: MouseEventHandler<HTMLAnchorElement> = (event) => {
 		if (!ison_home) {
 			event.preventDefault();
+			const target_href = build_home_return_href();
+
+			preload_route(target_href);
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			void goto(build_home_return_href(), {
+			void goto(target_href, {
 				noScroll: true,
 				keepFocus: true
 			});
@@ -200,13 +203,29 @@
 		});
 	};
 
-	const handle_navigation_away_from_home: MouseEventHandler<HTMLAnchorElement> = () => {
+	function handle_navigation_away_from_home() {
 		is_mobile_settings_open = false;
 		persist_current_home_scroll_position();
-	};
+	}
+
+	function handle_sidebar_route_click(event: MouseEvent, href: string) {
+		handle_navigation_away_from_home();
+
+		if (page.url.pathname === href) {
+			event.preventDefault();
+			return;
+		}
+
+		event.preventDefault();
+		preload_route(href);
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		void goto(href, {
+			keepFocus: true
+		});
+	}
 
 	const handle_about_navigation_click: MouseEventHandler<HTMLAnchorElement> = (event) => {
-		handle_navigation_away_from_home(event);
+		handle_sidebar_route_click(event, about_href);
 
 		if (typeof document === 'undefined') {
 			return;
@@ -256,6 +275,8 @@
 	<a
 		href={home_href}
 		onclick={handle_home_navigation_click}
+		onpointerdown={preload_home_return}
+		onfocus={preload_home_return}
 		class="cursor-pointer transition-opacity hover:opacity-80"
 	>
 		<img
@@ -316,6 +337,8 @@
 					<a
 						href={about_href}
 						onclick={handle_about_navigation_click}
+						onpointerdown={() => preload_route(about_href)}
+						onfocus={() => preload_route(about_href)}
 						data-sveltekit-preload-data="hover"
 						class={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/8 ${ison_about ? 'bg-white/10 text-[#7DD4FF]' : ''}`}
 					>
@@ -366,7 +389,9 @@
 
 		<a
 			href={search_href}
-			onclick={handle_navigation_away_from_home}
+			onclick={(event) => handle_sidebar_route_click(event, search_href)}
+			onpointerdown={() => preload_route(search_href)}
+			onfocus={() => preload_route(search_href)}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_search ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
@@ -380,6 +405,8 @@
 		<a
 			href={home_href}
 			onclick={handle_home_navigation_click}
+			onpointerdown={preload_home_return}
+			onfocus={preload_home_return}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_home ? glow_on : `${glow_off} hover:opacity-80`}`}
 		>
@@ -408,7 +435,9 @@
 
 		<a
 			href={resolve(profile_path)}
-			onclick={handle_navigation_away_from_home}
+			onclick={(event) => handle_sidebar_route_click(event, resolve(profile_path))}
+			onpointerdown={() => preload_route(resolve(profile_path))}
+			onfocus={() => preload_route(resolve(profile_path))}
 			data-sveltekit-preload-data="hover"
 			class={`relative grid h-14 w-14 cursor-pointer place-items-center transition-opacity duration-200 ${glow_base} ${ison_profile ? glow_on : `${glow_off} hover:opacity-80`}`}
 			aria-label="Profile"
@@ -433,6 +462,8 @@
 		<a
 			href={home_href}
 			onclick={handle_home_navigation_click}
+			onpointerdown={preload_home_return}
+			onfocus={preload_home_return}
 			class={`block transition-opacity hover:opacity-80 ${$is_desktop_sidebar_collapsed ? 'mx-auto self-center' : 'mx-auto w-fit self-center'}`}
 		>
 			<img
@@ -467,6 +498,8 @@
 		<a
 			href={home_href}
 			onclick={handle_home_navigation_click}
+			onpointerdown={preload_home_return}
+			onfocus={preload_home_return}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_home ? active_link : ''}`}
 		>
@@ -487,7 +520,9 @@
 
 		<a
 			href={search_href}
-			onclick={handle_navigation_away_from_home}
+			onclick={(event) => handle_sidebar_route_click(event, search_href)}
+			onpointerdown={() => preload_route(search_href)}
+			onfocus={() => preload_route(search_href)}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_search ? active_link : ''}`}
 		>
@@ -508,7 +543,9 @@
 
 		<a
 			href={resolve(profile_path)}
-			onclick={handle_navigation_away_from_home}
+			onclick={(event) => handle_sidebar_route_click(event, resolve(profile_path))}
+			onpointerdown={() => preload_route(resolve(profile_path))}
+			onfocus={() => preload_route(resolve(profile_path))}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_profile ? active_link : ''}`}
 		>
@@ -591,6 +628,8 @@
 		<a
 			href={about_href}
 			onclick={handle_about_navigation_click}
+			onpointerdown={() => preload_route(about_href)}
+			onfocus={() => preload_route(about_href)}
 			data-sveltekit-preload-data="hover"
 			class={`${nav_link_base} ${nav_link_size_class} ${desktop_link_alignment_class} ${ison_about ? active_link : ''}`}
 		>

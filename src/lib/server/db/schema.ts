@@ -131,6 +131,8 @@ export const comments = pgTable(
 		author_id: text('author_id')
 			.notNull()
 			.references(() => auth_user.id, { onDelete: 'cascade' }),
+		parent_comment_id: text('parent_comment_id'),
+		reply_to_comment_id: text('reply_to_comment_id'),
 		content: text('content').notNull(),
 		created_at: timestamp('created_at').defaultNow().notNull(),
 		updated_at: timestamp('updated_at')
@@ -141,6 +143,8 @@ export const comments = pgTable(
 	},
 	(table) => [
 		index('comment_post_id_idx').on(table.post_id),
+		index('comment_parent_comment_id_idx').on(table.parent_comment_id),
+		index('comment_reply_to_comment_id_idx').on(table.reply_to_comment_id),
 		index('comment_author_id_idx').on(table.author_id),
 		index('comment_post_deleted_created_id_idx').on(
 			table.post_id,

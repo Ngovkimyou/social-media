@@ -19,6 +19,7 @@ words:
   - ASUS
   - authschema
   - autodocs
+  - automations
   - Bento
   - bigserial
   - canrun
@@ -73,6 +74,8 @@ words:
   - quicktime
   - Rachna
   - remoteip
+  - repost
+  - reposted
   - SENG
   - Sinya
   - sonarjs
@@ -81,12 +84,13 @@ words:
   - sveltekit
   - SvelteKit
   - tailwindcss
+  - themself
   - timestamptz
   - tsquery
   - tsvector
   - upserted
   - vitest
   - wght
-  - repost
-  - reposted
-  - automations
+  - isquery
+  - isreturning
+  - hasnavigating

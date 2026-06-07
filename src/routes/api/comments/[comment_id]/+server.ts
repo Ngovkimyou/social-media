@@ -58,5 +58,5 @@ export const DELETE: RequestHandler = async (event) => {
 		return json({ error: result.error }, { status });
 	}
 
-	return new Response(undefined, { status: 204 });
+	return json({ deleted_count: result.deleted_count });
 };
