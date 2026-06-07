@@ -63,7 +63,7 @@ export type UploadedVideoResource = {
 	secureUrl: string;
 };
 
-export type SignedVideoUpload = {
+export type SignedMediaUpload = {
 	apiKey: string;
 	cloudName: string;
 	params: Record<string, number | string | string[]>;
@@ -213,7 +213,11 @@ export function build_video_delivery_url(
 	return `${prefix}/video/upload/${build_video_upload_transformation(options)},f_mp4/${suffix}`;
 }
 
-export function create_signed_video_upload(params: { folder: string }): SignedVideoUpload {
+function create_signed_media_upload(params: {
+	allowed_formats: string[];
+	folder: string;
+	resource_type: 'image' | 'video';
+}): SignedMediaUpload {
 	ensure_cloudinary_configured();
 
 	const cloud_name = env['CLOUDINARY_CLOUD_NAME'];
@@ -227,7 +231,7 @@ export function create_signed_video_upload(params: { folder: string }): SignedVi
 	const public_id = `${params.folder}/${randomUUID()}`;
 	const timestamp = Math.floor(Date.now() / 1000);
 	const upload_params = {
-		allowed_formats: [...ALLOWED_VIDEO_FORMATS],
+		allowed_formats: params.allowed_formats,
 		public_id,
 		timestamp
 	};
@@ -238,8 +242,24 @@ export function create_signed_video_upload(params: { folder: string }): SignedVi
 		params: upload_params,
 		publicId: public_id,
 		signature: cloudinary.utils.api_sign_request(upload_params, api_secret),
-		uploadUrl: `https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`
+		uploadUrl: `https://api.cloudinary.com/v1_1/${cloud_name}/${params.resource_type}/upload`
 	};
+}
+
+export function create_signed_image_upload(params: { folder: string }): SignedMediaUpload {
+	return create_signed_media_upload({
+		allowed_formats: [...ALLOWED_IMAGE_FORMATS],
+		folder: params.folder,
+		resource_type: 'image'
+	});
+}
+
+export function create_signed_video_upload(params: { folder: string }): SignedMediaUpload {
+	return create_signed_media_upload({
+		allowed_formats: [...ALLOWED_VIDEO_FORMATS],
+		folder: params.folder,
+		resource_type: 'video'
+	});
 }
 
 export async function get_uploaded_video_resource(

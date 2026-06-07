@@ -181,6 +181,15 @@
 
 		<section class="flex w-full flex-col items-center">
 			<h2 class="text-3xl font-bold">References & Assets</h2>
+			<p class="mt-4 text-sm font-semibold text-white/82">Free Assets from Kimyoo NGOV</p>
+			<a
+				href="https://github.com/Ngovkimyou/Dora-assets"
+				target="_blank"
+				rel="noreferrer"
+				class="mt-2 max-w-full text-sm leading-6 wrap-break-word text-sky-300 underline decoration-sky-300/40 underline-offset-4 transition-colors hover:text-sky-100"
+			>
+				https://github.com/Ngovkimyou/Dora-assets
+			</a>
 			<p class="mt-4 text-sm font-semibold text-white/82">Login/Sign-Up Animation (GIF)</p>
 			<a
 				href="https://livewallpapers4free.com/her-vast-emerald-elven-eyes/"
@@ -189,6 +198,15 @@
 				class="mt-2 max-w-full text-sm leading-6 wrap-break-word text-sky-300 underline decoration-sky-300/40 underline-offset-4 transition-colors hover:text-sky-100"
 			>
 				https://livewallpapers4free.com/her-vast-emerald-elven-eyes/
+			</a>
+			<p class="mt-4 text-sm font-semibold text-white/82">About Screen video background source</p>
+			<a
+				href="https://www.pexels.com/video/purple-and-blue-fractals-10956054/"
+				target="_blank"
+				rel="noreferrer"
+				class="mt-2 max-w-full text-sm leading-6 wrap-break-word text-sky-300 underline decoration-sky-300/40 underline-offset-4 transition-colors hover:text-sky-100"
+			>
+				https://www.pexels.com/video/purple-and-blue-fractals-10956054/
 			</a>
 		</section>
 	</div>

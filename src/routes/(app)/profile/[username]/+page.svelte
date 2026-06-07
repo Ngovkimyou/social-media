@@ -1,10 +1,10 @@
 <script lang="ts">
 	import './profile.css';
 	import { enhance } from '$app/forms';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll, preloadCode, preloadData } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { onDestroy, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageProps } from './$types';
@@ -61,6 +61,8 @@
 		return raw_value;
 	});
 	const return_post_id = $derived(page.url.searchParams.get('returnPostId')?.trim() ?? '');
+	const return_open_post_id = $derived(page.url.searchParams.get('returnOpenPostId')?.trim() ?? '');
+	const pending_comment_return_storage_key = 'post-feed-pending-comment-return';
 
 	let active_tab = $state<'posts' | 'videos' | 'shared'>('posts');
 	let upload_modal_open = $state(false);
@@ -141,6 +143,7 @@
 		| {
 				error_message?: string;
 				file_name: string;
+				media_type: 'image' | 'video';
 				progress_percent: number;
 				status: 'uploading' | 'saving' | 'complete' | 'error';
 		  }
@@ -837,6 +840,13 @@
 				submitting_post = false;
 				return;
 			}
+
+			event.preventDefault();
+			void start_background_image_post({
+				caption: caption.trim(),
+				file: selected_image
+			});
+			return;
 		}
 
 		if (
@@ -1499,6 +1509,46 @@
 		video_duration_seconds: number;
 	};
 
+	type PreparedImagePost = {
+		caption: string;
+		file: File;
+	};
+
+	async function get_signed_image_upload(file: File): Promise<SignedVideoUploadResponse> {
+		const response = await fetch('/api/uploads/image-signature', {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				file_size: file.size,
+				file_type: file.type,
+				profile_username: data['profile'].username
+			})
+		});
+
+		const payload = (await response.json()) as Partial<SignedVideoUploadResponse> & {
+			message?: string;
+		};
+
+		if (!response.ok) {
+			throw new Error(payload.message ?? 'Photo upload could not be prepared.');
+		}
+
+		if (
+			typeof payload.apiKey !== 'string' ||
+			typeof payload.signature !== 'string' ||
+			typeof payload.uploadUrl !== 'string' ||
+			typeof payload.publicId !== 'string' ||
+			!payload.params
+		) {
+			throw new Error('Photo upload could not be prepared.');
+		}
+
+		return payload as SignedVideoUploadResponse;
+	}
+
 	async function get_signed_video_upload(
 		file: File,
 		trim: {
@@ -1759,6 +1809,60 @@
 		};
 	}
 
+	async function upload_direct_image(
+		file: File,
+		on_progress: (progress_percent: number) => void = () => {}
+	) {
+		const signed_upload = await get_signed_image_upload(file);
+		const payload = await upload_to_cloudinary_with_progress(signed_upload, file, on_progress);
+
+		if (payload.error) {
+			throw new Error(payload.error?.message || 'Photo upload failed. Please try again.');
+		}
+
+		if (
+			typeof payload.public_id !== 'string' ||
+			typeof payload.secure_url !== 'string' ||
+			payload.public_id !== signed_upload.publicId
+		) {
+			throw new Error('Photo upload could not be verified. Please try again.');
+		}
+
+		return {
+			publicId: payload.public_id,
+			secureUrl: payload.secure_url
+		};
+	}
+
+	async function save_uploaded_image_post(params: {
+		caption: string;
+		create_post_action_url: string;
+		public_id: string;
+		secure_url: string;
+	}) {
+		const form_data = new FormData();
+		form_data.set('caption', params.caption);
+		form_data.set('media_type', 'image');
+		form_data.set('media_public_id', params.public_id);
+		form_data.set('media_secure_url', params.secure_url);
+
+		active_video_post_abort_controller = new AbortController();
+
+		try {
+			const response = await fetch(params.create_post_action_url, {
+				method: 'POST',
+				body: form_data,
+				signal: active_video_post_abort_controller.signal
+			});
+
+			if (!response.ok) {
+				throw new Error('Photo uploaded, but the post could not be saved. Please try again.');
+			}
+		} finally {
+			active_video_post_abort_controller = undefined;
+		}
+	}
+
 	async function save_uploaded_video_post(params: {
 		caption: string;
 		public_id: string;
@@ -1794,11 +1898,79 @@
 		}
 	}
 
+	async function start_background_image_post(post: PreparedImagePost) {
+		const create_post_action_url = `${page.url.pathname}?/create_post`;
+
+		background_video_post = {
+			file_name: post.file.name,
+			media_type: 'image',
+			progress_percent: 0,
+			status: 'uploading'
+		};
+		sync_background_video_post_store();
+
+		upload_modal_open = false;
+		submitting_post = false;
+		caption = '';
+		upload_media_error = '';
+		clear_post_preview();
+
+		try {
+			const uploaded_image = await upload_direct_image(post.file, (progress_percent) => {
+				if (!background_video_post || background_video_post.status !== 'uploading') {
+					return;
+				}
+
+				background_video_post.progress_percent = progress_percent;
+				sync_background_video_post_store();
+			});
+
+			if (!background_video_post) {
+				return;
+			}
+
+			background_video_post.status = 'saving';
+			background_video_post.progress_percent = 100;
+			sync_background_video_post_store();
+
+			await save_uploaded_image_post({
+				caption: post.caption,
+				create_post_action_url,
+				public_id: uploaded_image.publicId,
+				secure_url: uploaded_image.secureUrl
+			});
+
+			if (!background_video_post) {
+				return;
+			}
+
+			background_video_post.status = 'complete';
+			sync_background_video_post_store();
+			await invalidateAll();
+		} catch (error) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
+				background_video_post = undefined;
+				sync_background_video_post_store();
+				return;
+			}
+
+			if (background_video_post) {
+				background_video_post.status = 'error';
+				background_video_post.error_message = get_apply_error_message(
+					error,
+					'Photo upload failed. Please try again.'
+				);
+				sync_background_video_post_store();
+			}
+		}
+	}
+
 	async function start_background_video_post(post: PreparedVideoPost) {
 		const create_post_action_url = `${page.url.pathname}?/create_post`;
 
 		background_video_post = {
 			file_name: post.file.name,
+			media_type: 'video',
 			progress_percent: 0,
 			status: 'uploading'
 		};
@@ -2012,14 +2184,77 @@
 		await apply_crop_editor(editor);
 	}
 
+	function get_return_target_href() {
+		if (!return_to) {
+			return resolve('/home');
+		}
+
+		const target_url = new URL(return_to, page.url.origin);
+
+		if (return_post_id) {
+			target_url.searchParams.set('focusPost', return_post_id);
+		}
+
+		if (return_open_post_id) {
+			target_url.searchParams.set('openPost', return_open_post_id);
+		}
+
+		return `${target_url.pathname}${target_url.search}${target_url.hash}`;
+	}
+
+	function has_pending_comment_return() {
+		if (!return_open_post_id || typeof window === 'undefined') {
+			return false;
+		}
+
+		try {
+			const raw_pending_return = sessionStorage.getItem(pending_comment_return_storage_key);
+
+			if (!raw_pending_return) {
+				return false;
+			}
+
+			const pending_return = JSON.parse(raw_pending_return) as {
+				created_at?: number;
+				post_id?: string;
+				return_to?: string;
+			};
+
+			return (
+				pending_return.post_id === return_open_post_id &&
+				pending_return.return_to === return_to &&
+				typeof pending_return.created_at === 'number' &&
+				Date.now() - pending_return.created_at <= 2 * 60 * 1000
+			);
+		} catch {
+			sessionStorage.removeItem(pending_comment_return_storage_key);
+			return false;
+		}
+	}
+
+	function preload_return_target() {
+		if (!return_to) {
+			return;
+		}
+
+		const target_href = has_pending_comment_return() ? return_to : get_return_target_href();
+		void preloadCode(target_href);
+		void preloadData(target_href);
+	}
+
 	async function handle_return_navigation() {
-		if (return_to) {
-			const separator = return_to.includes('?') ? '&' : '?';
-			const target_href = return_post_id
-				? `${return_to}${separator}focusPost=${encodeURIComponent(return_post_id)}`
-				: return_to;
+		if (has_pending_comment_return() && return_to) {
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(target_href);
+			void goto(return_to, {
+				keepFocus: true,
+				noScroll: true
+			});
+			return;
+		}
+
+		if (return_to) {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(get_return_target_href());
 			return;
 		}
 
@@ -2097,6 +2332,10 @@
 		}, 2500);
 	}
 
+	onMount(() => {
+		preload_return_target();
+	});
+
 	onDestroy(() => {
 		clear_post_preview();
 		clear_image_editor_drag_hint_timeout();
@@ -2136,6 +2375,8 @@
 					onclick={() => {
 						void handle_return_navigation();
 					}}
+					onpointerenter={preload_return_target}
+					onfocus={preload_return_target}
 					class="absolute top-4 left-4 z-40 block transition-transform duration-200 hover:scale-105 md:top-6 md:left-6"
 					aria-label="Go back"
 				>

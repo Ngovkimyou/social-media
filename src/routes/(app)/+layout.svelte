@@ -21,7 +21,18 @@
 				: '/profile'
 		)
 	);
+	let loaded_screen_keys = $state<string[]>([]);
 	const navigating_path = $derived(navigating.to?.url.pathname ?? '');
+	const navigating_screen_key = $derived(navigating.to ? get_screen_key(navigating.to.url) : '');
+	const isquery_only_navigation = $derived(
+		Boolean(navigating.to) && navigating_path === page.url.pathname
+	);
+	const isreturning_to_open_post = $derived(
+		Boolean(navigating.to?.url.searchParams.get('openPost'))
+	);
+	const hasnavigating_screen_loaded = $derived(
+		Boolean(navigating_screen_key) && loaded_screen_keys.includes(navigating_screen_key)
+	);
 	const isnavigating_to_home = $derived(Boolean(navigating.to) && navigating_path === home_href);
 	const isnavigating_to_search = $derived(
 		Boolean(navigating.to) && navigating_path === search_href
@@ -35,10 +46,13 @@
 			!isnavigating_to_profile_post
 	);
 	const hasnavigation_skeleton_visible = $derived(
-		isnavigating_to_home ||
-			isnavigating_to_search ||
-			isnavigating_to_profile ||
-			isnavigating_to_profile_post
+		!isquery_only_navigation &&
+			!isreturning_to_open_post &&
+			!hasnavigating_screen_loaded &&
+			(isnavigating_to_home ||
+				isnavigating_to_search ||
+				isnavigating_to_profile ||
+				isnavigating_to_profile_post)
 	);
 	const home_skeleton_cards = Array.from({ length: 4 }, (_, index) => index);
 	const search_skeleton_rows = Array.from({ length: 7 }, (_, index) => index);
@@ -46,6 +60,34 @@
 	// eslint-disable-next-line @typescript-eslint/naming-convention
 	let isNetworkOnline = $state(true);
 	let about_background_music_element = $state<HTMLAudioElement>();
+
+	function get_screen_key(url: URL) {
+		if (url.pathname === home_href) {
+			return 'home';
+		}
+
+		if (url.pathname === search_href) {
+			return 'search';
+		}
+
+		if (/^\/profile\/[^/]+\/posts\/[^/]+$/.test(url.pathname)) {
+			return url.pathname;
+		}
+
+		if (url.pathname.startsWith(profile_prefix)) {
+			return url.pathname;
+		}
+
+		return url.pathname;
+	}
+
+	$effect(() => {
+		const screen_key = get_screen_key(page.url);
+
+		if (!loaded_screen_keys.includes(screen_key)) {
+			loaded_screen_keys = [...loaded_screen_keys, screen_key];
+		}
+	});
 
 	function notify_about_background_music_state() {
 		if (typeof document === 'undefined') {

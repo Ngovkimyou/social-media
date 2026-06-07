@@ -66,6 +66,10 @@
 		inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
+.post-actions-menu {
+	transform-origin: top right;
+}
+
 .post-feed-image-placeholder {
 	background:
 		radial-gradient(circle at top left, rgba(125, 212, 255, 0.18), transparent 42%),

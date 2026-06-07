@@ -131,6 +131,8 @@ export const comments = pgTable(
 		author_id: text('author_id')
 			.notNull()
 			.references(() => auth_user.id, { onDelete: 'cascade' }),
+		parent_comment_id: text('parent_comment_id'),
+		reply_to_comment_id: text('reply_to_comment_id'),
 		content: text('content').notNull(),
 		created_at: timestamp('created_at').defaultNow().notNull(),
 		updated_at: timestamp('updated_at')
@@ -141,6 +143,8 @@ export const comments = pgTable(
 	},
 	(table) => [
 		index('comment_post_id_idx').on(table.post_id),
+		index('comment_parent_comment_id_idx').on(table.parent_comment_id),
+		index('comment_reply_to_comment_id_idx').on(table.reply_to_comment_id),
 		index('comment_author_id_idx').on(table.author_id),
 		index('comment_post_deleted_created_id_idx').on(
 			table.post_id,
@@ -150,6 +154,29 @@ export const comments = pgTable(
 		)
 	]
 );
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const comment_user_action_table = (table_name: string, index_prefix: string) =>
+	pgTable(
+		table_name,
+		{
+			comment_id: text('comment_id')
+				.notNull()
+				.references(() => comments.id, { onDelete: 'cascade' }),
+			user_id: text('user_id')
+				.notNull()
+				.references(() => auth_user.id, { onDelete: 'cascade' }),
+			created_at: timestamp('created_at').defaultNow().notNull()
+		},
+		(table) => [
+			primaryKey({ columns: [table.comment_id, table.user_id] }),
+			index(`${index_prefix}_comment_id_idx`).on(table.comment_id),
+			index(`${index_prefix}_user_id_idx`).on(table.user_id)
+		]
+	);
+
+export const hidden_comments = comment_user_action_table('hidden_comment', 'hidden_comment');
+export const comment_likes = comment_user_action_table('comment_like', 'comment_like');
 
 export const follows = pgTable(
 	'follow',

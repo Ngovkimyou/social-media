@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { HOME_FEED_GRID_PAGE_SIZE, HOME_FEED_PAGE_SIZE } from '$lib/constants/home-feed';
 	import PostFeedView from '$lib/components/PostFeedView.svelte';
+	import { set_home_feed_cache } from '$lib/state/home-feed-cache';
 	import { set_last_home_feed_state, type HomeFeedState } from '$lib/state/home-feed-state';
 	import type { PostFeedPost } from '$lib/types/post-feed';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -17,6 +18,9 @@
 	const effective_posts = $derived(posts.length > 0 ? posts : data.posts);
 	const effective_has_more = $derived(has_more ?? data.has_more);
 	const effective_next_cursor = $derived(next_cursor ?? data.next_cursor);
+	const current_home_view = $derived(
+		page.url.searchParams.get('view') === 'grid' ? 'grid' : 'feed'
+	);
 
 	function get_current_feed_posts(): PostFeedPost[] {
 		return posts.length > 0 ? posts : data.posts;
@@ -155,6 +159,11 @@
 			posts = merge_posts(get_current_feed_posts(), payload.posts);
 			has_more = payload.has_more;
 			next_cursor = payload.next_cursor;
+			set_home_feed_cache(current_home_view, {
+				posts,
+				has_more,
+				...(next_cursor ? { next_cursor } : {})
+			});
 		} catch {
 			load_more_error = 'Unable to load more posts right now.';
 		} finally {
@@ -167,6 +176,14 @@
 		posts = [];
 		has_more = undefined;
 		next_cursor = undefined;
+	});
+
+	$effect(() => {
+		set_home_feed_cache(current_home_view, {
+			posts: effective_posts,
+			has_more: effective_has_more,
+			...(effective_next_cursor ? { next_cursor: effective_next_cursor } : {})
+		});
 	});
 
 	export const snapshot: Snapshot<HomeFeedState | undefined> = {

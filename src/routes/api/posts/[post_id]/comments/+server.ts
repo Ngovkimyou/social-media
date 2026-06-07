@@ -77,7 +77,7 @@ export const GET: RequestHandler = async (event) => {
 	const limit =
 		raw_limit === null ? 20 : Math.min(Math.max(Number.parseInt(raw_limit, 10) || 20, 1), 50);
 
-	const page = await get_comments_by_post_id(params.post_id, limit, cursor);
+	const page = await get_comments_by_post_id(params.post_id, limit, cursor, locals.user.id);
 
 	if (!page) {
 		return json({ error: 'Post not found' }, { status: 404 });
@@ -128,6 +128,10 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const content = parsed_body['content'].trim();
+	const reply_to_comment_id =
+		typeof parsed_body['reply_to_comment_id'] === 'string'
+			? parsed_body['reply_to_comment_id'].trim()
+			: undefined;
 
 	if (content.length === 0) {
 		return json({ error: 'Comment cannot be empty' }, { status: 400 });
@@ -169,7 +173,12 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
-	const comment = await create_comment(params.post_id, locals.user.id, content);
+	const comment = await create_comment(
+		params.post_id,
+		locals.user.id,
+		content,
+		reply_to_comment_id === '' ? undefined : reply_to_comment_id
+	);
 
 	if (!comment) {
 		return json({ error: 'Post not found' }, { status: 404 });
