@@ -1,10 +1,19 @@
 import { get_db } from '$lib/server/db';
-import { comments, posts, profiles, user } from '$lib/server/db/schema';
+import {
+	comment_likes,
+	comments,
+	hidden_comments,
+	posts,
+	profiles,
+	user
+} from '$lib/server/db/schema';
 import type { CommentPage, PostComment } from '$lib/types/comment';
 import { and, asc, count, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 const COMMENT_PAGE_SIZE = 20;
 let comment_index_init_promise: Promise<void> | undefined;
+let hidden_comment_init_promise: Promise<void> | undefined;
+let comment_like_init_promise: Promise<void> | undefined;
 
 type CommentCursor = {
 	created_at: string;
@@ -78,6 +87,58 @@ async function initialize_comment_indexes(): Promise<void> {
 	return comment_index_init_promise;
 }
 
+async function initialize_hidden_comments_table(): Promise<void> {
+	if (hidden_comment_init_promise !== undefined) {
+		return hidden_comment_init_promise;
+	}
+
+	hidden_comment_init_promise = (async () => {
+		const db = get_db();
+		await db.execute(sql`
+			create table if not exists hidden_comment (
+				comment_id text not null references "comment"(id) on delete cascade,
+				user_id text not null references "user"(id) on delete cascade,
+				created_at timestamp not null default now(),
+				primary key (comment_id, user_id)
+			)
+		`);
+		await db.execute(sql`
+			create index if not exists hidden_comment_comment_id_idx on hidden_comment (comment_id)
+		`);
+		await db.execute(sql`
+			create index if not exists hidden_comment_user_id_idx on hidden_comment (user_id)
+		`);
+	})();
+
+	return hidden_comment_init_promise;
+}
+
+async function initialize_comment_likes_table(): Promise<void> {
+	if (comment_like_init_promise !== undefined) {
+		return comment_like_init_promise;
+	}
+
+	comment_like_init_promise = (async () => {
+		const db = get_db();
+		await db.execute(sql`
+			create table if not exists comment_like (
+				comment_id text not null references "comment"(id) on delete cascade,
+				user_id text not null references "user"(id) on delete cascade,
+				created_at timestamp not null default now(),
+				primary key (comment_id, user_id)
+			)
+		`);
+		await db.execute(sql`
+			create index if not exists comment_like_comment_id_idx on comment_like (comment_id)
+		`);
+		await db.execute(sql`
+			create index if not exists comment_like_user_id_idx on comment_like (user_id)
+		`);
+	})();
+
+	return comment_like_init_promise;
+}
+
 export async function commentable_post_exists(post_id: string): Promise<boolean> {
 	await initialize_comment_indexes();
 	const post_rows = await get_db()
@@ -92,9 +153,12 @@ export async function commentable_post_exists(post_id: string): Promise<boolean>
 export async function get_comments_by_post_id(
 	post_id: string,
 	limit = COMMENT_PAGE_SIZE,
-	cursor?: string
+	cursor?: string,
+	viewer_user_id?: string
 ): Promise<CommentPage | undefined> {
 	await initialize_comment_indexes();
+	await initialize_hidden_comments_table();
+	await initialize_comment_likes_table();
 	const db = get_db();
 	const normalized_limit = Math.max(1, Math.min(limit, 50));
 	const decoded_cursor = decode_comment_cursor(cursor);
@@ -213,6 +277,47 @@ export async function get_comments_by_post_id(
 			}
 		])
 	);
+	const visible_comment_ids = [...visible_rows, ...reply_rows].map((row) => row.id);
+	const [hidden_comment_rows, comment_like_count_rows, liked_comment_rows] = await Promise.all([
+		visible_comment_ids.length === 0 || !viewer_user_id
+			? Promise.resolve([])
+			: db
+					.select({ comment_id: hidden_comments.comment_id })
+					.from(hidden_comments)
+					.where(
+						and(
+							inArray(hidden_comments.comment_id, visible_comment_ids),
+							eq(hidden_comments.user_id, viewer_user_id)
+						)
+					),
+		visible_comment_ids.length === 0
+			? Promise.resolve([])
+			: db
+					.select({
+						comment_id: comment_likes.comment_id,
+						like_count: count()
+					})
+					.from(comment_likes)
+					.where(inArray(comment_likes.comment_id, visible_comment_ids))
+					.groupBy(comment_likes.comment_id),
+		visible_comment_ids.length === 0 || !viewer_user_id
+			? Promise.resolve([])
+			: db
+					.select({ comment_id: comment_likes.comment_id })
+					.from(comment_likes)
+					.where(
+						and(
+							inArray(comment_likes.comment_id, visible_comment_ids),
+							eq(comment_likes.user_id, viewer_user_id)
+						)
+					)
+	]);
+	const hidden_comment_ids = new Set(hidden_comment_rows.map((row) => row.comment_id));
+	const liked_comment_ids = new Set(liked_comment_rows.map((row) => row.comment_id));
+	const like_count_by_comment = new Map<string, number>();
+	for (const row of comment_like_count_rows) {
+		like_count_by_comment.set(row.comment_id, row.like_count);
+	}
 
 	const map_comment_row = (
 		row: (typeof visible_rows)[number] | (typeof reply_rows)[number]
@@ -234,7 +339,10 @@ export async function get_comments_by_post_id(
 			author_id: row.author_id,
 			author_name: row.author_name,
 			author_username: row.author_username ?? 'user',
-			author_avatar: row.author_avatar
+			author_avatar: row.author_avatar,
+			is_hidden_for_viewer: hidden_comment_ids.has(row.id),
+			like_count: like_count_by_comment.get(row.id) ?? 0,
+			has_liked: liked_comment_ids.has(row.id)
 		};
 	};
 
@@ -372,7 +480,9 @@ export async function create_comment(
 		author_name: author?.name ?? 'User',
 		author_username: author?.username ?? 'user',
 		// eslint-disable-next-line unicorn/no-null
-		author_avatar: author?.image ?? null
+		author_avatar: author?.image ?? null,
+		like_count: 0,
+		has_liked: false
 	};
 }
 
@@ -466,7 +576,9 @@ export async function update_comment(
 			author_name: author?.name ?? 'User',
 			author_username: author?.username ?? 'user',
 			// eslint-disable-next-line unicorn/no-null
-			author_avatar: author?.image ?? null
+			author_avatar: author?.image ?? null,
+			like_count: 0,
+			has_liked: false
 		}
 	};
 }
@@ -482,9 +594,11 @@ export async function delete_comment(
 		.select({
 			id: comments.id,
 			author_id: comments.author_id,
-			parent_comment_id: comments.parent_comment_id
+			parent_comment_id: comments.parent_comment_id,
+			post_author_id: posts.author_id
 		})
 		.from(comments)
+		.innerJoin(posts, eq(comments.post_id, posts.id))
 		.where(and(eq(comments.id, comment_id), isNull(comments.deleted_at)))
 		.limit(1);
 
@@ -494,7 +608,7 @@ export async function delete_comment(
 		return { success: false, error: 'Comment not found' };
 	}
 
-	if (existing_comment.author_id !== user_id) {
+	if (existing_comment.author_id !== user_id && existing_comment.post_author_id !== user_id) {
 		return { success: false, error: 'Forbidden' };
 	}
 
@@ -510,4 +624,95 @@ export async function delete_comment(
 		.returning({ id: comments.id });
 
 	return { success: true, deleted_count: deleted_rows.length };
+}
+
+export async function hide_comment_for_user(
+	comment_id: string,
+	user_id: string
+): Promise<{ success: boolean; error?: string }> {
+	await initialize_comment_indexes();
+	await initialize_hidden_comments_table();
+	const db = get_db();
+
+	const existing = await db
+		.select({ id: comments.id, author_id: comments.author_id })
+		.from(comments)
+		.where(and(eq(comments.id, comment_id), isNull(comments.deleted_at)))
+		.limit(1);
+	const existing_comment = existing[0];
+
+	if (!existing_comment) {
+		return { success: false, error: 'Comment not found' };
+	}
+
+	if (existing_comment.author_id === user_id) {
+		return { success: false, error: 'Cannot hide your own comment' };
+	}
+
+	await db
+		.insert(hidden_comments)
+		.values({
+			comment_id,
+			user_id
+		})
+		.onConflictDoNothing();
+
+	return { success: true };
+}
+
+export async function set_comment_like(
+	comment_id: string,
+	user_id: string,
+	liked: boolean
+): Promise<
+	{ success: true; liked: boolean; like_count: number } | { success: false; error?: string }
+> {
+	await initialize_comment_indexes();
+	await initialize_comment_likes_table();
+	const db = get_db();
+
+	const comment_rows = await db
+		.select({ id: comments.id })
+		.from(comments)
+		.where(and(eq(comments.id, comment_id), isNull(comments.deleted_at)))
+		.limit(1);
+
+	if (!comment_rows[0]) {
+		return { success: false, error: 'Comment not found' };
+	}
+
+	const like_where = and(
+		eq(comment_likes.comment_id, comment_id),
+		eq(comment_likes.user_id, user_id)
+	);
+
+	if (liked) {
+		await db
+			.insert(comment_likes)
+			.values({
+				comment_id,
+				user_id
+			})
+			.onConflictDoNothing();
+	} else {
+		await db.delete(comment_likes).where(like_where);
+	}
+
+	const [count_rows, selected_rows] = await Promise.all([
+		db
+			.select({ value: count() })
+			.from(comment_likes)
+			.where(eq(comment_likes.comment_id, comment_id)),
+		db
+			.select({ comment_id: comment_likes.comment_id })
+			.from(comment_likes)
+			.where(like_where)
+			.limit(1)
+	]);
+
+	return {
+		success: true,
+		liked: Boolean(selected_rows[0]),
+		like_count: count_rows[0]?.value ?? 0
+	};
 }

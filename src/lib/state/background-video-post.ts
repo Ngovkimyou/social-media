@@ -10,6 +10,7 @@ export type BackgroundVideoPostState = {
 	keep_uploading: () => void;
 	confirm_cancel: () => void;
 	is_cancel_confirming: boolean;
+	media_type?: 'image' | 'video';
 	progress_percent: number;
 	status: BackgroundVideoPostStatus;
 };

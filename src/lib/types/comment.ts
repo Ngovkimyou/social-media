@@ -12,6 +12,9 @@ export type PostComment = {
 	author_name: string;
 	author_username: string;
 	author_avatar: string | null;
+	is_hidden_for_viewer?: boolean;
+	like_count: number;
+	has_liked: boolean;
 };
 
 export type CommentPage = {

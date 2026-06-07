@@ -377,7 +377,8 @@ const get_shared_posts_by_user_id = async (
 			author_name: auth_user.name,
 			author_username: post_author_profiles.username,
 			author_avatar: auth_user.image,
-			shared_at: post_shares.created_at
+			shared_at: post_shares.created_at,
+			shared_by_user_id: post_shares.user_id
 		})
 		.from(post_shares)
 		.innerJoin(posts, eq(post_shares.post_id, posts.id))
@@ -493,6 +494,9 @@ const get_shared_posts_by_user_id = async (
 			author_name: row.author_name,
 			author_username: row.author_username ?? 'user',
 			author_avatar: row.author_avatar,
+			feed_item_id: `share:${row.shared_by_user_id}:${row.id}`,
+			shared_at: row.shared_at,
+			shared_by_user_id: row.shared_by_user_id,
 			media_display_srcset: undefined,
 			media_display_url: responsive_video?.src,
 			media_poster_url: responsive_video?.poster,

@@ -9,6 +9,8 @@
 	let mobile_video_cancel_hold_timeout: ReturnType<typeof setTimeout> | undefined;
 
 	const active_post = $derived($background_video_post);
+	const media_label = $derived(active_post?.media_type === 'image' ? 'photo' : 'video');
+	const media_label_title = $derived(media_label === 'photo' ? 'Photo' : 'Video');
 	const is_active = $derived(
 		active_post?.status === 'uploading' || active_post?.status === 'saving'
 	);
@@ -106,11 +108,11 @@
 			<div class="min-w-0">
 				<p class="text-sm font-semibold">
 					{#if active_post.status === 'uploading'}
-						Uploading video
+						Uploading {media_label}
 					{:else if active_post.status === 'saving'}
 						Finishing post
 					{:else if active_post.status === 'complete'}
-						Video posted
+						{media_label_title} posted
 					{:else}
 						Upload failed
 					{/if}
@@ -131,7 +133,7 @@
 					type="button"
 					onclick={active_post.dismiss}
 					class="grid h-7 w-7 place-items-center rounded-full border border-rose-300/30 bg-rose-950/80 text-sm text-rose-50 shadow-[inset_0_0_16px_rgba(251,113,133,0.06),0_10px_24px_rgba(0,0,0,0.2)] transition-[transform,background-color,border-color,box-shadow] hover:scale-[1.04] hover:border-rose-300/55 hover:bg-rose-700/50 active:scale-95"
-					aria-label="Dismiss video upload status"
+					aria-label={`Dismiss ${media_label} upload status`}
 				>
 					x
 				</button>
@@ -162,9 +164,9 @@
 				class="mt-3 rounded-[1.1rem] border border-white/12 bg-[radial-gradient(circle_at_top_left,rgba(125,212,255,0.12),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.075),rgba(255,255,255,0.035))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_12px_30px_rgba(0,0,0,0.22)]"
 				transition:scale={{ duration: 180, start: 0.94, opacity: 0.4 }}
 			>
-				<p class="text-sm font-semibold text-white">Cancel video upload?</p>
+				<p class="text-sm font-semibold text-white">Cancel {media_label} upload?</p>
 				<p class="mt-1 text-xs leading-5 text-white/64">
-					The upload will stop and this video post will not be created.
+					The upload will stop and this {media_label} post will not be created.
 				</p>
 				<div class="mt-3 grid grid-cols-2 gap-2">
 					<button
@@ -204,7 +206,7 @@
 		<button
 			type="button"
 			class={`relative grid h-15 w-15 touch-none place-items-center rounded-full border border-white/15 bg-[radial-gradient(circle_at_35%_18%,rgba(125,212,255,0.24),transparent_38%),linear-gradient(145deg,rgba(18,14,35,0.9),rgba(9,8,24,0.82))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_14px_34px_rgba(0,0,0,0.38),0_0_28px_rgba(125,212,255,0.16)] backdrop-blur-xl transition-[transform,box-shadow,border-color] duration-180 ease-out hover:scale-105 active:scale-95 ${is_mobile_video_progress_pressed ? 'scale-92 border-[#7DD4FF]/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_8px_22px_rgba(0,0,0,0.42),0_0_34px_rgba(125,212,255,0.24)]' : ''}`}
-			aria-label="Video upload progress"
+			aria-label={`${media_label_title} upload progress`}
 			onpointerdown={begin_mobile_video_cancel_gesture}
 			onpointermove={move_mobile_video_cancel_gesture}
 			onpointerup={end_mobile_video_cancel_gesture}
@@ -265,9 +267,9 @@
 				class="w-full max-w-xs rounded-2xl border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(125,212,255,0.16),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.16),transparent_42%),linear-gradient(145deg,rgba(18,14,35,0.96),rgba(9,8,24,0.92))] p-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_24px_70px_rgba(0,0,0,0.46)]"
 				transition:scale={{ duration: 190, start: 0.9, opacity: 0.4 }}
 			>
-				<p class="text-base font-semibold">Cancel video upload?</p>
+				<p class="text-base font-semibold">Cancel {media_label} upload?</p>
 				<p class="mt-2 text-sm leading-6 text-white/66">
-					The upload will stop and this video post will not be created.
+					The upload will stop and this {media_label} post will not be created.
 				</p>
 				<div class="mt-4 grid grid-cols-2 gap-2">
 					<button
@@ -298,8 +300,10 @@
 				class="pointer-events-auto w-full max-w-xs rounded-2xl border border-white/14 bg-[radial-gradient(circle_at_top_left,rgba(125,212,255,0.16),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(205,130,255,0.16),transparent_42%),linear-gradient(145deg,rgba(18,14,35,0.96),rgba(9,8,24,0.92))] p-4 text-center text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_24px_70px_rgba(0,0,0,0.46)] backdrop-blur-xl"
 				transition:scale={{ duration: 190, start: 0.9, opacity: 0.4 }}
 			>
-				<p class="text-base font-semibold">Video posted</p>
-				<p class="mt-2 text-sm leading-6 text-white/66">Your video is ready on your profile.</p>
+				<p class="text-base font-semibold">{media_label_title} posted</p>
+				<p class="mt-2 text-sm leading-6 text-white/66">
+					Your {media_label} is ready on your profile.
+				</p>
 				<button
 					type="button"
 					onclick={active_post.dismiss}

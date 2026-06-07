@@ -70,6 +70,12 @@
 	let confirm_delete_id = $state<string>();
 	let open_comment_actions_menu_id = $state<string>();
 	let deleting_comment_id = $state<string>();
+	let hiding_comment_id = $state<string>();
+	let liked_comments = $state<Record<string, boolean>>({});
+	let comment_like_counts = $state<Record<string, number>>({});
+	let confirmed_liked_comments = $state<Record<string, boolean>>({});
+	let confirmed_comment_like_counts = $state<Record<string, number>>({});
+	let comment_like_requests_in_flight = $state<Record<string, boolean>>({});
 	let replying_to_comment = $state<PostComment | undefined>();
 	let editing_comment_id = $state<string>();
 	let editing_comment_content = $state('');
@@ -129,10 +135,27 @@
 	>();
 	let drag_close_offset_x = $state(0);
 	let drag_close_offset_y = $state(0);
+	let suppressed_comment_click = $state<{ comment_id: string; expires_at: number } | undefined>();
+	let comment_gesture_state = $state<
+		| {
+				comment: PostComment;
+				has_long_pressed: boolean;
+				pointer_id: number;
+				start_x: number;
+				start_y: number;
+				target: HTMLElement;
+				timeout: ReturnType<typeof setTimeout>;
+		  }
+		| undefined
+	>();
 
 	const drag_close_hold_delay_ms = 260;
 	const drag_close_click_suppression_distance = 12;
 	const drag_close_distance = 110;
+	const comment_action_sync_delay_ms = 320;
+	const comment_double_tap_delay_ms = 320;
+	const comment_gesture_hold_delay_ms = 520;
+	const comment_gesture_move_tolerance = 10;
 	const inline_video_controls_hide_delay_ms = 1000;
 	const inline_video_mobile_tap_controls_hide_delay_ms = 5000;
 	const inline_video_start_display_snap_seconds = 0.05;
@@ -142,6 +165,8 @@
 	const top_level_comments = $derived(
 		comment_list.filter((comment) => comment.parent_comment_id === null)
 	);
+	const comment_like_sync_timeouts = new SvelteMap<string, ReturnType<typeof setTimeout>>();
+	const comment_last_tap_times = new SvelteMap<string, number>();
 
 	$effect(() => {
 		post_content = post.content;
@@ -274,6 +299,17 @@
 
 	function can_edit_post() {
 		return Boolean(current_user_id) && post.author_id === current_user_id;
+	}
+
+	function can_delete_comment(comment: PostComment) {
+		return (
+			Boolean(current_user_id) &&
+			(comment.author_id === current_user_id || post.author_id === current_user_id)
+		);
+	}
+
+	function can_edit_comment(comment: PostComment) {
+		return Boolean(current_user_id) && comment.author_id === current_user_id;
 	}
 
 	function toggle_comment(comment_id: string) {
@@ -1018,6 +1054,190 @@
 		confirm_delete_id = undefined;
 	}
 
+	function is_comment_hidden(comment: PostComment) {
+		return comment.is_hidden_for_viewer === true;
+	}
+
+	function get_comment_liked(comment: PostComment) {
+		return liked_comments[comment.id] ?? comment.has_liked;
+	}
+
+	function get_confirmed_comment_liked(comment: PostComment) {
+		return confirmed_liked_comments[comment.id] ?? comment.has_liked;
+	}
+
+	function get_comment_like_count(comment: PostComment) {
+		return comment_like_counts[comment.id] ?? comment.like_count;
+	}
+
+	function get_confirmed_comment_like_count(comment: PostComment) {
+		return confirmed_comment_like_counts[comment.id] ?? comment.like_count;
+	}
+
+	function get_count_for_state(params: {
+		confirmed_count: number;
+		confirmed_state: boolean;
+		desired_state: boolean;
+	}) {
+		if (params.confirmed_state === params.desired_state) {
+			return params.confirmed_count;
+		}
+
+		return Math.max(0, params.confirmed_count + (params.desired_state ? 1 : -1));
+	}
+
+	function get_comment_by_id(comment_id: string) {
+		return comment_list.find((comment) => comment.id === comment_id);
+	}
+
+	function update_comment_like_baseline(comment_id: string, liked: boolean, like_count: number) {
+		comment_list = comment_list.map((comment) =>
+			comment.id === comment_id ? { ...comment, has_liked: liked, like_count } : comment
+		);
+		sync_comment_preview_cache();
+	}
+
+	function clear_comment_like_timeout(comment_id: string) {
+		const timeout = comment_like_sync_timeouts.get(comment_id);
+
+		if (!timeout) {
+			return;
+		}
+
+		clearTimeout(timeout);
+		comment_like_sync_timeouts.delete(comment_id);
+	}
+
+	function clear_comment_like_timeouts() {
+		for (const timeout of comment_like_sync_timeouts.values()) {
+			clearTimeout(timeout);
+		}
+
+		comment_like_sync_timeouts.clear();
+	}
+
+	function schedule_comment_like_sync(comment_id: string, delay_ms = comment_action_sync_delay_ms) {
+		clear_comment_like_timeout(comment_id);
+
+		comment_like_sync_timeouts.set(
+			comment_id,
+			setTimeout(() => {
+				comment_like_sync_timeouts.delete(comment_id);
+				void sync_comment_like_state(comment_id);
+			}, delay_ms)
+		);
+	}
+
+	async function sync_comment_like_state(comment_id: string) {
+		if (comment_like_requests_in_flight[comment_id]) {
+			schedule_comment_like_sync(comment_id);
+			return;
+		}
+
+		const comment = get_comment_by_id(comment_id);
+		if (!comment || is_comment_hidden(comment)) {
+			return;
+		}
+
+		const requested_liked = get_comment_liked(comment);
+		const confirmed_liked = get_confirmed_comment_liked(comment);
+		const confirmed_count = get_confirmed_comment_like_count(comment);
+
+		if (requested_liked === confirmed_liked) {
+			comment_like_counts = {
+				...comment_like_counts,
+				[comment_id]: confirmed_count
+			};
+			return;
+		}
+
+		comment_like_requests_in_flight = {
+			...comment_like_requests_in_flight,
+			[comment_id]: true
+		};
+
+		try {
+			const response = await fetch(`/api/comments/${encodeURIComponent(comment_id)}/like`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ liked: requested_liked })
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to sync comment like');
+			}
+
+			const payload = (await response.json()) as { liked: boolean; like_count: number };
+			confirmed_liked_comments = {
+				...confirmed_liked_comments,
+				[comment_id]: payload.liked
+			};
+			confirmed_comment_like_counts = {
+				...confirmed_comment_like_counts,
+				[comment_id]: payload.like_count
+			};
+			update_comment_like_baseline(comment_id, payload.liked, payload.like_count);
+
+			const current_comment = get_comment_by_id(comment_id) ?? comment;
+			const current_desired_liked = get_comment_liked(current_comment);
+			if (current_desired_liked === requested_liked) {
+				liked_comments = {
+					...liked_comments,
+					[comment_id]: payload.liked
+				};
+			}
+
+			comment_like_counts = {
+				...comment_like_counts,
+				[comment_id]: get_count_for_state({
+					confirmed_count: payload.like_count,
+					confirmed_state: payload.liked,
+					desired_state: current_desired_liked
+				})
+			};
+
+			if (current_desired_liked !== payload.liked) {
+				schedule_comment_like_sync(comment_id, 0);
+			}
+		} catch {
+			liked_comments = {
+				...liked_comments,
+				[comment_id]: confirmed_liked
+			};
+			comment_like_counts = {
+				...comment_like_counts,
+				[comment_id]: confirmed_count
+			};
+		} finally {
+			comment_like_requests_in_flight = {
+				...comment_like_requests_in_flight,
+				[comment_id]: false
+			};
+		}
+	}
+
+	function toggle_comment_like(comment: PostComment) {
+		if (!current_user_id || is_comment_hidden(comment)) {
+			return;
+		}
+
+		const next_liked = !get_comment_liked(comment);
+
+		liked_comments = {
+			...liked_comments,
+			[comment.id]: next_liked
+		};
+		comment_like_counts = {
+			...comment_like_counts,
+			[comment.id]: get_count_for_state({
+				confirmed_count: get_confirmed_comment_like_count(comment),
+				confirmed_state: get_confirmed_comment_liked(comment),
+				desired_state: next_liked
+			})
+		};
+		schedule_comment_like_sync(comment.id);
+	}
+
 	function cancel_comment_edit() {
 		if (saving_comment_id) {
 			return;
@@ -1134,11 +1354,196 @@
 		}
 	}
 
+	async function handle_hide_comment(comment_id: string) {
+		if (hiding_comment_id) {
+			return;
+		}
+
+		hiding_comment_id = comment_id;
+		comment_edit_error = '';
+
+		try {
+			const response = await fetch(`/api/comments/${encodeURIComponent(comment_id)}/hide`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(payload.error ?? 'Unable to hide comment right now.');
+			}
+
+			comment_list = comment_list.map((comment) =>
+				comment.id === comment_id ? { ...comment, is_hidden_for_viewer: true } : comment
+			);
+			sync_comment_preview_cache();
+			open_comment_actions_menu_id = undefined;
+			confirm_delete_id = undefined;
+
+			if (replying_to_comment?.id === comment_id) {
+				replying_to_comment = undefined;
+			}
+		} catch (error) {
+			comment_edit_error =
+				error instanceof Error ? error.message : 'Unable to hide comment right now.';
+		} finally {
+			hiding_comment_id = undefined;
+		}
+	}
+
+	function clear_comment_gesture() {
+		if (comment_gesture_state?.timeout) {
+			clearTimeout(comment_gesture_state.timeout);
+		}
+
+		comment_gesture_state = undefined;
+	}
+
+	function is_comment_gesture_interactive_target(target: EventTarget | null) {
+		if (!(target instanceof HTMLElement)) {
+			return true;
+		}
+
+		const content_toggle = target.closest('.comment-content-toggle');
+		const interactive_control = target.closest(
+			'a, input, textarea, select, video, [contenteditable=""], [contenteditable="true"], [data-nonselectable-ui="true"], [data-comment-preview-control="true"]'
+		);
+
+		if (interactive_control) {
+			return true;
+		}
+
+		const button = target.closest('button');
+		return Boolean(button && !content_toggle);
+	}
+
+	function begin_comment_gesture(event: PointerEvent, comment: PostComment) {
+		if (
+			event.button !== 0 ||
+			!current_user_id ||
+			is_comment_hidden(comment) ||
+			editing_comment_id === comment.id ||
+			is_comment_gesture_interactive_target(event.target)
+		) {
+			return;
+		}
+
+		clear_comment_gesture();
+
+		const target = event.currentTarget as HTMLElement;
+		const next_state = {
+			comment,
+			has_long_pressed: false,
+			pointer_id: event.pointerId,
+			start_x: event.clientX,
+			start_y: event.clientY,
+			target,
+			timeout: setTimeout(() => {
+				if (comment_gesture_state?.pointer_id !== event.pointerId) {
+					return;
+				}
+
+				comment_gesture_state = {
+					...comment_gesture_state,
+					has_long_pressed: true
+				};
+				void begin_reply(comment);
+			}, comment_gesture_hold_delay_ms)
+		};
+
+		comment_gesture_state = next_state;
+		target.setPointerCapture(event.pointerId);
+	}
+
+	function move_comment_gesture(event: PointerEvent) {
+		const state = comment_gesture_state;
+
+		if (!state || state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		if (
+			Math.hypot(event.clientX - state.start_x, event.clientY - state.start_y) >
+			comment_gesture_move_tolerance
+		) {
+			clear_comment_gesture();
+			if (state.target.hasPointerCapture(event.pointerId)) {
+				state.target.releasePointerCapture(event.pointerId);
+			}
+		}
+	}
+
+	function complete_comment_gesture(event: PointerEvent, comment: PostComment) {
+		const state = comment_gesture_state;
+
+		if (!state || state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		const did_long_press = state.has_long_pressed;
+		clear_comment_gesture();
+		if (state.target.hasPointerCapture(event.pointerId)) {
+			state.target.releasePointerCapture(event.pointerId);
+		}
+
+		if (did_long_press) {
+			suppress_next_comment_click(comment.id);
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
+
+		const now = Date.now();
+		const previous_tap_time = comment_last_tap_times.get(comment.id) ?? 0;
+
+		if (now - previous_tap_time <= comment_double_tap_delay_ms) {
+			comment_last_tap_times.delete(comment.id);
+			suppress_next_comment_click(comment.id);
+			event.preventDefault();
+			event.stopPropagation();
+			toggle_comment_like(comment);
+			return;
+		}
+
+		comment_last_tap_times.set(comment.id, now);
+	}
+
+	function cancel_comment_gesture(event: PointerEvent) {
+		const state = comment_gesture_state;
+
+		if (!state || state.pointer_id !== event.pointerId) {
+			return;
+		}
+
+		clear_comment_gesture();
+		if (state.target.hasPointerCapture(event.pointerId)) {
+			state.target.releasePointerCapture(event.pointerId);
+		}
+	}
+
+	function suppress_next_comment_click(comment_id: string) {
+		suppressed_comment_click = {
+			comment_id,
+			expires_at: Date.now() + 500
+		};
+	}
+
+	function should_suppress_comment_click(comment_id: string) {
+		if (
+			suppressed_comment_click?.comment_id === comment_id &&
+			suppressed_comment_click.expires_at > Date.now()
+		) {
+			suppressed_comment_click = undefined;
+			return true;
+		}
+
+		return false;
+	}
+
 	function is_drag_close_interactive(target: EventTarget | null) {
 		return Boolean(
 			target instanceof HTMLElement &&
 			target.closest(
-				'button, input, textarea, select, video, a, [data-comment-preview-control="true"]'
+				'button, input, textarea, select, video, a, .comment-card-container, [data-comment-preview-control="true"]'
 			)
 		);
 	}
@@ -1260,6 +1665,8 @@
 			inline_video_el?.pause();
 			clear_inline_video_click_timeout();
 			clear_inline_video_controls_timeout();
+			clear_comment_like_timeouts();
+			clear_comment_gesture();
 		};
 	});
 </script>
@@ -1307,7 +1714,7 @@
 		aria-label="Post detail"
 		tabindex="-1"
 		onkeydown={handle_inline_video_keydown}
-		class="comment-preview-panel relative flex h-dvh w-screen max-w-full flex-col overflow-x-hidden overflow-y-auto bg-[#0d0921] shadow-[inset_1px_-1px_40px_0px_#CD82FF44,0_20px_80px_rgba(0,0,0,0.7)] outline-none md:h-full md:max-h-[88dvh] md:max-w-5xl md:flex-row md:overflow-hidden md:rounded-2xl"
+		class="comment-preview-panel relative flex h-dvh w-screen max-w-full flex-col overflow-x-hidden overflow-y-auto bg-[#0d0921] shadow-[inset_1px_-1px_40px_0px_#CD82FF44,0_20px_80px_rgba(0,0,0,0.7)] outline-none md:h-full md:max-h-[88dvh] md:max-w-6xl md:flex-row md:overflow-hidden md:rounded-2xl xl:max-w-7xl"
 		transition:scale={{ duration: 220, start: 0.94, opacity: 0.55 }}
 	>
 		<!-- Left: Media -->
@@ -1754,66 +2161,68 @@
 
 		<!-- Right: Details -->
 		<div
-			class="flex min-h-0 flex-none flex-col border-t border-white/10 md:w-85 md:flex-none md:shrink-0 md:border-t-0 md:border-l lg:w-96"
+			class="flex min-h-0 flex-none flex-col border-t border-white/10 md:w-96 md:flex-none md:shrink-0 md:border-t-0 md:border-l lg:w-[28rem]"
 		>
-			<!-- Author header + post description + comments (scrollable) -->
+			<!-- Author header -->
 			<div
-				class="comment-detail-scroll min-h-0 flex-none overflow-visible pt-0 pr-3 pb-[calc(10.75rem+env(safe-area-inset-bottom))] pl-4 md:flex-1 md:overflow-x-hidden md:overflow-y-auto md:pb-4"
+				class="z-30 flex w-full shrink-0 items-center gap-3 border-b border-white/8 bg-[#0d0921]/92 px-4 py-3 backdrop-blur-md md:px-5"
 			>
-				<div
-					class="sticky top-0 z-30 -mx-4 flex items-center gap-3 border-b border-white/8 bg-[#0d0921]/92 px-4 py-3 backdrop-blur-md md:-mr-3"
+				<a
+					href={get_profile_href(post.author_username)}
+					onclick={prepare_comment_profile_return}
+					class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85 focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d0921]"
+					aria-label={`Open ${post.author_name}'s profile`}
 				>
-					<a
-						href={get_profile_href(post.author_username)}
-						onclick={prepare_comment_profile_return}
-						class="flex min-w-0 flex-1 items-center gap-3 rounded-xl transition-opacity outline-none hover:opacity-85 focus-visible:ring-2 focus-visible:ring-sky-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d0921]"
-						aria-label={`Open ${post.author_name}'s profile`}
+					<div class="h-9 w-9 shrink-0 rounded-full">
+						{#if post.author_avatar}
+							<ProgressiveImage
+								src={post.author_avatar}
+								alt={post.author_name}
+								wrapper_class="h-full w-full rounded-full"
+								img_class="h-full w-full rounded-full object-cover"
+								skeleton_class="rounded-full"
+								loading="eager"
+								decoding="async"
+							/>
+						{:else}
+							<div
+								class="flex h-full w-full items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white"
+							>
+								{post.author_name?.[0]?.toUpperCase() ?? '?'}
+							</div>
+						{/if}
+					</div>
+					<div class="min-w-0 flex-1">
+						<p class="truncate text-sm font-semibold text-white">{post.author_name}</p>
+						<p class="truncate text-xs text-white/40">@{post.author_username}</p>
+					</div>
+				</a>
+				<button
+					type="button"
+					onclick={on_close}
+					data-comment-preview-control="true"
+					class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-rose-300/30 bg-[rgba(76,25,38,0.88)] text-base text-rose-100 shadow-[inset_0_0_16px_rgba(251,113,133,0.06),0_10px_24px_rgba(0,0,0,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-300/55 hover:bg-[rgba(190,24,93,0.52)] hover:text-white hover:shadow-[inset_0_0_18px_rgba(251,113,133,0.1),0_0_18px_rgba(251,113,133,0.18),0_12px_28px_rgba(0,0,0,0.22)] md:h-10 md:w-10 md:text-lg"
+					aria-label="Close"
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						class="h-4 w-4"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
 					>
-						<div class="h-9 w-9 shrink-0 rounded-full">
-							{#if post.author_avatar}
-								<ProgressiveImage
-									src={post.author_avatar}
-									alt={post.author_name}
-									wrapper_class="h-full w-full rounded-full"
-									img_class="h-full w-full rounded-full object-cover"
-									skeleton_class="rounded-full"
-									loading="eager"
-									decoding="async"
-								/>
-							{:else}
-								<div
-									class="flex h-full w-full items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white"
-								>
-									{post.author_name?.[0]?.toUpperCase() ?? '?'}
-								</div>
-							{/if}
-						</div>
-						<div class="min-w-0 flex-1">
-							<p class="truncate text-sm font-semibold text-white">{post.author_name}</p>
-							<p class="truncate text-xs text-white/40">@{post.author_username}</p>
-						</div>
-					</a>
-					<button
-						type="button"
-						onclick={on_close}
-						data-comment-preview-control="true"
-						class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-rose-300/30 bg-[rgba(76,25,38,0.88)] text-base text-rose-100 shadow-[inset_0_0_16px_rgba(251,113,133,0.06),0_10px_24px_rgba(0,0,0,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-rose-300/55 hover:bg-[rgba(190,24,93,0.52)] hover:text-white hover:shadow-[inset_0_0_18px_rgba(251,113,133,0.1),0_0_18px_rgba(251,113,133,0.18),0_12px_28px_rgba(0,0,0,0.22)] md:h-10 md:w-10 md:text-lg"
-						aria-label="Close"
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							class="h-4 w-4"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path d="M18 6 6 18M6 6l12 12" />
-						</svg>
-					</button>
-				</div>
+						<path d="M18 6 6 18M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+
+			<!-- Post description + comments (scrollable) -->
+			<div
+				class="comment-detail-scroll min-h-0 flex-none overflow-visible px-4 pt-0 pb-[calc(10.75rem+env(safe-area-inset-bottom))] md:flex-1 md:overflow-x-hidden md:overflow-y-auto md:px-5 md:pb-4"
+			>
 				{#if is_editing_post}
 					<div class="mt-4 rounded-2xl border border-white/12 bg-white/6 p-3">
 						<textarea
@@ -1939,12 +2348,18 @@
 						<div class="flex flex-col gap-6">
 							{#each top_level_comments as comment (comment.id)}
 								<article
-									class={`comment-card-shell comment-card-shell-with-reply transition duration-200 ${deleting_comment_id === comment.id ? 'pointer-events-none opacity-45 grayscale' : ''}`}
+									class={`comment-card-shell comment-card-shell-with-reply transition duration-200 ${deleting_comment_id === comment.id || hiding_comment_id === comment.id ? 'pointer-events-none opacity-45 grayscale' : ''}`}
 									data-comment-id={comment.id}
-									aria-busy={deleting_comment_id === comment.id}
+									aria-busy={deleting_comment_id === comment.id || hiding_comment_id === comment.id}
 								>
 									<div
 										class="comment-card-container min-w-0 rounded-[1.1rem] border border-white/12 bg-[linear-gradient(135deg,rgba(255,255,255,0.13),rgba(255,255,255,0.055))] px-4 pt-3 pr-10 pb-8 pl-9 shadow-[0_18px_45px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md sm:rounded-[1.35rem] sm:px-5 sm:pt-4 sm:pr-12 sm:pb-8 sm:pl-10"
+										role="group"
+										aria-label={`${comment.author_name}'s comment`}
+										onpointerdown={(event) => begin_comment_gesture(event, comment)}
+										onpointermove={move_comment_gesture}
+										onpointerup={(event) => complete_comment_gesture(event, comment)}
+										onpointercancel={cancel_comment_gesture}
 									>
 										<a
 											href={get_profile_href(comment.author_username)}
@@ -1987,7 +2402,7 @@
 												</p>
 											</a>
 										</div>
-										{#if comment.author_id === current_user_id}
+										{#if !is_comment_hidden(comment)}
 											<div class="comment-actions-edge" data-nonselectable-ui="true">
 												<button
 													type="button"
@@ -2014,41 +2429,122 @@
 												</button>
 												{#if open_comment_actions_menu_id === comment.id}
 													<div class="comment-actions-menu" transition:scale={{ duration: 120 }}>
-														{#if confirm_delete_id === comment.id}
-															<button
-																type="button"
-																onclick={() => handle_delete(comment.id)}
-																disabled={deleting_comment_id === comment.id}
-																class="comment-actions-menu-item comment-actions-menu-item-danger"
-															>
-																{deleting_comment_id === comment.id
-																	? 'Deleting...'
-																	: 'Delete comment'}
-															</button>
-															<button
-																type="button"
-																onclick={close_comment_actions_menu}
-																disabled={deleting_comment_id === comment.id}
-																class="comment-actions-menu-item"
-															>
-																Cancel
-															</button>
+														{#if can_delete_comment(comment)}
+															{#if confirm_delete_id === comment.id}
+																<button
+																	type="button"
+																	onclick={() => handle_delete(comment.id)}
+																	disabled={deleting_comment_id === comment.id}
+																	class="comment-actions-menu-item comment-actions-menu-item-danger"
+																>
+																	<span>
+																		{deleting_comment_id === comment.id
+																			? 'Deleting...'
+																			: 'Delete comment'}
+																	</span>
+																	<svg
+																		aria-hidden="true"
+																		class="comment-actions-menu-icon"
+																		viewBox="0 0 24 24"
+																		fill="none"
+																		stroke="currentColor"
+																		stroke-width="2"
+																		stroke-linecap="round"
+																		stroke-linejoin="round"
+																	>
+																		<path d="M3 6h18" />
+																		<path d="M8 6V4h8v2" />
+																		<path d="M19 6l-1 14H6L5 6" />
+																		<path d="M10 11v5" />
+																		<path d="M14 11v5" />
+																	</svg>
+																</button>
+																<button
+																	type="button"
+																	onclick={close_comment_actions_menu}
+																	disabled={deleting_comment_id === comment.id}
+																	class="comment-actions-menu-item"
+																>
+																	Cancel
+																</button>
+															{:else}
+																{#if can_edit_comment(comment)}
+																	<button
+																		type="button"
+																		onclick={() => begin_comment_edit(comment)}
+																		disabled={editing_comment_id === comment.id ||
+																			Boolean(saving_comment_id)}
+																		class="comment-actions-menu-item comment-actions-menu-item-edit"
+																	>
+																		<span>Edit</span>
+																		<svg
+																			aria-hidden="true"
+																			class="comment-actions-menu-icon"
+																			viewBox="0 0 24 24"
+																			fill="none"
+																			stroke="currentColor"
+																			stroke-width="2"
+																			stroke-linecap="round"
+																			stroke-linejoin="round"
+																		>
+																			<path d="M12 20h9" />
+																			<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+																		</svg>
+																	</button>
+																{/if}
+																<button
+																	type="button"
+																	onclick={() => (confirm_delete_id = comment.id)}
+																	class="comment-actions-menu-item comment-actions-menu-item-danger"
+																>
+																	<span>Delete</span>
+																	<svg
+																		aria-hidden="true"
+																		class="comment-actions-menu-icon"
+																		viewBox="0 0 24 24"
+																		fill="none"
+																		stroke="currentColor"
+																		stroke-width="2"
+																		stroke-linecap="round"
+																		stroke-linejoin="round"
+																	>
+																		<path d="M3 6h18" />
+																		<path d="M8 6V4h8v2" />
+																		<path d="M19 6l-1 14H6L5 6" />
+																		<path d="M10 11v5" />
+																		<path d="M14 11v5" />
+																	</svg>
+																</button>
+															{/if}
 														{:else}
 															<button
 																type="button"
-																onclick={() => begin_comment_edit(comment)}
-																disabled={editing_comment_id === comment.id ||
-																	Boolean(saving_comment_id)}
-																class="comment-actions-menu-item comment-actions-menu-item-edit"
+																onclick={() => handle_hide_comment(comment.id)}
+																disabled={hiding_comment_id === comment.id}
+																class="comment-actions-menu-item"
 															>
-																Edit
-															</button>
-															<button
-																type="button"
-																onclick={() => (confirm_delete_id = comment.id)}
-																class="comment-actions-menu-item comment-actions-menu-item-danger"
-															>
-																Delete
+																<span
+																	>{hiding_comment_id === comment.id ? 'Hiding...' : 'Hide'}</span
+																>
+																<svg
+																	aria-hidden="true"
+																	class="comment-actions-menu-icon"
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2"
+																	stroke-linecap="round"
+																	stroke-linejoin="round"
+																>
+																	<path d="M3 3l18 18" />
+																	<path d="M10.58 10.58A2 2 0 0 0 13.42 13.42" />
+																	<path
+																		d="M9.88 4.24A10.74 10.74 0 0 1 12 4c5 0 8.5 4.5 9.5 8a11.73 11.73 0 0 1-2.3 4.15"
+																	/>
+																	<path
+																		d="M6.61 6.61A11.32 11.32 0 0 0 2.5 12c1 3.5 4.5 8 9.5 8a10.96 10.96 0 0 0 4.95-1.2"
+																	/>
+																</svg>
 															</button>
 														{/if}
 													</div>
@@ -2056,7 +2552,11 @@
 											</div>
 										{/if}
 										<div class="my-3 h-px bg-white/10"></div>
-										{#if editing_comment_id === comment.id}
+										{#if is_comment_hidden(comment)}
+											<p class="text-sm leading-relaxed text-white/45 italic">
+												This comment is hidden.
+											</p>
+										{:else if editing_comment_id === comment.id}
 											<div>
 												<textarea
 													bind:value={editing_comment_content}
@@ -2104,9 +2604,16 @@
 										{:else if expanded_comments[comment.id]}
 											<button
 												type="button"
-												class="block w-full text-left"
+												class="comment-content-toggle block w-full text-left"
 												aria-label="Collapse comment"
-												onclick={() => toggle_comment(comment.id)}
+												onclick={(event) => {
+													if (should_suppress_comment_click(comment.id)) {
+														event.preventDefault();
+														return;
+													}
+
+													toggle_comment(comment.id);
+												}}
 											>
 												<p
 													class="text-sm leading-relaxed wrap-break-word whitespace-pre-line text-white/80"
@@ -2123,9 +2630,14 @@
 										{:else}
 											<button
 												type="button"
-												class={`block w-full text-left ${overflowing_comments[comment.id] ? 'cursor-pointer' : 'cursor-default'}`}
+												class={`comment-content-toggle block w-full text-left ${overflowing_comments[comment.id] ? 'cursor-pointer' : 'cursor-default'}`}
 												aria-label={overflowing_comments[comment.id] ? 'Expand comment' : undefined}
-												onclick={() => {
+												onclick={(event) => {
+													if (should_suppress_comment_click(comment.id)) {
+														event.preventDefault();
+														return;
+													}
+
 													if (overflowing_comments[comment.id]) {
 														toggle_comment(comment.id);
 													}
@@ -2146,24 +2658,58 @@
 											</button>
 										{/if}
 										<div data-nonselectable-ui="true">
-											<button
-												type="button"
-												class="comment-reply-edge-button"
-												onclick={() => begin_reply(comment)}
-												aria-label={`Reply to ${comment.author_name}`}
-												title="Reply"
-											>
-												<svg viewBox="0 0 24 24" aria-hidden="true" class="comment-reply-edge-icon">
-													<path
-														d="M9.5 7 4 12l5.5 5M5 12h8.25A6.75 6.75 0 0 1 20 18.75V19"
-														fill="none"
-														stroke="currentColor"
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2.2"
-													/>
-												</svg>
-											</button>
+											{#if !is_comment_hidden(comment)}
+												<button
+													type="button"
+													class={`comment-like-edge-button ${get_comment_liked(comment) ? 'comment-like-edge-button-liked' : ''}`}
+													onclick={() => {
+														void toggle_comment_like(comment);
+													}}
+													aria-label={get_comment_liked(comment)
+														? 'Unlike comment'
+														: 'Like comment'}
+													aria-pressed={get_comment_liked(comment)}
+													title={get_comment_liked(comment) ? 'Unlike' : 'Like'}
+												>
+													<span class="comment-like-edge-icon-stack">
+														<img
+															src="/images/home-screen/unliked-state.avif"
+															alt=""
+															class={`comment-like-edge-icon ${get_comment_liked(comment) ? 'scale-75 opacity-0' : 'scale-100 opacity-100'}`}
+														/>
+														<img
+															src="/images/home-screen/liked-state.avif"
+															alt=""
+															class={`comment-like-edge-icon ${get_comment_liked(comment) ? 'scale-100 opacity-100' : 'scale-125 opacity-0'}`}
+														/>
+													</span>
+													<span class="comment-like-edge-count"
+														>{get_comment_like_count(comment)}</span
+													>
+												</button>
+												<button
+													type="button"
+													class="comment-reply-edge-button"
+													onclick={() => begin_reply(comment)}
+													aria-label={`Reply to ${comment.author_name}`}
+													title="Reply"
+												>
+													<svg
+														viewBox="0 0 24 24"
+														aria-hidden="true"
+														class="comment-reply-edge-icon"
+													>
+														<path
+															d="M9.5 7 4 12l5.5 5M5 12h8.25A6.75 6.75 0 0 1 20 18.75V19"
+															fill="none"
+															stroke="currentColor"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															stroke-width="2.2"
+														/>
+													</svg>
+												</button>
+											{/if}
 											{#if get_comment_replies(comment.id).length > 0}
 												<span class="mt-3 inline-block text-xs text-white/30">
 													{get_comment_replies(comment.id).length}
@@ -2180,12 +2726,19 @@
 									>
 										{#each get_comment_replies(comment.id) as reply (reply.id)}
 											<article
-												class={`comment-card-shell comment-card-shell-with-reply transition duration-200 ${deleting_comment_id === reply.id ? 'pointer-events-none opacity-45 grayscale' : ''}`}
+												class={`comment-card-shell comment-card-shell-with-reply transition duration-200 ${deleting_comment_id === reply.id || hiding_comment_id === reply.id ? 'pointer-events-none opacity-45 grayscale' : ''}`}
 												data-comment-id={reply.id}
-												aria-busy={deleting_comment_id === reply.id}
+												aria-busy={deleting_comment_id === reply.id ||
+													hiding_comment_id === reply.id}
 											>
 												<div
 													class="comment-card-container min-w-0 rounded-[1.1rem] border border-white/12 bg-[linear-gradient(135deg,rgba(255,255,255,0.13),rgba(255,255,255,0.055))] px-4 pt-3 pr-10 pb-8 pl-9 shadow-[0_18px_45px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md sm:rounded-[1.35rem] sm:px-5 sm:pt-4 sm:pr-12 sm:pb-8 sm:pl-10"
+													role="group"
+													aria-label={`${reply.author_name}'s comment`}
+													onpointerdown={(event) => begin_comment_gesture(event, reply)}
+													onpointermove={move_comment_gesture}
+													onpointerup={(event) => complete_comment_gesture(event, reply)}
+													onpointercancel={cancel_comment_gesture}
 												>
 													<a
 														href={get_profile_href(reply.author_username)}
@@ -2228,7 +2781,7 @@
 															</p>
 														</a>
 													</div>
-													{#if reply.author_id === current_user_id}
+													{#if !is_comment_hidden(reply)}
 														<div class="comment-actions-edge" data-nonselectable-ui="true">
 															<button
 																type="button"
@@ -2258,41 +2811,124 @@
 																	class="comment-actions-menu"
 																	transition:scale={{ duration: 120 }}
 																>
-																	{#if confirm_delete_id === reply.id}
-																		<button
-																			type="button"
-																			onclick={() => handle_delete(reply.id)}
-																			disabled={deleting_comment_id === reply.id}
-																			class="comment-actions-menu-item comment-actions-menu-item-danger"
-																		>
-																			{deleting_comment_id === reply.id
-																				? 'Deleting...'
-																				: 'Delete comment'}
-																		</button>
-																		<button
-																			type="button"
-																			onclick={close_comment_actions_menu}
-																			disabled={deleting_comment_id === reply.id}
-																			class="comment-actions-menu-item"
-																		>
-																			Cancel
-																		</button>
+																	{#if can_delete_comment(reply)}
+																		{#if confirm_delete_id === reply.id}
+																			<button
+																				type="button"
+																				onclick={() => handle_delete(reply.id)}
+																				disabled={deleting_comment_id === reply.id}
+																				class="comment-actions-menu-item comment-actions-menu-item-danger"
+																			>
+																				<span>
+																					{deleting_comment_id === reply.id
+																						? 'Deleting...'
+																						: 'Delete comment'}
+																				</span>
+																				<svg
+																					aria-hidden="true"
+																					class="comment-actions-menu-icon"
+																					viewBox="0 0 24 24"
+																					fill="none"
+																					stroke="currentColor"
+																					stroke-width="2"
+																					stroke-linecap="round"
+																					stroke-linejoin="round"
+																				>
+																					<path d="M3 6h18" />
+																					<path d="M8 6V4h8v2" />
+																					<path d="M19 6l-1 14H6L5 6" />
+																					<path d="M10 11v5" />
+																					<path d="M14 11v5" />
+																				</svg>
+																			</button>
+																			<button
+																				type="button"
+																				onclick={close_comment_actions_menu}
+																				disabled={deleting_comment_id === reply.id}
+																				class="comment-actions-menu-item"
+																			>
+																				Cancel
+																			</button>
+																		{:else}
+																			{#if can_edit_comment(reply)}
+																				<button
+																					type="button"
+																					onclick={() => begin_comment_edit(reply)}
+																					disabled={editing_comment_id === reply.id ||
+																						Boolean(saving_comment_id)}
+																					class="comment-actions-menu-item comment-actions-menu-item-edit"
+																				>
+																					<span>Edit</span>
+																					<svg
+																						aria-hidden="true"
+																						class="comment-actions-menu-icon"
+																						viewBox="0 0 24 24"
+																						fill="none"
+																						stroke="currentColor"
+																						stroke-width="2"
+																						stroke-linecap="round"
+																						stroke-linejoin="round"
+																					>
+																						<path d="M12 20h9" />
+																						<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+																					</svg>
+																				</button>
+																			{/if}
+																			<button
+																				type="button"
+																				onclick={() => (confirm_delete_id = reply.id)}
+																				class="comment-actions-menu-item comment-actions-menu-item-danger"
+																			>
+																				<span>Delete</span>
+																				<svg
+																					aria-hidden="true"
+																					class="comment-actions-menu-icon"
+																					viewBox="0 0 24 24"
+																					fill="none"
+																					stroke="currentColor"
+																					stroke-width="2"
+																					stroke-linecap="round"
+																					stroke-linejoin="round"
+																				>
+																					<path d="M3 6h18" />
+																					<path d="M8 6V4h8v2" />
+																					<path d="M19 6l-1 14H6L5 6" />
+																					<path d="M10 11v5" />
+																					<path d="M14 11v5" />
+																				</svg>
+																			</button>
+																		{/if}
 																	{:else}
 																		<button
 																			type="button"
-																			onclick={() => begin_comment_edit(reply)}
-																			disabled={editing_comment_id === reply.id ||
-																				Boolean(saving_comment_id)}
-																			class="comment-actions-menu-item comment-actions-menu-item-edit"
+																			onclick={() => handle_hide_comment(reply.id)}
+																			disabled={hiding_comment_id === reply.id}
+																			class="comment-actions-menu-item"
 																		>
-																			Edit
-																		</button>
-																		<button
-																			type="button"
-																			onclick={() => (confirm_delete_id = reply.id)}
-																			class="comment-actions-menu-item comment-actions-menu-item-danger"
-																		>
-																			Delete
+																			<span
+																				>{hiding_comment_id === reply.id
+																					? 'Hiding...'
+																					: 'Hide'}</span
+																			>
+																			<svg
+																				aria-hidden="true"
+																				class="comment-actions-menu-icon"
+																				viewBox="0 0 24 24"
+																				fill="none"
+																				stroke="currentColor"
+																				stroke-width="2"
+																				stroke-linecap="round"
+																				stroke-linejoin="round"
+																			>
+																				<path d="M3 3l18 18" />
+																				<path d="M10.58 10.58A2 2 0 0 0 13.42 13.42" />
+																				<path
+																					d="M9.88 4.24A10.74 10.74 0 0 1 12 4c5 0 8.5 4.5 9.5 8a11.73 11.73 0 0 1-2.3 4.15"
+																				/>
+																				<path
+																					d="M6.61 6.61A11.32 11.32 0 0 0 2.5 12c1 3.5 4.5 8 9.5 8a10.96 10.96 0 0 0 4.95-1.2"
+																				/>
+																			</svg>
 																		</button>
 																	{/if}
 																</div>
@@ -2302,7 +2938,11 @@
 
 													<div class="my-3 h-px bg-white/10"></div>
 
-													{#if editing_comment_id === reply.id}
+													{#if is_comment_hidden(reply)}
+														<p class="text-sm leading-relaxed text-white/45 italic">
+															This comment is hidden.
+														</p>
+													{:else if editing_comment_id === reply.id}
 														<div>
 															<textarea
 																bind:value={editing_comment_content}
@@ -2359,28 +2999,58 @@
 															{reply.content}
 														</p>
 														<div data-nonselectable-ui="true">
-															<button
-																type="button"
-																class="comment-reply-edge-button"
-																onclick={() => begin_reply(reply)}
-																aria-label={`Reply to ${reply.author_name}`}
-																title="Reply"
-															>
-																<svg
-																	viewBox="0 0 24 24"
-																	aria-hidden="true"
-																	class="comment-reply-edge-icon"
+															{#if !is_comment_hidden(reply)}
+																<button
+																	type="button"
+																	class={`comment-like-edge-button ${get_comment_liked(reply) ? 'comment-like-edge-button-liked' : ''}`}
+																	onclick={() => {
+																		void toggle_comment_like(reply);
+																	}}
+																	aria-label={get_comment_liked(reply)
+																		? 'Unlike comment'
+																		: 'Like comment'}
+																	aria-pressed={get_comment_liked(reply)}
+																	title={get_comment_liked(reply) ? 'Unlike' : 'Like'}
 																>
-																	<path
-																		d="M9.5 7 4 12l5.5 5M5 12h8.25A6.75 6.75 0 0 1 20 18.75V19"
-																		fill="none"
-																		stroke="currentColor"
-																		stroke-linecap="round"
-																		stroke-linejoin="round"
-																		stroke-width="2.2"
-																	/>
-																</svg>
-															</button>
+																	<span class="comment-like-edge-icon-stack">
+																		<img
+																			src="/images/home-screen/unliked-state.avif"
+																			alt=""
+																			class={`comment-like-edge-icon ${get_comment_liked(reply) ? 'scale-75 opacity-0' : 'scale-100 opacity-100'}`}
+																		/>
+																		<img
+																			src="/images/home-screen/liked-state.avif"
+																			alt=""
+																			class={`comment-like-edge-icon ${get_comment_liked(reply) ? 'scale-100 opacity-100' : 'scale-125 opacity-0'}`}
+																		/>
+																	</span>
+																	<span class="comment-like-edge-count"
+																		>{get_comment_like_count(reply)}</span
+																	>
+																</button>
+																<button
+																	type="button"
+																	class="comment-reply-edge-button"
+																	onclick={() => begin_reply(reply)}
+																	aria-label={`Reply to ${reply.author_name}`}
+																	title="Reply"
+																>
+																	<svg
+																		viewBox="0 0 24 24"
+																		aria-hidden="true"
+																		class="comment-reply-edge-icon"
+																	>
+																		<path
+																			d="M9.5 7 4 12l5.5 5M5 12h8.25A6.75 6.75 0 0 1 20 18.75V19"
+																			fill="none"
+																			stroke="currentColor"
+																			stroke-linecap="round"
+																			stroke-linejoin="round"
+																			stroke-width="2.2"
+																		/>
+																	</svg>
+																</button>
+															{/if}
 														</div>
 													{/if}
 												</div>
@@ -2604,9 +3274,9 @@
 	}
 
 	.comment-reply-edge-button,
-	.comment-actions-edge-button {
+	.comment-actions-edge-button,
+	.comment-like-edge-button {
 		position: absolute;
-		right: 0;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -2629,10 +3299,29 @@
 	}
 
 	.comment-reply-edge-button {
+		right: 0;
 		bottom: 0;
 		width: var(--comment-reply-size);
 		height: var(--comment-reply-size);
 		transform: translate(50%, 50%);
+	}
+
+	.comment-like-edge-button {
+		bottom: 0;
+		left: 0;
+		min-width: var(--comment-reply-size);
+		height: var(--comment-reply-size);
+		gap: 0.35rem;
+		padding: 0 0.7rem;
+		border-color: rgba(255, 255, 255, 0.24);
+		background:
+			linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
+			rgba(45, 45, 54, 0.9);
+		box-shadow:
+			0 12px 26px rgba(0, 0, 0, 0.24),
+			inset 0 1px 0 rgba(255, 255, 255, 0.16);
+		color: rgba(255, 255, 255, 0.78);
+		transform: translate(-50%, 50%);
 	}
 
 	.comment-reply-edge-button:hover,
@@ -2654,9 +3343,81 @@
 		transform: translate(50%, 50%) scale(0.96);
 	}
 
+	.comment-like-edge-button:hover,
+	.comment-like-edge-button:focus-visible {
+		border-color: rgba(255, 255, 255, 0.38);
+		background:
+			linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.09)),
+			rgba(65, 65, 74, 0.96);
+		box-shadow:
+			0 14px 30px rgba(0, 0, 0, 0.28),
+			0 0 22px rgba(255, 255, 255, 0.08),
+			inset 0 1px 0 rgba(255, 255, 255, 0.18);
+		color: white;
+		outline: none;
+		transform: translate(-50%, calc(50% - 1px));
+	}
+
+	.comment-like-edge-button:active {
+		transform: translate(-50%, 50%) scale(0.96);
+	}
+
+	.comment-like-edge-button:disabled {
+		cursor: wait;
+		opacity: 0.72;
+	}
+
+	.comment-like-edge-button-liked {
+		border-color: rgba(251, 113, 133, 0.46);
+		background:
+			linear-gradient(135deg, rgba(244, 63, 94, 0.28), rgba(255, 255, 255, 0.08)),
+			rgba(65, 35, 48, 0.92);
+		color: rgb(255, 228, 230);
+	}
+
+	.comment-like-edge-button-liked:hover,
+	.comment-like-edge-button-liked:focus-visible {
+		border-color: rgba(251, 113, 133, 0.68);
+		background:
+			linear-gradient(135deg, rgba(244, 63, 94, 0.38), rgba(255, 255, 255, 0.1)),
+			rgba(82, 38, 55, 0.96);
+		box-shadow:
+			0 14px 30px rgba(0, 0, 0, 0.28),
+			0 0 24px rgba(244, 63, 94, 0.16),
+			inset 0 1px 0 rgba(255, 255, 255, 0.18);
+		color: white;
+	}
+
 	.comment-reply-edge-icon {
 		width: 1.35rem;
 		height: 1.35rem;
+	}
+
+	.comment-like-edge-icon-stack {
+		position: relative;
+		width: 1.25rem;
+		height: 1.25rem;
+		flex-shrink: 0;
+	}
+
+	.comment-like-edge-icon {
+		position: absolute;
+		inset: 0;
+		width: 1.25rem;
+		height: 1.25rem;
+		object-fit: contain;
+		transition:
+			opacity 0.22s ease,
+			transform 0.22s ease;
+	}
+
+	.comment-like-edge-count {
+		min-width: 0.75rem;
+		font-size: 0.7rem;
+		font-weight: 800;
+		line-height: 1;
+		text-align: left;
+		color: inherit;
 	}
 
 	.comment-actions-edge {
@@ -2668,21 +3429,30 @@
 
 	.comment-actions-edge-button {
 		top: 0;
+		right: 0;
 		width: var(--comment-avatar-size);
 		height: var(--comment-avatar-size);
+		border-color: rgba(255, 255, 255, 0.24);
+		background:
+			linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
+			rgba(45, 45, 54, 0.9);
+		box-shadow:
+			0 12px 26px rgba(0, 0, 0, 0.24),
+			inset 0 1px 0 rgba(255, 255, 255, 0.16);
+		color: rgba(255, 255, 255, 0.72);
 		transform: translate(50%, -50%);
 	}
 
 	.comment-actions-edge-button:hover,
 	.comment-actions-edge-button:focus-visible,
 	.comment-actions-edge-button[aria-expanded='true'] {
-		border-color: rgba(125, 212, 255, 0.68);
+		border-color: rgba(255, 255, 255, 0.38);
 		background:
-			linear-gradient(135deg, rgba(56, 189, 248, 0.34), rgba(255, 255, 255, 0.12)),
-			rgba(19, 42, 82, 0.94);
+			linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.09)),
+			rgba(65, 65, 74, 0.96);
 		box-shadow:
 			0 14px 30px rgba(0, 0, 0, 0.28),
-			0 0 26px rgba(125, 212, 255, 0.18),
+			0 0 22px rgba(255, 255, 255, 0.08),
 			inset 0 1px 0 rgba(255, 255, 255, 0.18);
 		color: white;
 		outline: none;
@@ -2733,6 +3503,12 @@
 		margin-top: 0.125rem;
 	}
 
+	.comment-actions-menu-icon {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+	}
+
 	.comment-actions-menu-item:hover,
 	.comment-actions-menu-item:focus-visible {
 		background: rgba(255, 255, 255, 0.08);
@@ -2767,7 +3543,9 @@
 
 	@media (max-width: 420px) {
 		.comment-reply-edge-icon,
-		.comment-actions-edge-icon {
+		.comment-actions-edge-icon,
+		.comment-like-edge-icon,
+		.comment-like-edge-icon-stack {
 			width: 1.25rem;
 			height: 1.25rem;
 		}

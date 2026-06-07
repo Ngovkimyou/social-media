@@ -38,10 +38,6 @@ import {
 	consume_follow_target_cooldown,
 	consume_social_action_rate_limit
 } from '$lib/server/utilities/social-action-rate-limit';
-import {
-	record_post_image_fingerprint,
-	reject_recent_duplicate_image
-} from '$lib/server/utilities/post-abuse-detection';
 import { record_security_event } from '$lib/server/utilities/security-monitor';
 
 const DUPLICATE_CAPTION_WINDOW_MINUTES = 10;
@@ -565,6 +561,36 @@ const get_direct_video_upload = async (params: {
 	}
 };
 
+const get_direct_image_upload = (params: {
+	public_id: string;
+	secure_url: string;
+	user_id: string;
+}):
+	| {
+			error_message: string;
+	  }
+	| {
+			uploaded: { publicId: string; secureUrl: string };
+	  } => {
+	const public_id = params.public_id.trim();
+	const secure_url = params.secure_url.trim();
+	const expected_prefix = `posts/${params.user_id}/`;
+
+	if (
+		!public_id.startsWith(expected_prefix) ||
+		!secure_url.startsWith('https://res.cloudinary.com/')
+	) {
+		return { error_message: 'Photo upload could not be verified. Please choose it again.' };
+	}
+
+	return {
+		uploaded: {
+			publicId: public_id,
+			secureUrl: secure_url
+		}
+	};
+};
+
 const prepare_post_media_upload = async (params: {
 	caption: string;
 	event: RequestEvent;
@@ -616,20 +642,6 @@ const prepare_post_media_upload = async (params: {
 		};
 	}
 
-	let image_hash_to_record: string | undefined;
-	if (media_type === 'image') {
-		const image_duplicate_check = await reject_recent_duplicate_image({
-			author_id: user_id,
-			event,
-			file
-		});
-		if ('error_message' in image_duplicate_check) {
-			return { error_message: image_duplicate_check.error_message };
-		}
-
-		image_hash_to_record = image_duplicate_check.image_hash;
-	}
-
 	try {
 		const uploaded =
 			media_type === 'video'
@@ -642,7 +654,7 @@ const prepare_post_media_upload = async (params: {
 
 		if (media_type === 'video' && typeof trim_end_seconds === 'number') {
 			return {
-				image_hash_to_record,
+				image_hash_to_record: undefined,
 				uploaded: {
 					publicId: uploaded.publicId,
 					secureUrl: build_video_delivery_url(uploaded.secureUrl, {
@@ -653,7 +665,7 @@ const prepare_post_media_upload = async (params: {
 			};
 		}
 
-		return { image_hash_to_record, uploaded };
+		return { image_hash_to_record: undefined, uploaded };
 	} catch (error) {
 		console.error('Post media upload failed', {
 			error,
@@ -729,10 +741,9 @@ const resolve_post_media_upload = async (params: {
 		user_id,
 		video_duration_seconds
 	} = params;
-	const has_direct_video_upload =
-		media_type === 'video' && media_public_id.length > 0 && media_secure_url.length > 0;
+	const has_direct_media_upload = media_public_id.length > 0 && media_secure_url.length > 0;
 
-	if (!has_direct_video_upload) {
+	if (!has_direct_media_upload) {
 		return prepare_post_media_upload({
 			caption,
 			event,
@@ -752,6 +763,22 @@ const resolve_post_media_upload = async (params: {
 	});
 	if (caption_error) {
 		return { error_message: caption_error };
+	}
+
+	if (media_type === 'image') {
+		const direct_upload = get_direct_image_upload({
+			public_id: media_public_id,
+			secure_url: media_secure_url,
+			user_id
+		});
+		if ('error_message' in direct_upload) {
+			return { error_message: direct_upload.error_message };
+		}
+
+		return {
+			image_hash_to_record: undefined,
+			uploaded: direct_upload.uploaded
+		};
 	}
 
 	const trim_error = validate_post_video_trim_submission({
@@ -1026,10 +1053,9 @@ export const actions = {
 			video_duration_seconds
 		} = parse_post_submission(await request.formData());
 
-		const has_direct_video_upload =
-			media_type === 'video' && media_public_id.length > 0 && media_secure_url.length > 0;
+		const has_direct_media_upload = media_public_id.length > 0 && media_secure_url.length > 0;
 
-		if (!has_direct_video_upload && (!(media_file instanceof File) || media_file.size === 0)) {
+		if (!has_direct_media_upload && (!(media_file instanceof File) || media_file.size === 0)) {
 			return fail(400, { message: get_missing_post_media_message(caption, media_type) });
 		}
 
@@ -1049,7 +1075,7 @@ export const actions = {
 			return fail(400, { message: prepared_media.error_message });
 		}
 
-		const { image_hash_to_record, uploaded } = prepared_media;
+		const { uploaded } = prepared_media;
 		const db = get_db();
 		const post_id = randomUUID();
 		const media_id = randomUUID();
@@ -1095,9 +1121,6 @@ export const actions = {
 			profile_user_id: locals.user.id,
 			username: params.username
 		});
-		if (image_hash_to_record) {
-			await record_post_image_fingerprint(locals.user.id, image_hash_to_record);
-		}
 
 		throw redirect(303, `/profile/${params.username}`);
 	},

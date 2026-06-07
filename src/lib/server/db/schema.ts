@@ -155,6 +155,42 @@ export const comments = pgTable(
 	]
 );
 
+export const hidden_comments = pgTable(
+	'hidden_comment',
+	{
+		comment_id: text('comment_id')
+			.notNull()
+			.references(() => comments.id, { onDelete: 'cascade' }),
+		user_id: text('user_id')
+			.notNull()
+			.references(() => auth_user.id, { onDelete: 'cascade' }),
+		created_at: timestamp('created_at').defaultNow().notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.comment_id, table.user_id] }),
+		index('hidden_comment_comment_id_idx').on(table.comment_id),
+		index('hidden_comment_user_id_idx').on(table.user_id)
+	]
+);
+
+export const comment_likes = pgTable(
+	'comment_like',
+	{
+		comment_id: text('comment_id')
+			.notNull()
+			.references(() => comments.id, { onDelete: 'cascade' }),
+		user_id: text('user_id')
+			.notNull()
+			.references(() => auth_user.id, { onDelete: 'cascade' }),
+		created_at: timestamp('created_at').defaultNow().notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.comment_id, table.user_id] }),
+		index('comment_like_comment_id_idx').on(table.comment_id),
+		index('comment_like_user_id_idx').on(table.user_id)
+	]
+);
+
 export const follows = pgTable(
 	'follow',
 	{

@@ -143,6 +143,7 @@
 		| {
 				error_message?: string;
 				file_name: string;
+				media_type: 'image' | 'video';
 				progress_percent: number;
 				status: 'uploading' | 'saving' | 'complete' | 'error';
 		  }
@@ -839,6 +840,13 @@
 				submitting_post = false;
 				return;
 			}
+
+			event.preventDefault();
+			void start_background_image_post({
+				caption: caption.trim(),
+				file: selected_image
+			});
+			return;
 		}
 
 		if (
@@ -1501,6 +1509,46 @@
 		video_duration_seconds: number;
 	};
 
+	type PreparedImagePost = {
+		caption: string;
+		file: File;
+	};
+
+	async function get_signed_image_upload(file: File): Promise<SignedVideoUploadResponse> {
+		const response = await fetch('/api/uploads/image-signature', {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				file_size: file.size,
+				file_type: file.type,
+				profile_username: data['profile'].username
+			})
+		});
+
+		const payload = (await response.json()) as Partial<SignedVideoUploadResponse> & {
+			message?: string;
+		};
+
+		if (!response.ok) {
+			throw new Error(payload.message ?? 'Photo upload could not be prepared.');
+		}
+
+		if (
+			typeof payload.apiKey !== 'string' ||
+			typeof payload.signature !== 'string' ||
+			typeof payload.uploadUrl !== 'string' ||
+			typeof payload.publicId !== 'string' ||
+			!payload.params
+		) {
+			throw new Error('Photo upload could not be prepared.');
+		}
+
+		return payload as SignedVideoUploadResponse;
+	}
+
 	async function get_signed_video_upload(
 		file: File,
 		trim: {
@@ -1761,6 +1809,60 @@
 		};
 	}
 
+	async function upload_direct_image(
+		file: File,
+		on_progress: (progress_percent: number) => void = () => {}
+	) {
+		const signed_upload = await get_signed_image_upload(file);
+		const payload = await upload_to_cloudinary_with_progress(signed_upload, file, on_progress);
+
+		if (payload.error) {
+			throw new Error(payload.error?.message || 'Photo upload failed. Please try again.');
+		}
+
+		if (
+			typeof payload.public_id !== 'string' ||
+			typeof payload.secure_url !== 'string' ||
+			payload.public_id !== signed_upload.publicId
+		) {
+			throw new Error('Photo upload could not be verified. Please try again.');
+		}
+
+		return {
+			publicId: payload.public_id,
+			secureUrl: payload.secure_url
+		};
+	}
+
+	async function save_uploaded_image_post(params: {
+		caption: string;
+		create_post_action_url: string;
+		public_id: string;
+		secure_url: string;
+	}) {
+		const form_data = new FormData();
+		form_data.set('caption', params.caption);
+		form_data.set('media_type', 'image');
+		form_data.set('media_public_id', params.public_id);
+		form_data.set('media_secure_url', params.secure_url);
+
+		active_video_post_abort_controller = new AbortController();
+
+		try {
+			const response = await fetch(params.create_post_action_url, {
+				method: 'POST',
+				body: form_data,
+				signal: active_video_post_abort_controller.signal
+			});
+
+			if (!response.ok) {
+				throw new Error('Photo uploaded, but the post could not be saved. Please try again.');
+			}
+		} finally {
+			active_video_post_abort_controller = undefined;
+		}
+	}
+
 	async function save_uploaded_video_post(params: {
 		caption: string;
 		public_id: string;
@@ -1796,11 +1898,79 @@
 		}
 	}
 
+	async function start_background_image_post(post: PreparedImagePost) {
+		const create_post_action_url = `${page.url.pathname}?/create_post`;
+
+		background_video_post = {
+			file_name: post.file.name,
+			media_type: 'image',
+			progress_percent: 0,
+			status: 'uploading'
+		};
+		sync_background_video_post_store();
+
+		upload_modal_open = false;
+		submitting_post = false;
+		caption = '';
+		upload_media_error = '';
+		clear_post_preview();
+
+		try {
+			const uploaded_image = await upload_direct_image(post.file, (progress_percent) => {
+				if (!background_video_post || background_video_post.status !== 'uploading') {
+					return;
+				}
+
+				background_video_post.progress_percent = progress_percent;
+				sync_background_video_post_store();
+			});
+
+			if (!background_video_post) {
+				return;
+			}
+
+			background_video_post.status = 'saving';
+			background_video_post.progress_percent = 100;
+			sync_background_video_post_store();
+
+			await save_uploaded_image_post({
+				caption: post.caption,
+				create_post_action_url,
+				public_id: uploaded_image.publicId,
+				secure_url: uploaded_image.secureUrl
+			});
+
+			if (!background_video_post) {
+				return;
+			}
+
+			background_video_post.status = 'complete';
+			sync_background_video_post_store();
+			await invalidateAll();
+		} catch (error) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
+				background_video_post = undefined;
+				sync_background_video_post_store();
+				return;
+			}
+
+			if (background_video_post) {
+				background_video_post.status = 'error';
+				background_video_post.error_message = get_apply_error_message(
+					error,
+					'Photo upload failed. Please try again.'
+				);
+				sync_background_video_post_store();
+			}
+		}
+	}
+
 	async function start_background_video_post(post: PreparedVideoPost) {
 		const create_post_action_url = `${page.url.pathname}?/create_post`;
 
 		background_video_post = {
 			file_name: post.file.name,
+			media_type: 'video',
 			progress_percent: 0,
 			status: 'uploading'
 		};

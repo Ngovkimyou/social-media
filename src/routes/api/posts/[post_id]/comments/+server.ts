@@ -77,7 +77,7 @@ export const GET: RequestHandler = async (event) => {
 	const limit =
 		raw_limit === null ? 20 : Math.min(Math.max(Number.parseInt(raw_limit, 10) || 20, 1), 50);
 
-	const page = await get_comments_by_post_id(params.post_id, limit, cursor);
+	const page = await get_comments_by_post_id(params.post_id, limit, cursor, locals.user.id);
 
 	if (!page) {
 		return json({ error: 'Post not found' }, { status: 404 });

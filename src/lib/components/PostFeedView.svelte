@@ -133,6 +133,7 @@
 	let comment_counts = $state<Record<string, number>>({});
 	let hidden_post_ids = $state<Record<string, boolean>>({});
 	let open_post_actions_menu_id = $state<string | undefined>();
+	let confirm_delete_post_id = $state<string | undefined>();
 	let deleting_post_id = $state<string | undefined>();
 	let hiding_post_id = $state<string | undefined>();
 	let post_delete_error = $state('');
@@ -150,7 +151,9 @@
 	const current_return_to = $derived(`${page.url.pathname}${page.url.search}${page.url.hash}`);
 	const focus_post_id = $derived(page.url.searchParams.get('focusPost')?.trim() ?? '');
 	const open_post_id = $derived(page.url.searchParams.get('openPost')?.trim() ?? '');
-	const visible_posts = $derived(posts.filter((post) => !hidden_post_ids[post.id]));
+	const visible_posts = $derived(
+		posts.filter((post) => !hidden_post_ids[post.id] && !hidden_post_ids[get_feed_item_key(post)])
+	);
 	const has_infinite_feed = $derived(Boolean(on_load_more));
 	const grid_loading_placeholders = Array.from({ length: 6 }, (_, index) => index);
 	const video_preview_controls_hide_delay_ms = 1000;
@@ -402,7 +405,18 @@
 	}
 
 	function can_delete_post(post: PostFeedPost) {
+		return (
+			Boolean(current_user_id) &&
+			(post.author_id === current_user_id || post.shared_by_user_id === current_user_id)
+		);
+	}
+
+	function can_edit_post(post: PostFeedPost) {
 		return Boolean(current_user_id) && post.author_id === current_user_id;
+	}
+
+	function should_delete_share_only(post: PostFeedPost) {
+		return is_shared_feed_item(post) && post.shared_by_user_id === current_user_id;
 	}
 
 	function apply_post_update(updated_post: Pick<PostFeedPost, 'id' | 'content' | 'updated_at'>) {
@@ -428,6 +442,7 @@
 		editing_post = get_display_post(post);
 		editing_post_content = get_post_content(post);
 		post_edit_error = '';
+		confirm_delete_post_id = undefined;
 		open_post_actions_menu_id = undefined;
 	}
 
@@ -492,7 +507,13 @@
 	function toggle_post_actions_menu(post_id: string | number) {
 		const key = String(post_id);
 		post_delete_error = '';
+		confirm_delete_post_id = undefined;
 		open_post_actions_menu_id = open_post_actions_menu_id === key ? undefined : key;
+	}
+
+	function close_post_actions_menu() {
+		open_post_actions_menu_id = undefined;
+		confirm_delete_post_id = undefined;
 	}
 
 	async function delete_post_from_feed(post: PostFeedPost) {
@@ -500,25 +521,64 @@
 			return;
 		}
 
-		const key = String(post.id);
-		deleting_post_id = key;
+		const post_id = String(post.id);
+		const deleting_share_only = should_delete_share_only(post);
+		const deleting_key = get_feed_item_key(post);
+		const hidden_key = deleting_share_only ? get_feed_item_key(post) : post_id;
+		deleting_post_id = deleting_key;
 		post_delete_error = '';
 
 		try {
-			const response = await fetch(`/api/posts/${encodeURIComponent(key)}`, {
-				method: 'DELETE'
-			});
+			const response = deleting_share_only
+				? await fetch(`/api/posts/${encodeURIComponent(post_id)}/share`, {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ shared: false })
+					})
+				: await fetch(`/api/posts/${encodeURIComponent(post_id)}`, {
+						method: 'DELETE'
+					});
 
 			if (!response.ok) {
 				const payload = (await response.json().catch(() => ({}))) as { error?: string };
-				throw new Error(payload.error ?? 'Unable to delete post right now.');
+				throw new Error(
+					payload.error ??
+						(deleting_share_only
+							? 'Unable to remove repost right now.'
+							: 'Unable to delete post right now.')
+				);
+			}
+
+			if (deleting_share_only) {
+				const payload = (await response.json().catch(() => ({}))) as {
+					shared?: boolean;
+					share_count?: number;
+				};
+				const next_share_count = payload?.share_count ?? Math.max(0, get_share_count(post) - 1);
+
+				shared_posts = {
+					...shared_posts,
+					[post_id]: false
+				};
+				confirmed_shared_posts = {
+					...confirmed_shared_posts,
+					[post_id]: false
+				};
+				share_counts = {
+					...share_counts,
+					[post_id]: next_share_count
+				};
+				confirmed_share_counts = {
+					...confirmed_share_counts,
+					[post_id]: next_share_count
+				};
 			}
 
 			hidden_post_ids = {
 				...hidden_post_ids,
-				[key]: true
+				[hidden_key]: true
 			};
-			open_post_actions_menu_id = undefined;
+			close_post_actions_menu();
 
 			if (detail_post?.id === post.id) {
 				detail_post = undefined;
@@ -2396,7 +2456,8 @@
 				{#each visible_posts as post, index (get_feed_item_key(post))}
 					<div
 						use:register_post_element={get_feed_item_key(post)}
-						class="post-feed-card relative overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
+						class={`post-feed-card relative overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF] ${deleting_post_id === get_feed_item_key(post) || hiding_post_id === post.id ? 'pointer-events-none opacity-45 grayscale' : ''}`}
+						aria-busy={deleting_post_id === get_feed_item_key(post) || hiding_post_id === post.id}
 					>
 						<div
 							class={`transition-opacity duration-200 ${is_post_media_pending(post) ? 'opacity-0' : 'opacity-100'}`}
@@ -2543,51 +2604,98 @@
 											transition:scale={{ duration: 120 }}
 										>
 											{#if can_delete_post(post)}
-												<button
-													type="button"
-													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-sky-200 transition-colors hover:bg-sky-400/15 hover:text-white"
-													role="menuitem"
-													onclick={() => begin_edit_post(post)}
-												>
-													<span>Edit</span>
-													<svg
-														aria-hidden="true"
-														class="h-4 w-4"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														stroke-linecap="round"
-														stroke-linejoin="round"
+												{#if can_edit_post(post)}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-sky-200 transition-colors hover:bg-sky-400/15 hover:text-white"
+														role="menuitem"
+														onclick={() => begin_edit_post(post)}
 													>
-														<path d="M12 20h9" />
-														<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-													</svg>
-												</button>
-												<button
-													type="button"
-													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
-													role="menuitem"
-													disabled={deleting_post_id === post.id}
-													onclick={() => {
-														void delete_post_from_feed(post);
-													}}
-												>
-													<span>{deleting_post_id === post.id ? 'Deleting...' : 'Delete'}</span>
-													<span aria-hidden="true">x</span>
-												</button>
+														<span>Edit</span>
+														<svg
+															aria-hidden="true"
+															class="h-4 w-4"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path d="M12 20h9" />
+															<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+														</svg>
+													</button>
+												{/if}
+												{#if confirm_delete_post_id === get_feed_item_key(post)}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+														role="menuitem"
+														disabled={deleting_post_id === get_feed_item_key(post)}
+														onclick={() => {
+															void delete_post_from_feed(post);
+														}}
+													>
+														<span
+															>{deleting_post_id === get_feed_item_key(post)
+																? 'Deleting...'
+																: should_delete_share_only(post)
+																	? 'Delete repost'
+																	: 'Delete post'}</span
+														>
+														<span aria-hidden="true">x</span>
+													</button>
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
+														role="menuitem"
+														disabled={deleting_post_id === get_feed_item_key(post)}
+														onclick={close_post_actions_menu}
+													>
+														<span>Cancel</span>
+													</button>
+												{:else}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100"
+														role="menuitem"
+														onclick={() => (confirm_delete_post_id = get_feed_item_key(post))}
+													>
+														<span>Delete</span>
+														<span aria-hidden="true">x</span>
+													</button>
+												{/if}
 											{:else if can_hide_post(post)}
 												<button
 													type="button"
-													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
 													role="menuitem"
 													disabled={hiding_post_id === post.id}
 													onclick={() => {
 														void hide_post_from_home_feed(post);
 													}}
 												>
-													<span>{hiding_post_id === post.id ? 'Hiding...' : 'Hide from feed'}</span>
-													<span aria-hidden="true">x</span>
+													<span>{hiding_post_id === post.id ? 'Hiding...' : 'Hide'}</span>
+													<svg
+														aria-hidden="true"
+														class="h-4 w-4"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+													>
+														<path
+															d="M10.73 5.08A10.9 10.9 0 0 1 12 5c5 0 9 4 10 7a11.8 11.8 0 0 1-2.2 3.7"
+														/>
+														<path
+															d="M6.61 6.61A11.8 11.8 0 0 0 2 12c1 3 5 7 10 7a10.9 10.9 0 0 0 5.39-1.39"
+														/>
+														<path d="M9.88 9.88a3 3 0 0 0 4.24 4.24" />
+														<path d="m3 3 18 18" />
+													</svg>
 												</button>
 											{:else}
 												<p class="px-3 py-2 text-xs font-medium text-white/50">
@@ -2847,7 +2955,8 @@
 				{#each visible_posts as post, index (get_feed_item_key(post))}
 					<div
 						use:register_post_element={get_feed_item_key(post)}
-						class="post-feed-card relative w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF]"
+						class={`post-feed-card relative w-full max-w-xl overflow-hidden rounded-4xl bg-[linear-gradient(90deg,#AAAAAA30_0%,#77777730_50%,#7AA5BB30_75%,#7DD4FF30_100%)] shadow-[inset_1px_-1px_30px_0px_#CD82FF,inset_0.5px_-0.5px_10px_0px_#CD82FF] backdrop-blur-[5px] transition-all duration-300 ease-in-out hover:shadow-[inset_1px_-1px_50px_0px_#CD82FF,inset_0.5px_-0.5px_20px_0px_#CD82FF] ${deleting_post_id === get_feed_item_key(post) || hiding_post_id === post.id ? 'pointer-events-none opacity-45 grayscale' : ''}`}
+						aria-busy={deleting_post_id === get_feed_item_key(post) || hiding_post_id === post.id}
 					>
 						<div
 							class={`flex flex-col justify-center transition-opacity duration-200 ${is_post_media_pending(post) ? 'opacity-0' : 'opacity-100'}`}
@@ -2990,51 +3099,98 @@
 											transition:scale={{ duration: 120 }}
 										>
 											{#if can_delete_post(post)}
-												<button
-													type="button"
-													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-sky-200 transition-colors hover:bg-sky-400/15 hover:text-white"
-													role="menuitem"
-													onclick={() => begin_edit_post(post)}
-												>
-													<span>Edit</span>
-													<svg
-														aria-hidden="true"
-														class="h-4 w-4"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														stroke-linecap="round"
-														stroke-linejoin="round"
+												{#if can_edit_post(post)}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-sky-200 transition-colors hover:bg-sky-400/15 hover:text-white"
+														role="menuitem"
+														onclick={() => begin_edit_post(post)}
 													>
-														<path d="M12 20h9" />
-														<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-													</svg>
-												</button>
-												<button
-													type="button"
-													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
-													role="menuitem"
-													disabled={deleting_post_id === post.id}
-													onclick={() => {
-														void delete_post_from_feed(post);
-													}}
-												>
-													<span>{deleting_post_id === post.id ? 'Deleting...' : 'Delete'}</span>
-													<span aria-hidden="true">x</span>
-												</button>
+														<span>Edit</span>
+														<svg
+															aria-hidden="true"
+															class="h-4 w-4"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path d="M12 20h9" />
+															<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+														</svg>
+													</button>
+												{/if}
+												{#if confirm_delete_post_id === get_feed_item_key(post)}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+														role="menuitem"
+														disabled={deleting_post_id === get_feed_item_key(post)}
+														onclick={() => {
+															void delete_post_from_feed(post);
+														}}
+													>
+														<span
+															>{deleting_post_id === get_feed_item_key(post)
+																? 'Deleting...'
+																: should_delete_share_only(post)
+																	? 'Delete repost'
+																	: 'Delete post'}</span
+														>
+														<span aria-hidden="true">x</span>
+													</button>
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
+														role="menuitem"
+														disabled={deleting_post_id === get_feed_item_key(post)}
+														onclick={close_post_actions_menu}
+													>
+														<span>Cancel</span>
+													</button>
+												{:else}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100"
+														role="menuitem"
+														onclick={() => (confirm_delete_post_id = get_feed_item_key(post))}
+													>
+														<span>Delete</span>
+														<span aria-hidden="true">x</span>
+													</button>
+												{/if}
 											{:else if can_hide_post(post)}
 												<button
 													type="button"
-													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-100 disabled:cursor-wait disabled:opacity-60"
+													class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
 													role="menuitem"
 													disabled={hiding_post_id === post.id}
 													onclick={() => {
 														void hide_post_from_home_feed(post);
 													}}
 												>
-													<span>{hiding_post_id === post.id ? 'Hiding...' : 'Hide from feed'}</span>
-													<span aria-hidden="true">x</span>
+													<span>{hiding_post_id === post.id ? 'Hiding...' : 'Hide'}</span>
+													<svg
+														aria-hidden="true"
+														class="h-4 w-4"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+													>
+														<path
+															d="M10.73 5.08A10.9 10.9 0 0 1 12 5c5 0 9 4 10 7a11.8 11.8 0 0 1-2.2 3.7"
+														/>
+														<path
+															d="M6.61 6.61A11.8 11.8 0 0 0 2 12c1 3 5 7 10 7a10.9 10.9 0 0 0 5.39-1.39"
+														/>
+														<path d="M9.88 9.88a3 3 0 0 0 4.24 4.24" />
+														<path d="m3 3 18 18" />
+													</svg>
 												</button>
 											{:else}
 												<p class="px-3 py-2 text-xs font-medium text-white/50">
